@@ -1,0 +1,44 @@
+{
+  "name": "designer-extension",
+  "version": "0.12.0",
+  "private": true,
+  "type": "module",
+  "description": "Designer Extention: local-first extensible PowerPoint authoring",
+  "scripts": {
+    "dev": "tsx server/index.ts",
+    "start": "tsx server/index.ts",
+    "build": "vite build --config vite.config.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "build:native": "powershell -NoProfile -ExecutionPolicy Bypass -File native/Build-Native.ps1",
+    "build:hosted": "vite build --config vite.hosted.config.ts && node scripts/build-hosted-manifest.mjs",
+    "serve:hosted": "node scripts/serve-hosted.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^2.1.291",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.2",
+    "iconv-lite": "^0.6.3",
+    "jose": "^6.2.12",
+    "jszip": "^3.10.2",
+    "multer": "^2.0.2",
+    "papaparse": "^5.5.3",
+    "pdf-parse": "1.1.1",
+    "pdfjs-dist": "^4.10.38",
+    "pptxgenjs": "^4.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "saxes": "^5.0.1",
+    "tsx": "^4.20.5"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^22.18.0",
+    "@types/papaparse": "^5.3.16",
+    "@types/react": "^18.3.24",
+    "@types/react-dom": "^18.3.7",
+    "typescript": "^5.9.2",
+    "vite": "^6.4.1"
+  }
+}

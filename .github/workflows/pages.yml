@@ -1,0 +1,48 @@
+# Publishes the no-install build (dist/hosted) to GitHub Pages. Reviewers only
+# download manifest.xml from the site and upload it in PowerPoint; nothing is
+# installed or run on their PC.
+name: Deploy no-install add-in
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - name: Site URL
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          if [ "${repo,,}" = "${owner}.github.io" ]; then echo "HOSTED_BASE_URL=https://${owner}.github.io/" >> "$GITHUB_ENV"; else echo "HOSTED_BASE_URL=https://${owner}.github.io/${repo}/" >> "$GITHUB_ENV"; fi
+      - run: npm run build:hosted
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/hosted
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

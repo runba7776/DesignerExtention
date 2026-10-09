@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>9da10d4e-480c-41e0-8e81-54d972682d98</Id>
+  <Version>1.1.0.0</Version>
+  <ProviderName>Designer Extention</ProviderName>
+  <DefaultLocale>ja-JP</DefaultLocale>
+  <DisplayName DefaultValue="Designer Extention" />
+  <Description DefaultValue="資料と指示から、PowerPointの作成を支援します。" />
+  <IconUrl DefaultValue="https://localhost:4318/office-icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://localhost:4318/office-icon-80.png" />
+  <SupportUrl DefaultValue="https://localhost:4318/taskpane.html?taskpane=1" />
+  <AppDomains>
+    <AppDomain>https://localhost:4318</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Presentation" />
+  </Hosts>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://localhost:4318/taskpane.html?taskpane=1" />
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Presentation">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="start.title" />
+            <Description resid="start.description" />
+            <LearnMoreUrl resid="taskpane.url" />
+          </GetStarted>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="designer.group">
+                <Label resid="group.label" />
+                <Icon>
+                  <bt:Image size="16" resid="icon.16" />
+                  <bt:Image size="32" resid="icon.32" />
+                  <bt:Image size="80" resid="icon.80" />
+                </Icon>
+                <Control xsi:type="Button" id="designer.showTaskPane">
+                  <Label resid="button.label" />
+                  <Supertip>
+                    <Title resid="button.label" />
+                    <Description resid="button.tip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="icon.16" />
+                    <bt:Image size="32" resid="icon.32" />
+                    <bt:Image size="80" resid="icon.80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>DesignerExtentionTaskPane</TaskpaneId>
+                    <SourceLocation resid="taskpane.url" />
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="icon.16" DefaultValue="https://localhost:4318/office-icon-16.png" />
+        <bt:Image id="icon.32" DefaultValue="https://localhost:4318/office-icon-32.png" />
+        <bt:Image id="icon.80" DefaultValue="https://localhost:4318/office-icon-80.png" />
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="taskpane.url" DefaultValue="https://localhost:4318/taskpane.html?taskpane=1" />
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="group.label" DefaultValue="Designer Extention" />
+        <bt:String id="button.label" DefaultValue="スライド作成" />
+        <bt:String id="start.title" DefaultValue="Designer Extention" />
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="button.tip" DefaultValue="資料と指示を使ってスライドを作成し、履歴やデザインを保存します。" />
+        <bt:String id="start.description" DefaultValue="Designer Extentionの右側ペインから作成を始められます。" />
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

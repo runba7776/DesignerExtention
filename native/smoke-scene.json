@@ -1,0 +1,20 @@
+{
+  "title": "Native rendering verification",
+  "mode": "presentation",
+  "theme": { "background": "#FFFFFF", "foreground": "#17263C", "accent": "#087F8C", "muted": "#66758A", "font": "Yu Gothic" },
+  "slides": [
+    {
+      "id": "native-objects",
+      "title": "図と数値を編集できる資料",
+      "notes": "This is a renderer verification fixture. Values are synthetic test data, not business evidence.",
+      "elements": [
+        { "kind": "text", "x": 48, "y": 30, "w": 864, "h": 56, "text": "図と数値を編集できる資料", "fontSize": 30, "color": "#17263C", "bold": true },
+        { "kind": "line", "x": 48, "y": 102, "w": 864, "h": 0, "stroke": "#087F8C", "strokeWidth": 2 },
+        { "kind": "smartart", "layout": "process", "x": 48, "y": 135, "w": 440, "h": 220, "items": [ { "label": "確認" }, { "label": "構成" }, { "label": "作成" } ], "fontSize": 22, "accent": "#087F8C", "color": "#FFFFFF" },
+        { "kind": "chart", "chartType": "column", "x": 520, "y": 130, "w": 400, "h": 310, "categories": [ "A", "B", "C" ], "series": [ { "name": "検証用データ", "values": [ 12, 24, 18 ] } ], "colors": [ "#087F8C" ], "unit": "点" },
+        { "kind": "text", "x": 48, "y": 464, "w": 864, "h": 32, "text": "描画の検証用サンプル · 数値は架空のテストデータ", "fontSize": 14, "color": "#66758A" }
+      ],
+      "warnings": []
+    }
+  ]
+}

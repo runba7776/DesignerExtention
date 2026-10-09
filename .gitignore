@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.qa-dist/
+web/.qa-dist/
+runtime/
+native/bin/
+.env
+*.log
+Designer-Extention-Start.pptx
+.qa-claude-config/
