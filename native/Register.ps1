@@ -75,6 +75,20 @@ try {
     else { $developerKey.SetValue($manifestId, $manifestPath, [Microsoft.Win32.RegistryValueKind]::String) }
 } finally { $developerKey.Dispose() }
 
+# PowerPoint caches per identity whether any registry add-in exists
+# (PowerPoint_<identity>_HasRegistryAddin). Mark it so a value cached as 0 before
+# this registration does not hide the WEF\Developer catalog.
+if (-not $Unregister) {
+    $wefKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Software\Microsoft\Office\16.0\WEF', $true)
+    if ($wefKey) {
+        try {
+            foreach ($name in $wefKey.GetValueNames() | Where-Object { $_ -like 'PowerPoint_*_HasRegistryAddin' }) {
+                $wefKey.SetValue($name, 1, [Microsoft.Win32.RegistryValueKind]::DWord)
+            }
+        } finally { $wefKey.Dispose() }
+    }
+}
+
 # A registry-sideloaded add-in shows its ribbon button only after it has been
 # opened once. This starter deck references the sideloaded add-in, so opening it
 # shows the right-side pane immediately (same mechanism as Office's dev tools).

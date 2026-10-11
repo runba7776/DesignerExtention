@@ -14,7 +14,7 @@ import type {DeckSpec} from '../shared/contracts';
 import {validateSlide} from '../server/validation';
 const content=(deck:DeckSpec)=>deck.slides.map(({layoutId,...slide})=>slide);
 
-test('all 120 grammars document placement/use/limits and fit min/max sample counts in all themes',()=>{
+test('all 122 grammars document placement/use/limits and fit min/max sample counts in all themes',()=>{
   for(const l of listLayouts()){
     for(const field of ['placement','whenToUse','avoidWhen','textBudget'] as const)assert.ok(l[field].length>5,`${l.id}/${field}`);
     for(const count of [1,l.maxItems])for(const themeId of Object.keys(themes))for(const mode of ['presentation','reading'] as const){
@@ -51,7 +51,8 @@ test('layout candidates retain all data and semantic relationships',()=>{
 });
 test('roomier layouts resolve overflow before summary and preserve exact prose',()=>{
   const slide=sampleSlide('evidence',3);delete slide.table;
-  slide.headline='要点';slide.items[0].description='期間と条件をそろえて比較し、差がどこから生じるかを確認してから説明します。'.repeat(2);
+  slide.headline='要点';// Long enough to overflow the narrow column; phrase-aware wrapping needs a few more characters of room.
+  slide.items[0].description='期間と条件をそろえて比較し、差がどこから生じるかを確認してから説明します。'.repeat(2).slice(0,66)+'。';
   const deck=sampleDeck([slide]);assert.ok(fitProblems(deck).length);
   const next=improveTextFit(deck);assert.deepEqual(fitProblems(next),[]);assert.deepEqual(content(deck),content(next));
 });

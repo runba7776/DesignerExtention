@@ -14,8 +14,8 @@ import {validateDeck} from '../server/validation';
 import type {RenderResult} from '../shared/contracts';
 
 const rendered:RenderResult={artifactId:'test',pptxUrl:'test.pptx',thumbnails:[],native:false,warnings:[]};
-test('120 grammars and twelve themes compile complete 30-page demos in both modes',()=>{
-  assert.equal(listLayouts().length,120);
+test('122 grammars and twelve themes compile complete 30-page demos in both modes',()=>{
+  assert.equal(listLayouts().length,122);
   for(const mode of ['presentation','reading'] as const)for(const themeId of Object.keys(themes)){
     const d=demoDeck(demoOutline('図形文法の確認',mode,[],30));d.themeId=themeId;
     assert.equal(validateDeck(d).slides.length,30);
@@ -52,7 +52,7 @@ test('settings persist slide count/theme and reject out-of-range or unknown valu
 test('9 slides use two generation calls; explicit theme wins and changing theme uses no LLM',async()=>{
   const dir=await mkdtemp(path.join(tmpdir(),'de-batches-'));
   try{
-    const s=await new SettingsStore(dir,'').load();await s.update({provider:'local',model:'test',slideCount:9,themeId:'warm'});
+    const s=await new SettingsStore(dir,'').load();await s.update({provider:'local',designMode:'template',model:'test',slideCount:9,themeId:'warm'});
     const outline=demoOutline('9枚の確認','presentation',[],9);outline.themeId='business';const deck=demoDeck(outline);
     const calls:CompletionRequest[]=[];
     const engine=new SessionEngine({settings:s,dataDir:dir,render:async()=>rendered,providerFactory:()=>({complete:async request=>{
@@ -71,7 +71,7 @@ test('9 slides use two generation calls; explicit theme wins and changing theme 
 test('failed later batch reuses completed pages on retry',async()=>{
   const dir=await mkdtemp(path.join(tmpdir(),'de-resume-'));
   try{
-    const s=await new SettingsStore(dir,'').load();await s.update({provider:'local',model:'test',slideCount:9});
+    const s=await new SettingsStore(dir,'').load();await s.update({provider:'local',designMode:'template',model:'test',slideCount:9});
     const outline=demoOutline('再開確認','presentation',[],9), deck=demoDeck(outline);const batches:string[]=[];let fail=true;
     const engine=new SessionEngine({settings:s,dataDir:dir,render:async()=>rendered,providerFactory:()=>({complete:async r=>{
       const target=JSON.parse(r.content).request.targetSlides;if(!target)return {text:JSON.stringify({kind:'outline',outline}),usage:emptyUsage()};
@@ -86,7 +86,7 @@ test('failed later batch reuses completed pages on retry',async()=>{
 test('overflow triggers one grouped summarization call without resending documents',async()=>{
   const dir=await mkdtemp(path.join(tmpdir(),'de-summary-'));
   try{
-    const s=await new SettingsStore(dir,'').load();await s.update({provider:'local',model:'test',themeId:'midnight'});
+    const s=await new SettingsStore(dir,'').load();await s.update({provider:'local',designMode:'template',model:'test',themeId:'midnight'});
     const outline=demoOutline('要約確認','presentation',[]), deck=demoDeck(outline);deck.slides[0].headline='同じ単位と期間で比較し、値の違いを慎重に確かめます。'.repeat(5);
     const responses=[{kind:'outline',outline},deck,{replacements:[{slideId:'slide-1',path:'headline',text:'単位と期間をそろえて比較。'}]}];const calls:CompletionRequest[]=[];
     const engine=new SessionEngine({settings:s,dataDir:dir,render:async()=>rendered,providerFactory:()=>({complete:async r=>{calls.push(r);return {text:JSON.stringify(responses.shift()),usage:emptyUsage()};}})});

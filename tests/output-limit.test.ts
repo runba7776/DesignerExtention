@@ -15,7 +15,7 @@ import {PLAN_OUTPUT_TOKENS,PLAN_RETRY_OUTPUT_TOKENS} from '../shared/contracts.j
 
 const rendered={artifactId:'unused',pptxUrl:'unused',thumbnails:[],warnings:[],native:false};
 const limit=(text='{"kind":"outline","outline":{"title":"PRIVATE_OUTPUT_SECRET')=>new OutputLimitError({...emptyUsage(),calls:1,inputTokens:100,outputTokens:16_000,cacheReadTokens:40},text);
-async function local(dir:string){const settings=await new SettingsStore(dir,'').load();await settings.update({provider:'local',model:'mock',autoRepair:false});return settings;}
+async function local(dir:string){const settings=await new SettingsStore(dir,'').load();await settings.update({provider:'local',designMode:'template',model:'mock',autoRepair:false});return settings;}
 
 test('local output-limit signals preserve usage, remain distinct from input limits, and never retry themselves',async()=>{
   for(const kind of ['local'] as const){let calls=0;
@@ -24,7 +24,7 @@ test('local output-limit signals preserve usage, remain distinct from input limi
     });
     await assert.rejects(provider.complete({system:'test',content:'test',maxTokens:16_000}),error=>{assert.ok(error instanceof OutputLimitError);assert.equal(error.code,'OUTPUT_LIMIT');assert.equal(error.partialText,'{"unfinished":');assert.equal(error.usage.outputTokens,16_000);assert.match(error.message,/入力の文字数制限とは別/);return true;});assert.equal(calls,1);
   }
-  const context=createProvider({provider:'local',model:'mock',mode:'presentation',endpoint:'http://127.0.0.1:11434/v1'},undefined,async()=>new Response(JSON.stringify({choices:[{message:{content:''},finish_reason:'model_context_window_exceeded'}],usage:{prompt_tokens:100,completion_tokens:10}})));
+  const context=createProvider({provider:'local',designMode:'template',model:'mock',mode:'presentation',endpoint:'http://127.0.0.1:11434/v1'},undefined,async()=>new Response(JSON.stringify({choices:[{message:{content:''},finish_reason:'model_context_window_exceeded'}],usage:{prompt_tokens:100,completion_tokens:10}})));
   await assert.rejects(context.complete({system:'test',content:'test',maxTokens:16000}),error=>{assert.ok(error instanceof AppError);assert.equal(error.code,'CONTEXT_LIMIT');assert.ok(!(error instanceof OutputLimitError));return true;});
 });
 
@@ -85,7 +85,7 @@ test('HTTP plan recovery returns only safe session content and supports one auth
   try{
     const app=await createApp({authToken:token,port,dataDir:dir,webRoot:dir,artifactRoot:dir,environmentKey:'',nativeAvailable:()=>false,render:async()=>rendered,providerFactory:()=>({complete:async()=>{calls++;if(calls===1)throw limit();return {text:JSON.stringify({kind:'outline',outline:demoOutline('復元した構成','presentation',[])}),usage:emptyUsage()};}})});server.on('request',app);
     const bootstrap=await fetch(origin+'/?token='+token,{redirect:'manual'}),cookie=bootstrap.headers.get('set-cookie')!.split(';')[0],headers={Cookie:cookie,Origin:origin,'Content-Type':'application/json'};
-    await fetch(origin+'/api/settings',{method:'PUT',headers,body:JSON.stringify({provider:'local',model:'mock',autoRepair:false})});
+    await fetch(origin+'/api/settings',{method:'PUT',headers,body:JSON.stringify({provider:'local',designMode:'template',model:'mock',autoRepair:false})});
     const created=await fetch(origin+'/api/sessions',{method:'POST',headers,body:JSON.stringify({prompt:'入力を残して作成'})});assert.equal(created.status,200);const session=await created.json() as any;assert.equal(session.usage.calls,1);assert.equal(session.recovery.task,'plan');assert.ok(!JSON.stringify(session).includes('PRIVATE_OUTPUT_SECRET'));
     assert.equal((await fetch(origin+`/api/sessions/${session.id}/retry-plan`,{method:'POST'})).status,401);assert.equal(calls,1);
     const retry=await fetch(origin+`/api/sessions/${session.id}/retry-plan`,{method:'POST',headers,body:'{}'});assert.equal(retry.status,200);assert.equal((await retry.json() as any).phase,'outline');assert.equal(calls,2);

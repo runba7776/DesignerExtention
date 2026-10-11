@@ -18,7 +18,7 @@ const usage={...emptyUsage(),calls:1,inputTokens:50,outputTokens:100};
 const cut=(mode:string,slides:unknown[])=>'{'+'"mode":'+JSON.stringify(mode)+',"themeId":"business","slides":['+slides.map(s=>JSON.stringify(s)).join(',')+(slides.length?',':'')+'{"id":"PRIVATE_UNFINISHED';
 const limited=(text:string)=>new OutputLimitError({...usage,outputTokens:16_000},text);
 async function settingsFor(dir:string,count:number,mode:'reading'|'presentation'='reading'){
-  const settings=await new SettingsStore(dir,'').load();await settings.update({provider:'local',model:'mock',slideCount:count,mode,autoRepair:false});return settings;
+  const settings=await new SettingsStore(dir,'').load();await settings.update({provider:'local',designMode:'template',model:'mock',slideCount:count,mode,autoRepair:false});return settings;
 }
 
 test('prefix parser respects escaped delimiters and only reads closed JSON slide values',()=>{
@@ -50,7 +50,8 @@ test('generation keeps validated prefix pages and resumes only remaining pages o
     assert.equal(session.variants.length,0);assert.equal(session.usage.outputTokens,16_100);assert.equal(session.usage.calls,2);assert.equal(session.messages[0].text,'原文の指示を残してください');assert.ok(!JSON.stringify(session).includes('PRIVATE_UNFINISHED'));
     await engine.generate(session.id);
     assert.equal(session.phase,'ready');assert.equal(session.recovery,undefined);assert.equal(session.variants[0].deck.slides.length,9);assertTextFits(session.variants[0].deck);
-    assert.deepEqual(targets,[['slide-1','slide-2','slide-3','slide-4'],['slide-3','slide-4'],['slide-5','slide-6'],['slide-7','slide-8'],['slide-9']]);
+    // After the cut reply the batch is halved, then grows again, but never back to the size that was cut.
+    assert.deepEqual(targets,[['slide-1','slide-2','slide-3','slide-4'],['slide-3','slide-4'],['slide-5','slide-6','slide-7'],['slide-8','slide-9']]);
     assert.ok(calls.slice(2).every(c=>JSON.parse(c.content).request.compactOutput===true));
     assert.ok(calls.every(c=>c.maxTokens<=16_000));assert.ok(session.historyId);
   }finally{await rm(dir,{recursive:true,force:true});}

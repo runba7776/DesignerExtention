@@ -1,5 +1,5 @@
 import React from 'react';
-import type { RenderDocument, SceneElement, SmartArtElement, TextElement } from '../shared/contracts';
+import type { Rect, RenderDocument, SceneElement, SmartArtElement, TextElement } from '../shared/contracts';
 import {wrapText} from '../shared/layouts';
 import {ChartPreview} from './ChartPreview';
 
@@ -7,8 +7,9 @@ function Text({element}: {element: TextElement}) {
   const lines = element.noWrap?element.text.split('\n'):wrapText(element.text, element.w-8, element.fontSize);
   const anchor = element.align === 'center' ? 'middle' : element.align === 'right' ? 'end' : 'start';
   const x = element.x + (anchor === 'middle' ? element.w / 2 : anchor === 'end' ? element.w : 0);
-  return <text x={x} y={element.y + element.fontSize * .91} fontSize={element.fontSize} fill={element.color} fontFamily={element.font?`"${element.font}", "${element.fontFarEast??element.font}", "Yu Gothic", sans-serif`:undefined} fontWeight={element.bold ? 700 : 400} textAnchor={anchor}>
-    {lines.map((line, i) => <tspan x={x} dy={i ? element.fontSize * 1.35 : 0} key={i}>{line}</tspan>)}
+  const used = lines.length * element.fontSize * 1.35, offset = element.verticalAlign === 'middle' ? Math.max(0, (element.h - used) / 2) : element.verticalAlign === 'bottom' ? Math.max(0, element.h - used) : 0;
+  return <text x={x} y={element.y + offset + element.fontSize * .91} fontStyle={element.italic ? 'italic' : undefined} fontSize={element.fontSize} fill={element.color} fontFamily={element.font?`"${element.font}", "${element.fontFarEast??element.font}", "Yu Gothic", sans-serif`:undefined} fontWeight={element.bold ? 700 : 400} textAnchor={anchor}>
+    {lines.map((line, i) => <tspan x={x} dy={i ? element.lineHeight ?? element.fontSize * 1.35 : 0} key={i}>{line}</tspan>)}
   </text>;
 }
 
@@ -41,22 +42,45 @@ function SmartArt({element: e}: {element: SmartArtElement}) {
   })}</g>;
 }
 
+/** Outline of each polygon shape in a unit box, matching PowerPoint's default adjustments. */
+function shapePoints(shape:string):number[][]|undefined{
+  switch(shape){
+    case 'triangle':return [[.5,0],[1,1],[0,1]];
+    case 'arrow':return [[0,.25],[.7,.25],[.7,0],[1,.5],[.7,1],[.7,.75],[0,.75]];
+    case 'leftArrow':return [[1,.25],[.3,.25],[.3,0],[0,.5],[.3,1],[.3,.75],[1,.75]];
+    case 'upArrow':return [[.25,1],[.25,.3],[0,.3],[.5,0],[1,.3],[.75,.3],[.75,1]];
+    case 'downArrow':return [[.25,0],[.25,.7],[0,.7],[.5,1],[1,.7],[.75,.7],[.75,0]];
+    case 'chevron':return [[0,0],[.8,0],[1,.5],[.8,1],[0,1],[.2,.5]];
+    case 'pentagon':return [[0,0],[.8,0],[1,.5],[.8,1],[0,1]];
+    case 'hexagon':return [[.25,0],[.75,0],[1,.5],[.75,1],[.25,1],[0,.5]];
+    case 'diamond':return [[.5,0],[1,.5],[.5,1],[0,.5]];
+    case 'parallelogram':return [[.25,0],[1,0],[.75,1],[0,1]];
+    case 'trapezoid':return [[.25,0],[.75,0],[1,1],[0,1]];
+    case 'octagon':return [[.29,0],[.71,0],[1,.29],[1,.71],[.71,1],[.29,1],[0,.71],[0,.29]];
+  }
+}
 function Element({element: e,textColor}: {element: SceneElement;textColor:string}) {
   if(e.kind==='text') return <Text element={e}/>;
-  if(e.kind==='line') return <line x1={e.x} y1={e.y+(e.flipY?e.h:0)} x2={e.x+e.w} y2={e.y+(e.flipY?0:e.h)} stroke={e.stroke} strokeWidth={e.strokeWidth??1}/>;
+  if(e.kind==='line') return <line x1={e.x} y1={e.y+(e.flipY?e.h:0)} x2={e.x+e.w} y2={e.y+(e.flipY?0:e.h)} stroke={e.stroke} strokeWidth={e.strokeWidth??1} strokeDasharray={e.dash?'6 4':undefined} markerEnd={e.arrow?'url(#de-arrow)':undefined} markerStart={e.arrowStart?'url(#de-arrow-start)':undefined}/>;
   if(e.kind==='chart') return <ChartPreview element={e} textColor={textColor}/>;
   if(e.kind==='smartart') return <SmartArt element={e}/>;
-  if(e.shape==='ellipse') return <ellipse cx={e.x+e.w/2} cy={e.y+e.h/2} rx={e.w/2} ry={e.h/2} fill={e.fill} stroke={e.stroke} strokeWidth={e.strokeWidth}/>;
-  if(e.shape==='triangle') return <polygon points={`${e.x+e.w/2},${e.y} ${e.x+e.w},${e.y+e.h} ${e.x},${e.y+e.h}`} fill={e.fill} stroke={e.stroke}/>;
-  if(e.shape==='arrow') return <polygon points={`${e.x},${e.y+e.h*.22} ${e.x+e.w*.75},${e.y+e.h*.22} ${e.x+e.w*.75},${e.y} ${e.x+e.w},${e.y+e.h/2} ${e.x+e.w*.75},${e.y+e.h} ${e.x+e.w*.75},${e.y+e.h*.78} ${e.x},${e.y+e.h*.78}`} fill={e.fill} stroke={e.stroke}/>;
-  return <rect x={e.x} y={e.y} width={e.w} height={e.h} rx={e.shape==='roundRect'?8:0} fill={e.fill} stroke={e.stroke} strokeWidth={e.strokeWidth}/>;
+  if(e.kind==='image') return <image x={e.x} y={e.y} width={e.w} height={e.h} href={e.svg?`data:image/svg+xml;charset=utf-8,${encodeURIComponent(e.svg)}`:`data:image/png;base64,${e.png}`}/>;
+  const paint={fill:e.fill==='none'?'none':e.fill,fillOpacity:e.opacity,stroke:e.stroke,strokeWidth:e.strokeWidth,transform:e.rotation?`rotate(${e.rotation} ${e.x+e.w/2} ${e.y+e.h/2})`:undefined};
+  if(e.shape==='ellipse') return <ellipse cx={e.x+e.w/2} cy={e.y+e.h/2} rx={e.w/2} ry={e.h/2} {...paint}/>;
+  if(e.shape==='donut') return <g {...paint}><ellipse cx={e.x+e.w/2} cy={e.y+e.h/2} rx={e.w*.375} ry={e.h*.375} fill="none" stroke={e.fill} strokeWidth={Math.min(e.w,e.h)*.25}/></g>;
+  const points=shapePoints(e.shape);
+  if(points) return <polygon points={points.map(([px,py])=>`${e.x+px*e.w},${e.y+py*e.h}`).join(' ')} {...paint}/>;
+  return <rect x={e.x} y={e.y} width={e.w} height={e.h} rx={e.shape==='roundRect'?(e.radius??.12)*Math.min(e.w,e.h):0} {...paint}/>;
 }
 
-export function SlidePreview({document, index, nativeUrl}: {document: RenderDocument; index: number; nativeUrl?: string}) {
+/** Outlines around changed places (refreshed numbers). Drawn only in the app, never exported. */
+function Marks({marks}:{marks:Rect[]}){return <g className="refresh-marks" aria-hidden="true">{marks.map((r,i)=><rect key={i} x={r.x-4} y={r.y-4} width={r.w+8} height={r.h+8} rx="5" fill="#f2b33d22" stroke="#d9901a" strokeWidth="3" strokeDasharray="7 4"/>)}</g>;}
+
+export function SlidePreview({document, index, nativeUrl, marks}: {document: RenderDocument; index: number; nativeUrl?: string; marks?: Rect[]}) {
   const slide=document.slides[index];
   if(!slide) return null;
-  if(nativeUrl) return <img src={nativeUrl} alt={slide.title} loading="lazy"/>;
+  if(nativeUrl) return marks?.length?<><img src={nativeUrl} alt={slide.title} loading="lazy"/><svg className="mark-layer" viewBox={`0 0 ${document.width} ${document.height}`} aria-hidden="true"><Marks marks={marks}/></svg></>:<img src={nativeUrl} alt={slide.title} loading="lazy"/>;
   return <svg viewBox={`0 0 ${document.width} ${document.height}`} role="img" aria-label={slide.title} style={{background:document.theme.background,fontFamily:`"${document.theme.font}", "Yu Gothic UI", sans-serif`}}>
-    <title>{slide.title}</title>{slide.elements.map((element,i)=><Element key={i} element={element} textColor={document.theme.muted}/>)}
+    <title>{slide.title}</title><defs><marker id="de-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker><marker id="de-arrow-start" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="context-stroke"/></marker></defs>{slide.elements.map((element,i)=><Element key={i} element={element} textColor={document.theme.muted}/>)}{marks?.length?<Marks marks={marks}/>:null}
   </svg>;
 }

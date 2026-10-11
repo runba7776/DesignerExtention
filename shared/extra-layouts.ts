@@ -18,7 +18,7 @@ export function registerExtraLayouts(register:(layout:LayoutDefinition)=>void, h
   }});
   register({id:'pillars',name:'柱でまとめる',description:'順序のない3〜4の要点を横に並べる。最後のまとめや方針',maxItems:4,textBudget:'項目名12文字、説明42文字。',render(c){
     const count=Math.max(1,c.slide.items.length),step=848/count;
-    c.slide.items.forEach((item,i)=>{const x=56+i*step;c.text(String(i+1).padStart(2,'0'),{x,y:171,w:60,h:64},38,c.theme.accent,true);c.line(x,248,step-28,c.theme.accent);c.text(item.label,{x,y:269,w:step-27,h:67},24,c.theme.foreground,true);c.text(item.description||'',{x,y:351,w:step-27,h:122},19,c.theme.muted);});
+    c.slide.items.forEach((item,i)=>{const x=56+i*step;c.text(String(i+1).padStart(2,'0'),{x,y:171,w:60,h:64},38,c.theme.accent,true);c.text(item.label,{x,y:269,w:step-27,h:67},24,c.theme.foreground,true);c.text(item.description||'',{x,y:351,w:step-27,h:122},19,c.theme.muted);});
   }});
   register({id:'matrix',name:'4象限',description:'4つの独立した観点や分類を2×2で整理。項目間に因果や順位を作らない',maxItems:4,textBudget:'項目名16文字、説明50文字。',render(c){
     c.line(56,317,848);c.shape({x:478,y:165,w:1,h:302},c.theme.pale);

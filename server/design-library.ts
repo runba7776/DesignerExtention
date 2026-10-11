@@ -5,6 +5,8 @@ import type {DeckSpec,DesignEntry} from '../shared/contracts.js';
 import {MAX_SLIDES} from '../shared/contracts.js';
 import {listLayouts} from '../shared/layouts.js';
 import {themes,TEMPLATE_THEME_ID} from '../shared/themes.js';
+import {AI_THEME_ID} from '../shared/ai-theme.js';
+import {validateCustomTheme} from './validation.js';
 import {typographyProfiles} from '../shared/typography.js';
 import {AppError,requireText} from './errors.js';
 import {DEFAULT_PROJECT_ID} from './projects.js';
@@ -20,15 +22,15 @@ function thumbnail(value:unknown){
   return value;
 }
 function checked(value:any):DesignRecord {
-  if(!value||!validId(value.id)||!['presentation','reading'].includes(value.mode)||typeof value.themeId!=='string'||(value.themeId!==TEMPLATE_THEME_ID&&!Object.hasOwn(themes,value.themeId))||typeof value.createdAt!=='string'||typeof value.updatedAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||!Number.isFinite(Date.parse(value.updatedAt))||!Number.isInteger(value.votes)||value.votes<0||value.votes>MAX_VOTES)throw new AppError(422,'保存デザインの形式を読み取れません。','INVALID_DESIGN');
+  if(!value||!validId(value.id)||!['presentation','reading'].includes(value.mode)||typeof value.themeId!=='string'||(value.themeId!==TEMPLATE_THEME_ID&&!(value.themeId===AI_THEME_ID&&value.palette)&&!Object.hasOwn(themes,value.themeId))||typeof value.createdAt!=='string'||typeof value.updatedAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||!Number.isFinite(Date.parse(value.updatedAt))||!Number.isInteger(value.votes)||value.votes<0||value.votes>MAX_VOTES)throw new AppError(422,'保存デザインの形式を読み取れません。','INVALID_DESIGN');
   if(value.typographyId!==undefined&&(typeof value.typographyId!=='string'||!Object.hasOwn(typographyProfiles,value.typographyId)))throw new AppError(422,'保存デザインの書体が登録されていません。','INVALID_DESIGN');
   if(!Array.isArray(value.layoutIds)||!value.layoutIds.length||value.layoutIds.length>MAX_SLIDES||value.layoutIds.some((id:unknown)=>typeof id!=='string'||!supportedLayouts.has(id)))throw new AppError(422,'保存デザインの構図が登録されていません。','INVALID_DESIGN');
   const preview=thumbnail(value.thumbnail);
   // Construct an allowlist record. Slide text, data, source files and credentials never enter this store.
   const projectId=value.projectId??DEFAULT_PROJECT_ID;if(!validId(projectId))throw new AppError(422,'保存デザインのプロジェクト情報が正しくありません。','INVALID_DESIGN');
-  return {id:value.id,name:requireText(value.name,'デザイン名',100),mode:value.mode,themeId:value.themeId,...(value.typographyId!==undefined?{typographyId:value.typographyId}:{}),layoutIds:[...value.layoutIds],createdAt:value.createdAt,updatedAt:value.updatedAt,votes:value.votes,projectId,...(preview?{thumbnail:preview}:{})};
+  return {id:value.id,name:requireText(value.name,'デザイン名',100),mode:value.mode,themeId:value.themeId,...(value.themeId===AI_THEME_ID?{palette:validateCustomTheme(value.palette)}:{}),...(value.typographyId!==undefined?{typographyId:value.typographyId}:{}),layoutIds:[...value.layoutIds],createdAt:value.createdAt,updatedAt:value.updatedAt,votes:value.votes,projectId,...(preview?{thumbnail:preview}:{})};
 }
-const fingerprint=(record:Pick<DesignRecord,'projectId'|'mode'|'themeId'|'typographyId'|'layoutIds'>)=>JSON.stringify([record.projectId,record.mode,record.themeId,record.typographyId??null,record.layoutIds]);
+const fingerprint=(record:Pick<DesignRecord,'projectId'|'mode'|'themeId'|'typographyId'|'layoutIds'|'palette'>)=>JSON.stringify([record.projectId,record.mode,record.themeId,record.typographyId??null,record.layoutIds,record.palette?[record.palette.background,record.palette.foreground,record.palette.accent,record.palette.secondary]:null]);
 
 /** Local preferences only. Votes are reusable guidance, not model training. */
 export class DesignLibraryStore {
@@ -57,7 +59,7 @@ export class DesignLibraryStore {
     if(!deck||!Array.isArray(deck.slides)||!deck.slides.length||deck.slides.length>MAX_SLIDES)throw new AppError(422,'保存するデザインのスライドを確認できません。','INVALID_DESIGN');
     const selected=options.slideId===undefined?deck.slides:deck.slides.filter(slide=>slide.id===options.slideId);
     if(!selected.length||(options.slideId!==undefined&&selected.length!==1))throw new AppError(404,'保存するスライドが見つかりません。');
-    const now=new Date().toISOString(),record=checked({id:randomUUID(),name:options.name??`${deck.themeId===TEMPLATE_THEME_ID?'会社テンプレート':themes[deck.themeId]?.name??'デザイン'} · ${selected.length}枚`,mode:deck.mode,themeId:deck.themeId,typographyId:deck.typographyId,layoutIds:selected.map(slide=>slide.layoutId),projectId:options.projectId??DEFAULT_PROJECT_ID,createdAt:now,updatedAt:now,votes:1,thumbnail:options.thumbnail});
+    const now=new Date().toISOString(),record=checked({id:randomUUID(),name:options.name??`${deck.themeId===TEMPLATE_THEME_ID?'会社テンプレート':deck.themeId===AI_THEME_ID?'AIの配色':themes[deck.themeId]?.name??'デザイン'} · ${selected.length}枚`,mode:deck.mode,themeId:deck.themeId,...(deck.themeId===AI_THEME_ID&&deck.aiTheme?{palette:deck.aiTheme}:{}),typographyId:deck.typographyId,layoutIds:selected.map(slide=>slide.layoutId),projectId:options.projectId??DEFAULT_PROJECT_ID,createdAt:now,updatedAt:now,votes:1,thumbnail:options.thumbnail});
     await this.directoryExists(true);
     const existing=(await this.list(record.projectId)).entries.find(entry=>fingerprint(entry)===fingerprint(record));
     if(existing){const updated=checked({...existing,...(options.name!==undefined?{name:record.name}:{}),...(record.thumbnail?{thumbnail:record.thumbnail}:{}),votes:Math.min(MAX_VOTES,existing.votes+1),updatedAt:now});await this.write(updated);return updated;}
@@ -76,14 +78,14 @@ export class DesignLibraryStore {
   });}
   async exportPack(projectId:string){
     const entries=(await this.list(projectId)).entries;
-    return {format:'designer-extension-design-set',schemaVersion:1,designs:entries.map(({name,mode,themeId,typographyId,layoutIds,votes})=>({name,mode,themeId,...(typographyId?{typographyId}:{}),layoutIds,votes}))};
+    return {format:'designer-extension-design-set',schemaVersion:1,designs:entries.map(({name,mode,themeId,palette,typographyId,layoutIds,votes})=>({name,mode,themeId,...(palette?{palette}:{}),...(typographyId?{typographyId}:{}),layoutIds,votes}))};
   }
   importPack(projectId:string,input:unknown){return this.serial(async()=>{
     if(!input||typeof input!=='object'||Array.isArray(input))throw new AppError(400,'デザイン設定ファイルの形式が正しくありません。');
     const pack=input as Record<string,unknown>;
     if(pack.format!=='designer-extension-design-set'||pack.schemaVersion!==1||!Array.isArray(pack.designs)||!pack.designs.length||pack.designs.length>100)throw new AppError(400,'このファイルは読み込めないデザイン設定です。');
     if(!validId(projectId))throw new AppError(400,'保存先プロジェクトを選択してください。');
-    const now=new Date().toISOString(),records=pack.designs.map((design:any)=>checked({id:randomUUID(),name:design?.name,mode:design?.mode,themeId:design?.themeId,typographyId:design?.typographyId,layoutIds:design?.layoutIds,projectId,createdAt:now,updatedAt:now,votes:design?.votes??0}));
+    const now=new Date().toISOString(),records=pack.designs.map((design:any)=>checked({id:randomUUID(),name:design?.name,mode:design?.mode,themeId:design?.themeId,palette:design?.palette,typographyId:design?.typographyId,layoutIds:design?.layoutIds,projectId,createdAt:now,updatedAt:now,votes:design?.votes??0}));
     if(!await this.directoryExists())await this.directoryExists(true);
     if((await readdir(this.directory)).filter(name=>name.endsWith('.json')).length+records.length>MAX_ENTRIES)throw new AppError(413,'保存デザインは500件までです。不要なデザインを削除してください。');
     for(const record of records)await this.write(record);

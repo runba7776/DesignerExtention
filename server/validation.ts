@@ -1,8 +1,11 @@
-import type { ChartType,DeckSpec, Outline, SlideSpec, SourceRef, Theme } from '../shared/contracts.js';
+import type { AiPalette,ChartSpec,ChartType,DeckSpec,FreeDesign,FreeElement,IconId,Outline, SlideSpec, SourceRef, Theme } from '../shared/contracts.js';
+import {colorTokens,freeShapes,FREE_LAYOUT_ID,FOOTER_TOP,SLIDE_H,SLIDE_W} from '../shared/free-design.js';
+import {dummyText,type DesignPacket,type SlotContent} from '../shared/confidential.js';
 import { AppError } from './errors.js';
 import { listLayouts } from '../shared/layouts.js';
 import { MAX_SLIDES } from '../shared/contracts.js';
 import { themes, TEMPLATE_THEME_ID } from '../shared/themes.js';
+import {AI_THEME_ID} from '../shared/ai-theme.js';
 import {typographyProfiles} from '../shared/typography.js';
 import {iconCatalog} from '../shared/icons.js';
 import {chartCatalog,chartDataProblem} from '../shared/charts.js';
@@ -27,9 +30,18 @@ export function validateOutline(value: unknown): Outline {
   if (slides.length < 2) bad(`表紙を含め2〜${MAX_SLIDES}枚にしてください`);
   if (slides[0].layoutId !== 'cover') bad('1枚目は表紙です');
   if (slides.slice(1).some((slide) => slide.layoutId === 'cover')) bad('表紙は1枚目だけです');
-  return { title: text(data.title, '資料名', 100)!, mode: mode(data.mode), ...(data.themeId?{themeId:validateTheme(data.themeId)}:{}), ...(data.typographyId?{typographyId:validateTypography(data.typographyId)}:{}), ...(data.inputBrief?{inputBrief:text(data.inputBrief,'確認用の条件',6000)!}:{}), audience: text(data.audience, '対象者', 150, true), assumptions: stringList(data.assumptions ?? [], '前提', 8, 250), slides };
+  return { title: text(data.title, '資料名', 100)!, mode: mode(data.mode), ...(data.themeId?{themeId:validateTheme(data.themeId)}:{}), ...(data.typographyId?{typographyId:validateTypography(data.typographyId)}:{}), ...(data.inputBrief?{inputBrief:text(data.inputBrief,'確認用の条件',6000)!}:{}),...(data.visualStyle?{visualStyle:text(data.visualStyle,'デザインの方針',600)!}:{}),...(palette(data.palette)?{palette:palette(data.palette)}:{}), audience: text(data.audience, '対象者', 150, true), assumptions: stringList(data.assumptions ?? [], '前提', 8, 250), slides };
 }
 
+/** The AI's palette for the deck. A malformed one is ignored (the theme is used
+ * instead) rather than costing another request. */
+function palette(value:unknown):AiPalette|undefined{
+  if(!value||typeof value!=='object'||Array.isArray(value))return undefined;
+  const p=value as Record<string,unknown>,hex=(v:unknown)=>typeof v==='string'&&/^#[0-9a-f]{6}$/i.test(v.trim())?v.trim().toUpperCase():undefined;
+  const colors={background:hex(p.background),text:hex(p.text),muted:hex(p.muted),accent:hex(p.accent),accent2:hex(p.accent2)};
+  if(Object.values(colors).some(c=>!c))return undefined;
+  return {...(typeof p.name==='string'&&p.name.trim()?{name:p.name.trim().slice(0,40)}:{}),...colors as Omit<AiPalette,'name'|'surface'>,...(hex(p.surface)?{surface:hex(p.surface)}:{})};
+}
 export function validateTheme(value:unknown):string {if(typeof value!=='string'||!Object.hasOwn(themes,value))bad('未登録のテーマ');return value;}
 export function validateTypography(value:unknown):string {if(typeof value!=='string'||!Object.hasOwn(typographyProfiles,value))bad('未登録の書体');return value;}
 
@@ -53,20 +65,9 @@ export function validateSlide(value: unknown, expectedId?: string): SlideSpec {
       return { documentId: text(source.documentId, '資料ID', 100)!, locator: text(source.locator, '出典位置', 160)!, quote: text(source.quote, '引用', 500, true) };
     }),
   };
-  if (data.chart !== undefined) {
-    const chart = object(data.chart, 'グラフ');
-    if (typeof chart.type!=='string'||!Object.hasOwn(chartCatalog,chart.type)) bad('グラフ形式');
-    const categories = stringList(chart.categories, 'グラフ項目', 8, 40);
-    const series = array(chart.series, 'グラフ系列', 3).map((entry) => {
-      const series = object(entry, '系列');
-      const values = array(series.values, '数値', 8);
-      if (values.length !== categories.length || values.some((v) => typeof v !== 'number' || !Number.isFinite(v))) bad('グラフの項目と数値の対応');
-      return { name: text(series.name, '系列名', 45)!, values };
-    });
-    if (!categories.length || !series.length) bad('グラフのデータがありません');
-    slide.chart = { type: chart.type as ChartType, categories, series, unit: text(chart.unit, '単位', 40, true), caption: text(chart.caption, 'グラフ注釈', 240, true) };
-    const chartProblem=chartDataProblem(slide.chart);if(chartProblem)bad(chartProblem);
-  }
+  if (data.chart !== undefined) slide.chart = chartSpec(data.chart);
+  if (data.design !== undefined) slide.design = validateDesign(data.design, slide.sources.length, layoutId === 'cover', slide.title);
+  else if (layoutId === FREE_LAYOUT_ID) bad('自由デザインのページ（layoutId:"free"）にはdesign.elementsが必要です');
   if (data.diagram !== undefined) {
     const diagram = object(data.diagram, '図解');
     if (!['process', 'cycle', 'hierarchy', 'list'].includes(diagram.type)) bad('SmartArtの種類');
@@ -102,13 +103,175 @@ export function validateSlide(value: unknown, expectedId?: string): SlideSpec {
   return slide;
 }
 
+function chartSpec(value: unknown): ChartSpec {
+  const chart = object(value, 'グラフ');
+  if (typeof chart.type!=='string'||!Object.hasOwn(chartCatalog,chart.type)) bad('グラフ形式');
+  const categories = stringList(chart.categories, 'グラフ項目', 8, 40);
+  const series = array(chart.series, 'グラフ系列', 3).map((entry) => {
+    const series = object(entry, '系列');
+    const values = array(series.values, '数値', 8);
+    if (values.length !== categories.length || values.some((v) => typeof v !== 'number' || !Number.isFinite(v))) bad('グラフの項目と数値の対応');
+    return { name: text(series.name, '系列名', 45)!, values };
+  });
+  if (!categories.length || !series.length) bad('グラフのデータがありません');
+  const result: ChartSpec = { type: chart.type as ChartType, categories, series, unit: text(chart.unit, '単位', 40, true), caption: text(chart.caption, 'グラフ注釈', 240, true) };
+  const chartProblem=chartDataProblem(result);if(chartProblem)bad(chartProblem);
+  return result;
+}
+
+const number=(value:unknown,field:string,min:number,max:number)=>{if(typeof value!=='number'||!Number.isFinite(value)||value<min||value>max)bad(`${field}は${min}〜${max}の数値`);return Math.round(value*10)/10;};
+const designColor=(value:unknown,field:string)=>{if(value===undefined)return undefined;if(typeof value!=='string'||!((colorTokens as readonly string[]).includes(value)||value==='none'||/^#[0-9a-f]{6}$/i.test(value)))bad(`${field}の色は${colorTokens.join('・')}・none・#RRGGBBのいずれか`);return value;};
+const oneOf=<T extends string>(value:unknown,allowed:readonly T[],field:string):T|undefined=>{if(value===undefined)return undefined;if(!allowed.includes(value as T))bad(`${field}は${allowed.join('・')}のいずれか`);return value as T;};
+const colorWords:Record<string,string>={black:'ink',text:'ink',foreground:'ink',primary:'accent',secondary:'accent2',background:'bg',gray:'muted',grey:'muted',transparent:'none'};
+const alignWords:Record<string,string>={left:'l',center:'c',centre:'c',middle:'c',right:'r'};
+const vAlignWords:Record<string,string>={top:'t',middle:'m',center:'m',centre:'m',bottom:'b'};
+const shapeWords:Record<string,string>={rectangle:'rect',square:'rect',rounded:'roundRect',roundedrect:'roundRect',roundrect:'roundRect',circle:'ellipse',oval:'ellipse',ring:'donut'};
+/** Technical slips that would otherwise cost a whole regeneration are fixed here:
+ * a few points past the slide edge or into the footer, synonyms for colours,
+ * alignment and shapes, an unknown icon (dropped), citation numbers that do not
+ * exist (dropped), numbers written as strings in a chart, and a title without its
+ * role. Positions, sizes and colours the AI chose are otherwise kept as they are. */
+function lenientDesign(data:Record<string,any>,cover:boolean,title?:string){
+  if(!Array.isArray(data.elements))return data;
+  const near=24,round=(n:unknown)=>typeof n==='number'&&Number.isFinite(n)?Math.round(n*10)/10:n;
+  const color=(value:unknown)=>{
+    if(typeof value!=='string')return value;
+    const v=value.trim();
+    if(/^#[0-9a-f]{3}$/i.test(v))return '#'+[...v.slice(1)].map(c=>c+c).join('');
+    if(/^#[0-9a-f]{6}$/i.test(v)||(colorTokens as readonly string[]).includes(v)||v==='none')return v;
+    return colorWords[v.toLowerCase()];
+  };
+  const elements=(structuredClone(data.elements) as any[]).flatMap(e=>{
+    if(!e||typeof e!=='object')return [e];
+    for(const key of ['x','y','w','h','x1','y1','x2','y2','size'])if(key in e)e[key]=round(e[key]);
+    for(const key of ['color','fill','line'])if(key in e){const c=color(e[key]);if(c===undefined)delete e[key];else e[key]=c;}
+    if(typeof e.align==='string'&&alignWords[e.align.toLowerCase()])e.align=alignWords[e.align.toLowerCase()];
+    if(typeof e.va==='string'&&vAlignWords[e.va.toLowerCase()])e.va=vAlignWords[e.va.toLowerCase()];
+    if(typeof e.shape==='string'&&!(freeShapes as readonly string[]).includes(e.shape)){const s=shapeWords[e.shape.toLowerCase()];if(s)e.shape=s;else delete e.shape;}
+    if(e.t==='icon'&&(typeof e.icon!=='string'||!Object.hasOwn(iconCatalog,e.icon)))return [];
+    if(e.t==='text'&&e.role!==undefined&&!['title','heading','body','number','caption'].includes(e.role))delete e.role;
+    if(e.t==='text'&&typeof e.size==='number')e.size=Math.min(110,Math.max(9,e.size));
+    if(typeof e.lw==='number')e.lw=Math.min(12,Math.max(e.t==='line'?.25:0,e.lw));
+    if(typeof e.op==='number')e.op=Math.min(1,Math.max(0,e.op));
+    if(typeof e.r==='number')e.r=Math.min(.5,Math.max(0,e.r));
+    const box=['text','box','chart','table'].includes(e.t)&&[e.x,e.y,e.w,e.h].every(n=>typeof n==='number');
+    if(box){
+      if(e.x<0&&e.x>=-near){e.w+=e.x;e.x=0;}
+      if(e.y<0&&e.y>=-near){e.h+=e.y;e.y=0;}
+      if(e.x+e.w>SLIDE_W&&e.x+e.w<=SLIDE_W+near)e.w=round(SLIDE_W-e.x);
+      if(e.y+e.h>SLIDE_H&&e.y+e.h<=SLIDE_H+near)e.h=round(SLIDE_H-e.y);
+      // Text reaching a little into the footer keeps at least one line above it.
+      if(e.t==='text'&&e.y+e.h>FOOTER_TOP&&e.y+e.h<=FOOTER_TOP+near&&FOOTER_TOP-e.y>=(typeof e.size==='number'?e.size:12)*1.35)e.h=round(FOOTER_TOP-e.y);
+    }
+    if(e.t==='line')for(const [key,max] of [['x1',SLIDE_W],['x2',SLIDE_W],['y1',SLIDE_H],['y2',SLIDE_H]] as const)if(typeof e[key]==='number'&&(e[key]<0&&e[key]>=-near||e[key]>max&&e[key]<=max+near))e[key]=Math.min(max,Math.max(0,e[key]));
+    if(e.t==='icon'&&typeof e.size==='number'&&typeof e.x==='number'&&typeof e.y==='number'){if(e.x+e.size>SLIDE_W&&e.x+e.size<=SLIDE_W+near)e.x=SLIDE_W-e.size;if(e.y+e.size>SLIDE_H&&e.y+e.size<=SLIDE_H+near)e.y=SLIDE_H-e.size;}
+    if(e.t==='chart'&&e.chart&&Array.isArray(e.chart.series))for(const series of e.chart.series)if(series&&Array.isArray(series.values))series.values=series.values.map((v:unknown)=>typeof v==='string'&&/^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/.test(v.trim())?Number(v.trim().replace(/,/g,'')):v);
+    return [e];
+  });
+  const texts=elements.filter(e=>e?.t==='text'&&typeof e.text==='string');
+  if(!cover&&texts.length&&!texts.some(e=>e.role==='title')){
+    // The page title is the text that repeats the slide title, or the one clearly largest text near the top.
+    const same=title?texts.filter(e=>e.text.replace(/\s/g,'')===title.replace(/\s/g,'')):[];
+    const top=texts.filter(e=>typeof e.y==='number'&&e.y<170&&typeof e.size==='number'),largest=Math.max(...top.map(e=>e.size));
+    const chosen=same.length===1?same[0]:top.filter(e=>e.size===largest).length===1?top.find(e=>e.size===largest):undefined;
+    if(chosen)chosen.role='title';
+  }
+  return {...data,elements};
+}
+
+/** An AI-designed slide. Positions, shapes and colours are the AI's; the app only
+ * rejects what would be unreadable or untrue: text outside the slide or in the
+ * footer, overlapping text boxes, unknown icons, and charts whose data fail. */
+export function validateDesign(value:unknown,sourceCount:number,cover=false,title?:string):FreeDesign{
+  const data=lenientDesign(object(value,'デザイン'),cover,title);
+  const elements=array(data.elements,'デザインの要素',90).map((entry,i):FreeElement=>{
+    const e=object(entry,`要素${i+1}`),field=`要素${i+1}`;
+    const rect=()=>{const x=number(e.x,`${field}のx`,0,SLIDE_W),y=number(e.y,`${field}のy`,0,SLIDE_H),w=number(e.w,`${field}のw`,1,SLIDE_W),h=number(e.h,`${field}のh`,1,SLIDE_H);if(x+w>SLIDE_W+1||y+h>SLIDE_H+1)bad(`${field}がスライドの外にはみ出しています（幅${SLIDE_W}・高さ${SLIDE_H}の範囲に収めてください）`);return {x,y,w,h};};
+    if(e.t==='text'){
+      const r=rect();if(r.y+r.h>FOOTER_TOP+1)bad(`${field}の文字が下端の出典欄（y=${FOOTER_TOP}以降）に入っています。y+hを${FOOTER_TOP}以下にしてください`);
+      // A citation number with no matching source is dropped: the text stays, only its marker is lost.
+      const refs=e.refs===undefined?undefined:array(e.refs,`${field}の出典番号`,5).filter(n=>Number.isInteger(n)&&n>=1&&n<=sourceCount) as number[];
+      return {t:'text',...r,text:text(e.text,`${field}の文字`,400)!,size:number(e.size,`${field}の文字の大きさ`,9,110),...(e.color!==undefined?{color:designColor(e.color,field)}:{}),...(e.bold!==undefined?{bold:e.bold===true}:{}),...(e.italic===true?{italic:true}:{}),...(e.align!==undefined?{align:oneOf(e.align,['l','c','r'] as const,`${field}のalign`)}:{}),...(e.va!==undefined?{va:oneOf(e.va,['t','m','b'] as const,`${field}のva`)}:{}),...(e.role!==undefined?{role:oneOf(e.role,['title','heading','body','number','caption'] as const,`${field}のrole`)}:{}),...(refs?.length?{refs:[...new Set(refs)]}:{})};
+    }
+    if(e.t==='box'){
+      const r=rect();
+      return {t:'box',...r,...(e.shape!==undefined?{shape:oneOf(e.shape,freeShapes,`${field}のshape`)}:{}),...(e.fill!==undefined?{fill:designColor(e.fill,field)}:{}),...(e.line!==undefined?{line:designColor(e.line,field)}:{}),...(e.lw!==undefined?{lw:number(e.lw,`${field}の線の太さ`,0,12)}:{}),...(e.op!==undefined?{op:number(e.op,`${field}の不透明度`,0,1)}:{}),...(e.r!==undefined?{r:number(e.r,`${field}の角丸`,0,.5)}:{}),...(e.rot!==undefined?{rot:number(e.rot,`${field}の回転`,-360,360)}:{})};
+    }
+    if(e.t==='line')return {t:'line',x1:number(e.x1,`${field}のx1`,0,SLIDE_W),y1:number(e.y1,`${field}のy1`,0,SLIDE_H),x2:number(e.x2,`${field}のx2`,0,SLIDE_W),y2:number(e.y2,`${field}のy2`,0,SLIDE_H),...(e.color!==undefined?{color:designColor(e.color,field)}:{}),...(e.lw!==undefined?{lw:number(e.lw,`${field}の線の太さ`,.25,12)}:{}),...(e.dash===true?{dash:true}:{}),...(e.arrow!==undefined?{arrow:oneOf(e.arrow,['none','end','start','both'] as const,`${field}のarrow`)}:{})};
+    if(e.t==='icon'){
+      if(typeof e.icon!=='string'||!Object.hasOwn(iconCatalog,e.icon))bad(`${field}のアイコンは一覧のIDを使ってください`);
+      const x=number(e.x,`${field}のx`,0,SLIDE_W),y=number(e.y,`${field}のy`,0,SLIDE_H),size=number(e.size,`${field}のsize`,8,240);
+      if(x+size>SLIDE_W+1||y+size>SLIDE_H+1)bad(`${field}がスライドの外にはみ出しています`);
+      return {t:'icon',icon:e.icon as IconId,x,y,size,...(e.color!==undefined?{color:designColor(e.color,field)}:{})};
+    }
+    if(e.t==='chart'){const r=rect();if(r.w<120||r.h<90)bad(`${field}のグラフは幅120・高さ90以上にしてください`);return {t:'chart',...r,chart:chartSpec(e.chart)};}
+    if(e.t==='table'){
+      const r=rect(),headers=stringList(e.headers,`${field}の表の列`,6,60),rows=array(e.rows,`${field}の表の行`,10).map(row=>stringList(row,`${field}の表のセル`,6,90));
+      if(!headers.length||!rows.length||rows.some(row=>row.length!==headers.length))bad(`${field}の表の列数が一致しません`);
+      return {t:'table',...r,headers,rows,...(e.size!==undefined?{size:number(e.size,`${field}の文字の大きさ`,10,28)}:{})};
+    }
+    bad(`${field}のtはtext・box・line・icon・chart・tableのいずれか`);
+  });
+  if(!elements.length)bad('デザインの要素がありません');
+  const texts=elements.filter((e):e is Extract<FreeElement,{t:'text'}>=>e.t==='text');
+  if(!texts.length)bad('デザインに文字の要素がありません');
+  if(!cover&&!texts.some(e=>e.role==='title'))bad('見出しのtext要素（role:"title"）がありません');
+  if(elements.filter(e=>e.t==='chart').length>4||elements.filter(e=>e.t==='table').length>2)bad('1枚のグラフは4つ、表は2つまでです');
+  // Text boxes may sit on shapes, but two texts on top of each other are unreadable.
+  for(let i=0;i<texts.length;i++)for(let j=i+1;j<texts.length;j++){
+    const a=texts[i],b=texts[j],w=Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x),h=Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y);
+    if(w>0&&h>0&&w*h>.25*Math.min(a.w*a.h,b.w*b.h))bad(`文字の枠が重なっています（「${a.text.slice(0,12)}」と「${b.text.slice(0,12)}」）。位置か大きさを調整してください`);
+  }
+  return {...(data.background!==undefined?{background:designColor(data.background,'背景')}:{}),elements};
+}
+
+/** A design returned for slots only. It is checked with the dummy samples first,
+ * so every problem reported back to the design AI names slots and dummy text, never
+ * the real wording; the real content is filled in only after that check. */
+export function validateDesignReply(raw:unknown,packet:DesignPacket,contents:Record<string,SlotContent>,deck:DeckSpec):SlideSpec[]{
+  const data=object(raw,'デザインの返答'),replies=array(data.slides,'ページ',packet.slides.length);
+  return packet.slides.map(request=>{
+    const reply=replies.find(r=>r&&typeof r==='object'&&r.id===request.id);
+    if(!reply)bad(`${request.id}のデザインがありません`);
+    const design=object(reply.design,`${request.id}のデザイン`),elements=array(design.elements,`${request.id}の要素`,90);
+    const slots=new Map(request.slots.map(s=>[s.id,s])),charts=new Set(request.charts.map(c=>c.id)),tables=new Set(request.tables.map(t=>t.id)),used=new Set<string>();
+    const sampled=elements.map((entry,i)=>{
+      const e=object(entry,`${request.id}の要素${i+1}`);
+      const slot=typeof e.slot==='string'?e.slot:undefined;
+      if(slot&&used.has(slot))bad(`${request.id}の${slot}が2回配置されています`);
+      if(e.t==='text'){
+        if(slot){const target=slots.get(slot);if(!target)bad(`${request.id}に${slot}という文字の枠はありません`);used.add(slot);const {slot:_s,...rest}=e;return {...rest,text:target.sample,...(slot==='t'?{role:'title'}:{})};}
+        if(typeof e.text!=='string'||!/^[0-9０-９\s.,:・\-–—→←↑↓▶▷►●○◆◇■□#％%]{1,4}$/u.test(e.text))bad(`${request.id}の要素${i+1}：slotのない文字は番号や記号（4文字以内）だけにしてください`);
+        return e;
+      }
+      if(e.t==='chart'){if(!slot||!charts.has(slot))bad(`${request.id}の要素${i+1}：グラフにはchartsのslotを指定してください`);used.add(slot!);const {slot:_s,...rest}=e;return {...rest,chart:contents[request.id].charts[slot!]};}
+      if(e.t==='table'){if(!slot||!tables.has(slot))bad(`${request.id}の要素${i+1}：表にはtablesのslotを指定してください`);used.add(slot!);const {slot:_s,...rest}=e;const table=contents[request.id].tables[slot!];return {...rest,headers:table.headers.map(dummyText),rows:table.rows.map(r=>r.map(dummyText))};}
+      return e;
+    });
+    const missing=[...request.slots.map(s=>s.id),...charts,...tables].filter(id=>!used.has(id));
+    if(missing.length)bad(`${request.id}の${missing.join('・')}が配置されていません。すべてのslotを1回ずつ配置してください`);
+    const original=deck.slides.find(s=>s.id===request.id)!;
+    // Structure, bounds and overlap are checked on the dummy text.
+    validateDesign({...(design.background!==undefined?{background:design.background}:{}),elements:sampled},original.sources.length,request.cover);
+    const filled=sampled.map((e:any,i:number)=>{
+      const slot=typeof (elements[i] as any).slot==='string'?(elements[i] as any).slot:undefined;
+      if(e.t==='text'&&slot){const content=contents[request.id].texts[slot];const {refs:_r,...rest}=e;return {...rest,text:content.text,...(content.refs?.length?{refs:content.refs}:{})};}
+      if(e.t==='table'&&slot){const table=contents[request.id].tables[slot];return {...e,headers:table.headers,rows:table.rows};}
+      return e;
+    });
+    const result=validateDesign({...(design.background!==undefined?{background:design.background}:{}),elements:filled},original.sources.length,request.cover);
+    return {id:original.id,title:original.title,layoutId:request.cover?'cover':'free',items:[],notes:original.notes,sources:structuredClone(original.sources),design:result};
+  });
+}
+
 export function validateDeck(value: unknown, expectedOutline?: Outline): DeckSpec {
   const data = object(value, '資料');
   const slides = array(data.slides, 'スライド', MAX_SLIDES).map((slide, index) => validateSlide(slide, `slide-${index + 1}`));
   if (slides.length < 2 || slides[0].layoutId !== 'cover' || slides.slice(1).some((s) => s.layoutId === 'cover')) bad(`表紙1枚を含む2〜${MAX_SLIDES}枚が必要です`);
   if (expectedOutline && slides.length !== expectedOutline.slides.length) bad('承認した構成案と枚数が異なります');
-  const template=data.themeId===TEMPLATE_THEME_ID;
-  return { id: typeof data.id === 'string' ? data.id.slice(0, 100) : 'deck', title: text(data.title, '資料名', 100)!, mode: mode(data.mode), themeId: template?TEMPLATE_THEME_ID:validateTheme(data.themeId??'paper'), ...(data.typographyId?{typographyId:validateTypography(data.typographyId)}:{}), ...(template?{customTheme:validateCustomTheme(data.customTheme)}:{}), ...(data.referencesSlide===true?{referencesSlide:true}:{}), slides };
+  const template=data.themeId===TEMPLATE_THEME_ID,ai=data.themeId===AI_THEME_ID;
+  if(ai&&data.aiTheme===undefined)bad('AIの配色がありません');
+  return { id: typeof data.id === 'string' ? data.id.slice(0, 100) : 'deck', title: text(data.title, '資料名', 100)!, mode: mode(data.mode), themeId: template?TEMPLATE_THEME_ID:ai?AI_THEME_ID:validateTheme(data.themeId??'paper'), ...(data.aiTheme!==undefined?{aiTheme:validateCustomTheme(data.aiTheme)}:{}), ...(data.typographyId?{typographyId:validateTypography(data.typographyId)}:{}), ...(template?{customTheme:validateCustomTheme(data.customTheme)}:{}), ...(data.referencesSlide===true?{referencesSlide:true}:{}), slides };
 }
 
 const color=(value:unknown,field:string)=>{if(typeof value!=='string'||!/^#[0-9A-F]{6}$/i.test(value))bad(`${field}の色`);return value.toUpperCase();};

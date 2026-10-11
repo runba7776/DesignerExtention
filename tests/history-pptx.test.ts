@@ -98,7 +98,7 @@ test('history detects stale updates and corrupt content without exposing externa
 test('long instructions remain in history; approved brief replaces full conversation only for generation',async()=>{
   const dir=await mkdtemp(path.join(tmpdir(),'designer-long-prompt-'));
   try{
-    const settings=await new SettingsStore(dir,'').load();await settings.update({provider:'local',model:'test'});
+    const settings=await new SettingsStore(dir,'').load();await settings.update({provider:'local',designMode:'template',model:'test'});
     const original='大切な条件を保持。'.repeat(2000),outline=demoOutline('長文の資料','presentation',[]);outline.inputBrief='学生向け。事例と数学の成立条件を保持し、6枚で説明。';
     const replies=[{kind:'outline',outline},demoDeck(outline)],calls:CompletionRequest[]=[];
     const engine=new SessionEngine({settings,dataDir:dir,render,providerFactory:()=>({complete:async request=>{calls.push(request);return {text:JSON.stringify(replies.shift()),usage:emptyUsage()};}})});

@@ -65,7 +65,7 @@ test('paid providers and chat handoffs never create a network client; local reco
   assert.throws(()=>createProvider({provider:'claude',model:'legacy',mode:'presentation'},'test-not-real',mockFetch),/有料API/);
   assert.throws(()=>createProvider({provider:'chat',model:'chat-session',mode:'presentation'},undefined,mockFetch),/指示をコピー/);
   assert.equal(Boolean(seen),false);
-  const provider = createProvider({ provider: 'local', model: 'test', mode: 'presentation',endpoint:'http://127.0.0.1:11434/v1' }, undefined, mockFetch);
+  const provider = createProvider({ provider: 'local', designMode: 'template', model: 'test', mode: 'presentation',endpoint:'http://127.0.0.1:11434/v1' }, undefined, mockFetch);
   const response = await provider.complete({ system: 'system', content: '資料', maxTokens: 1000 });
   assert.equal(seen.url, 'http://127.0.0.1:11434/v1/chat/completions');
   assert.equal(seen.redirect, 'error');
@@ -77,7 +77,7 @@ test('paid providers and chat handoffs never create a network client; local reco
 
 test('local provider sends one request only to configured private endpoint and never cloud falls back', async () => {
   const urls: string[] = [];
-  const provider = createProvider({ provider: 'local', model: 'my-model', mode: 'reading', endpoint: 'http://127.0.0.1:11434/v1' }, undefined, async (url) => { urls.push(String(url)); throw new Error('offline'); });
+  const provider = createProvider({ provider: 'local', designMode: 'template', model: 'my-model', mode: 'reading', endpoint: 'http://127.0.0.1:11434/v1' }, undefined, async (url) => { urls.push(String(url)); throw new Error('offline'); });
   await assert.rejects(provider.complete({ system: 'test', content: 'private', maxTokens: 10 }), /外部APIへの切り替えは行っていません/);
   assert.deepEqual(urls, ['http://127.0.0.1:11434/v1/chat/completions']);
   assert.throws(() => createProvider({ provider: 'claude', model: 'claude-sonnet-5', mode: 'presentation' }), /有料API/);
@@ -98,7 +98,7 @@ test('session flow preserves clarification, uses grouped generation, refreshes v
   const dir = await mkdtemp(path.join(tmpdir(), 'designer-engine-'));
   try {
     const settings = await new SettingsStore(dir, '').load();
-    await settings.update({ provider: 'local', model: 'test-model' });
+    await settings.update({ provider: 'local', designMode: 'template', model: 'test-model' });
     const outline = demoOutline('A topic', 'presentation', []);
     const deck = demoDeck(outline);
     const results = [{ kind: 'questions', message: 'どなた向けですか？' }, { kind: 'outline', outline }, deck];
@@ -136,7 +136,7 @@ test('single-slide revision updates both variants and invalidates both exports w
   const dir = await mkdtemp(path.join(tmpdir(), 'designer-revision-'));
   try {
     const settings = await new SettingsStore(dir, '').load();
-    await settings.update({ provider: 'local', model: 'test' });
+    await settings.update({ provider: 'local', designMode: 'template', model: 'test' });
     const outline = demoOutline('編集の検証', 'presentation', []);
     const deck = demoDeck(outline);
     const revised = { ...deck.slides[1], title: '更新した読み取り', notes: '修正後の根拠' };
@@ -167,7 +167,7 @@ test('single-slide revision updates both variants and invalidates both exports w
 test('invalid model citations are rejected before exposing ready slides', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'designer-citation-'));
   try {
-    const settings = await new SettingsStore(dir, '').load(); await settings.update({ provider: 'local', model: 'test', autoRepair:false });
+    const settings = await new SettingsStore(dir, '').load(); await settings.update({ provider: 'local', designMode: 'template', model: 'test', autoRepair:false });
     const document = await parseDocument('facts.txt', Buffer.from('正しい出典の文章です。'));
     const outline = demoOutline('題名', 'presentation', []); const deck = demoDeck(outline);
     deck.slides[1].sources = [{ documentId: document.id, locator: 'p.999', quote: '捏造' }];

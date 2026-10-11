@@ -347,3 +347,113 @@ html.taskpane .slide-action-buttons {grid-template-columns: 1fr;}
 .hosted-banner {font-size: 11px; color: var(--ink); background: #eef5f0; border: 1px solid #cfe3d6; border-radius: 8px; padding: 9px 12px; margin-bottom: 18px; line-height: 1.7;}
 .hosted-banner .text-link, .footer-link {margin-left: 6px; font-size: inherit;}
 .settings-note.warning {background: #fdf6e7; border-color: #e3c98d; color: #6b4f12;}
+/* v0.13: AI project setup and quicker manual chat */
+.handoff-mode {font-size: 10px; line-height: 1.7; color: var(--muted); margin-top: 8px;}
+.handoff-mode.project {color: #2f6a43;}
+.handoff-mode .text-link {font-size: inherit;}
+.clipboard-offer {display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #edf6ef; border: 1px solid #a8cdb2; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; font-size: 11px; color: #2f6a43;}
+.ai-project-status {display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 10px 0;}
+.ai-project-status>div {display: grid; gap: 3px; font-size: 11px; line-height: 1.6;}
+.ai-project-status strong {color: var(--ink);}
+.ai-project-status span {color: var(--muted);}
+.ai-project-status.ready {background: #edf6ef; border-color: #a8cdb2;}
+.ai-project-status.stale {background: #fdf6e7; border-color: #e3c98d;}
+.setup-steps li {display: grid; gap: 6px;}
+.setup-steps .button {justify-self: start;}
+.setup-text {width: 100%; min-height: 90px; font-size: 10px; line-height: 1.6; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; color: var(--ink); background: #fafaf7;}
+.setup-url {width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font-size: 12px;}
+.consent.one-shot label {display: grid; gap: 2px;}
+.consent.one-shot small {font-size: 10px; color: var(--muted);}
+
+/* v0.14: compare and combine drafts of different AIs */
+.combine-panel {border-top: 1px solid var(--line); margin-top: 22px; padding-top: 18px;}
+.combine-head h3 {font-size: 12px; font-weight: 600; margin-bottom: 6px;}
+.combine-head p {font-size: 11px; color: var(--muted); line-height: 1.8;}
+.combine-variants {list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 4px;}
+.combine-variants li {display: flex; justify-content: space-between; align-items: center; font-size: 11px; padding: 6px 8px; background: var(--paper); border: 1px solid var(--line); border-radius: 6px;}
+.combine-alternate {display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin-top: 12px;}
+.combine-alternate small, .combine-panel > small {flex-basis: 100%; font-size: 10px; color: var(--muted); line-height: 1.7;}
+.field.compact {margin: 0; min-width: 140px;}
+.combine-table {margin-top: 14px; display: grid; gap: 3px;}
+.combine-row {display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 6px; align-items: center; font-size: 11px;}
+.combine-row.header {font-size: 10px; color: var(--muted);}
+.combine-row select {width: 100%; font-size: 11px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper);}
+.combine-page {display: flex; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;}
+.combine-page strong {color: var(--accent); font-weight: 600;}
+.combine-actions {display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin-top: 12px;}
+.combine-notes {margin-top: 12px; font-size: 11px; line-height: 1.7; background: #fff8e6; border: 1px solid #f0dfae; border-radius: 6px; padding: 8px 10px;}
+.combine-notes ul {margin: 4px 0 0 16px;}
+.combine-stats {margin-top: 10px; font-size: 10px; color: var(--muted);}
+.variant-pick {font-size: 11px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper); max-width: 100%;}
+.design-only {margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--line);}
+.design-only h4 {font-size: 11px; font-weight: 600; margin-bottom: 4px;}
+.design-only p {font-size: 11px; color: var(--muted); line-height: 1.8;}
+.design-only .field.compact input {width: 100%; font-size: 11px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;}
+.send-log {list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; font-size: 10px;}
+.send-log li {display: grid; gap: 2px; padding: 6px 8px; background: var(--paper); border: 1px solid var(--line); border-radius: 6px;}
+.privacy-check {margin: 10px 0; padding: 10px 12px; border: 1px solid #b9d8c9; background: #f1f8f4; border-radius: 8px; font-size: 11px; line-height: 1.8;}
+.privacy-check ul {margin: 4px 0 6px 16px;}
+.privacy-check small {color: var(--muted);}
+.privacy-check code, .send-log code {font-size: 10px;}
+
+.masked-items {margin-top: 6px;}
+.masked-items ul {list-style: none; margin: 4px 0 0; padding: 0; max-height: 160px; overflow: auto; font-size: 10px;}
+.masked-items li {padding: 2px 0;}
+
+/* v0.16: recurring report — refresh numbers from a new period's documents */
+.refresh-panel {border-top: 1px solid var(--line); margin-top: 22px; padding-top: 18px;}
+.refresh-summary {display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 12px;}
+.refresh-summary small {flex-basis: 100%; font-size: 10px; color: var(--muted); line-height: 1.7;}
+.refresh-count, .refresh-badge {font-size: 10px; font-style: normal; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--paper);}
+.refresh-count.changed, .refresh-badge.changed {background: #fff3dc; border-color: #f0cf8e; color: #8a5a00;}
+.refresh-count.same, .refresh-badge.same {color: var(--muted);}
+.refresh-count.review, .refresh-badge.review {background: #fdecea; border-color: #f2c3bd; color: #a3352a;}
+.refresh-count.missing, .refresh-badge.missing {background: #eef1f6; border-color: #cfd6e4; color: #48566f;}
+.refresh-badge.edited {background: #e7f3ef; border-color: #b9d8c9; color: var(--accent);}
+.refresh-filter {margin-top: 10px; max-width: 260px;}
+.refresh-filter select {width: 100%; font-size: 11px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper);}
+.refresh-list {list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; max-height: 520px; overflow: auto;}
+.refresh-entry {border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--paper); font-size: 11px; display: grid; gap: 4px;}
+.refresh-entry.review {border-color: #f2c3bd;}
+.refresh-entry-head {display: flex; gap: 6px; align-items: center; min-width: 0;}
+.refresh-entry-head strong {color: var(--accent); font-weight: 600;}
+.refresh-entry-head span {flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;}
+.refresh-context {color: var(--muted); font-size: 10px; line-height: 1.6; overflow-wrap: anywhere;}
+.refresh-context mark {background: #ffe2a8; color: inherit; padding: 0 2px; border-radius: 2px;}
+.refresh-values {display: flex; flex-wrap: wrap; align-items: center; gap: 6px;}
+.refresh-values input {width: 110px; font-size: 12px; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; font-variant-numeric: tabular-nums;}
+.refresh-values input[aria-invalid="true"] {border-color: #c0392b;}
+.refresh-problem {color: #a3352a; font-size: 10px;}
+.refresh-candidates {display: flex; flex-wrap: wrap; gap: 4px;}
+.refresh-candidate {display: grid; text-align: left; gap: 1px; font-size: 11px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fafaf7; cursor: pointer; max-width: 100%;}
+.refresh-candidate small {font-size: 9px; color: var(--muted); overflow-wrap: anywhere;}
+.refresh-candidate.chosen {border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);}
+.refresh-basis {font-size: 10px; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere;}
+.refresh-empty {font-size: 11px; color: var(--muted); padding: 6px 2px;}
+.refresh-texts {margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line);}
+.refresh-texts h4 {font-size: 11px; font-weight: 600; margin-bottom: 4px;}
+.refresh-texts > p {font-size: 11px; color: var(--muted); line-height: 1.8;}
+.refresh-text {margin-top: 8px; display: grid; gap: 4px; font-size: 11px;}
+.refresh-reason {font-size: 10px; color: #8a5a00; line-height: 1.6;}
+.refresh-text textarea {width: 100%; font: inherit; font-size: 12px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; resize: vertical;}
+.refresh-note {display: block; margin-top: 8px; font-size: 10px; color: var(--muted); line-height: 1.7;}
+.refresh-result {margin: 0 0 14px; padding: 10px 12px; border: 1px solid #f0cf8e; background: #fffaf0; border-radius: 8px; font-size: 11px; line-height: 1.8;}
+.refresh-result ul {list-style: none; margin: 4px 0 0; padding: 0; max-height: 180px; overflow: auto; font-size: 10px;}
+.refresh-toggle {display: flex; gap: 6px; align-items: center; margin-top: 4px;}
+.slide-preview>.mark-layer, .compare-slide>.mark-layer {position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;}
+.compare-slide {position: relative;}
+.refresh-basis q {display: block; quotes: "「" "」"; color: #4d5a55; margin-top: 2px;}
+.refresh-basis q mark {background: #ffe2a8; color: inherit; padding: 0 2px; border-radius: 2px;}
+
+/* v0.17: choose the AIs and what may leave this PC before creating */
+.ai-picker {margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); display: grid; gap: 8px;}
+.ai-picker-targets {display: flex; flex-wrap: wrap; gap: 6px;}
+.ai-chip {display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; background: #fafaf7; font-size: 12px; color: var(--ink); cursor: pointer;}
+.ai-chip small {font-size: 10px; color: var(--muted);}
+.ai-chip.selected {border-color: var(--accent); background: #e7f3ef; box-shadow: 0 0 0 1px var(--accent);}
+.ai-chip:disabled {opacity: .55; cursor: not-allowed;}
+.ai-chip-check {display: inline-grid; place-items: center; width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--line); background: #fff; font-size: 10px; color: var(--accent);}
+.ai-chip.selected .ai-chip-check {border-color: var(--accent);}
+.ai-scope select {width: 100%; font-size: 12px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper);}
+.ai-picker-note {font-size: 10px; color: var(--muted); line-height: 1.7;}
+.ai-picker-problem {font-size: 11px; color: #a3352a;}

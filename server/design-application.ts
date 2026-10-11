@@ -1,5 +1,6 @@
 import type {DeckSpec,DesignEntry,Theme} from '../shared/contracts.js';
 import {TEMPLATE_THEME_ID} from '../shared/themes.js';
+import {AI_THEME_ID} from '../shared/ai-theme.js';
 import {fittingLayouts,improveTextFit} from '../shared/layout-selection.js';
 import {assertTextFits} from './text-fit.js';
 
@@ -8,7 +9,7 @@ export function applySavedDesign(deck:DeckSpec,design:DesignEntry,requireFit=tru
   // A favorite made with the company template needs the project's template;
   // without one, the current colors are kept and only layouts are reused.
   const usesTemplate=design.themeId===TEMPLATE_THEME_ID;
-  let styled:DeckSpec=usesTemplate?template?{...structuredClone(deck),themeId:TEMPLATE_THEME_ID,customTheme:structuredClone(template)}:structuredClone(deck):{...structuredClone(deck),themeId:design.themeId};
+  let styled:DeckSpec=usesTemplate?template?{...structuredClone(deck),themeId:TEMPLATE_THEME_ID,customTheme:structuredClone(template)}:structuredClone(deck):{...structuredClone(deck),themeId:design.themeId,...(design.themeId===AI_THEME_ID&&design.palette?{aiTheme:structuredClone(design.palette)}:{})};
   if(!usesTemplate)delete styled.customTheme;
   if(design.typographyId)styled.typographyId=design.typographyId;else delete styled.typographyId;
   let changed=0,skipped=0;

@@ -7,11 +7,14 @@ import { registerPremiumLayouts } from './premium-layouts';
 import { registerMicrosoftLayouts } from './microsoft-layouts';
 import { registerDesignLayouts } from './design-layouts';
 import {iconElements,resolveItemIcon} from './icons';
-import {chartColors,chartGridColor,isShareChart} from './charts';
+import {chartColors,chartGridColor,isShareChart,isStackedChart} from './charts';
 import {withTypography,fontFor} from './typography';
-import {itemColor,panelFill} from './color';
+import {itemColor,panelFill,negativeColor,ruleColor,mixColor,contrast,readableColor} from './color';
+import {chartNumber} from './charts';
+import {drawDesign,designTexts,footerInk,FREE_LAYOUT_ID} from './free-design';
 import { legacyGuidance, groupCautions, type LayoutGroup, type ResearchSource } from './layout-guidance';
 import {TEMPLATE_THEME_ID} from './themes';
+import {AI_THEME_ID} from './ai-theme';
 export { themes } from './themes';
 
 export interface LayoutDefinition { id: string; name: string; description: string; maxItems: number; minItems?:number; textBudget?:string; chart?:boolean; table?:boolean; equation?:boolean; diagram?:boolean; diagramType?:'list'|'process'|'cycle'|'hierarchy'; group?:LayoutGroup; placement?:string; whenToUse?:string; avoidWhen?:string; references?:ResearchSource[]; tableMaxRows?:number; autoSelect?:boolean; render: (ctx: LayoutContext) => void }
@@ -41,8 +44,38 @@ export function listLayouts() {
 export const layoutCatalog = listLayouts;
 
 /** Conservative line measurement shared by SVG preview and native PowerPoint. */
-export function textUnits(text:string){return Array.from(text).reduce((sum,char)=>sum+(/[\u0000-\u007f]/.test(char)?(/[MW@%]/.test(char)?0.85:0.56):1),0);}
-const textTokens=(text:string)=>text.match(/[+−△▲-]?\d+(?:[,.]\d+)*(?:(?:兆|億|万|千)\d+(?:[,.]\d+)*)*(?:兆|億|万|千)?(?:円|ドル|点|%|％|倍|人|社|件|年|月|日|時間|分|秒)?|[A-Za-z]+(?:[-_][A-Za-z0-9]+)*|./gu)??[];
+/** A value that is only a decrease: △8.8%, ▲1,900億円, -3.2pt, −4兆3,390億円. */
+export function isNegativeValue(text:string){return text.trim().length<=18&&/^[△▲−-]\s?\d[\d,.]*(?:兆\d[\d,.]*)?(?:億\d[\d,.]*)?(?:兆|億|万|千|百万)?(?:円|ドル|%|％|pt|ポイント|倍|人|社|件)?$/u.test(text.trim());}
+// Digits are measured a little wide: proportional Japanese UI fonts set them wider than Latin text.
+export function textUnits(text:string){return Array.from(text).reduce((sum,char)=>sum+(/[\u0000-\u007f]/.test(char)?(/[MW@%]/.test(char)?0.85:/\d/.test(char)?0.6:0.56):1),0);}
+// Line-break units: a number with its magnitude/unit, an English word, or a
+// Japanese phrase (kanji/katakana word + the particles/okurigana after it), so a
+// line never breaks inside 営業利益 or 前年同期比.
+const tokenPattern=/[+−△▲-]?\d+(?:[,.]\d+)*(?:(?:兆|億|万|千)\d+(?:[,.]\d+)*)*(?:兆|億|万|千)?(?:円|ドル|点|%|％|倍|人|社|件|年|月|日|時間|分|秒)?|[A-Za-z]+(?:[-_][A-Za-z0-9]+)*|[\p{Script=Han}\p{Script=Katakana}ー々〆ヶ]+|\p{Script=Hiragana}+|./gu;
+const lineStartForbidden=/^[、。，．・：；！？!?,.)）」』〉》】〕％%⁰¹²³⁴⁵⁶⁷⁸⁹˒]/u, lineEndForbidden=/[（「『〈《【〔(]$/u, joiner=/^[〜～]$/u;
+/** Indivisible parts of a phrase: a word, a number with its unit, or a run of
+ * kana (して, から) kept whole; 第1四半期 stays one part. */
+function wordAtoms(phrase:string){
+  const atoms:string[]=[];
+  for(const atom of phrase.match(/[+−△▲-]?\d+(?:[,.]\d+)*(?:(?:兆|億|万|千)\d+(?:[,.]\d+)*)*(?:兆|億|万|千)?(?:円|ドル|点|%|％|倍|人|社|件|年|月|日|時間|分|秒)?|[A-Za-z]+(?:[-_][A-Za-z0-9]+)*|[\p{Script=Han}\p{Script=Katakana}ー々〆ヶ]+|\p{Script=Hiragana}+|./gu)??[]){
+    const previous=atoms[atoms.length-1];
+    if(previous!==undefined&&(lineStartForbidden.test(atom)||lineEndForbidden.test(previous)||(/^\d/u.test(atom)&&/[第約]$/u.test(previous))||(/^\p{Script=Han}/u.test(atom)&&/^第\d+$/u.test(previous))))atoms[atoms.length-1]=previous+atom;else atoms.push(atom);
+  }
+  return atoms;
+}
+function textTokens(text:string){
+  const tokens:string[]=[];let join=false;
+  for(const token of text.match(tokenPattern)??[]){
+    const previous=tokens[tokens.length-1];
+    const attach=previous!==undefined&&(join||joiner.test(token)||lineStartForbidden.test(token)||lineEndForbidden.test(previous)
+      // Particles and okurigana stay with the word before them; 第1 + 四半期 is one word.
+      ||(/^\p{Script=Hiragana}/u.test(token)&&!/[\s、。，．！？!?]$/u.test(previous))
+      ||(/^\d/u.test(token)&&/[第約]$/u.test(previous))||(/^\p{Script=Han}/u.test(token)&&/^第\d+$/u.test(previous)));
+    if(attach)tokens[tokens.length-1]=previous+token;else tokens.push(token);
+    join=joiner.test(token);
+  }
+  return tokens;
+}
 export function wrapText(text: string, width: number, fontSize: number): string[] {
   const limit = Math.max(1, width / fontSize);
   const lines: string[] = [];
@@ -51,10 +84,18 @@ export function wrapText(text: string, width: number, fontSize: number): string[
     let line = '', units = 0;
     // A number with magnitude/currency/unit, or an English word, is indivisible.
     const tokens=textTokens(paragraph);
-    for (const token of tokens) {
+    const place=(token:string)=>{
       const weight=textUnits(token);
-      if (units + weight > limit && line) { lines.push(line); line = ''; units = 0; }
+      if (units + weight > limit && line && !lineStartForbidden.test(token)) { lines.push(line); line = ''; units = 0; }
       line += token; units += weight;
+    };
+    for (const phrase of tokens) {
+      const weight=textUnits(phrase);
+      // Prefer moving a whole phrase to the next line. When that would leave this
+      // line mostly empty, break after a particle or okurigana instead; a kanji or
+      // katakana word and a number with its unit are never split.
+      if (units+weight<=limit || (line && units>=limit*.85 && weight<=limit)) { place(phrase); continue; }
+      for (const atom of wordAtoms(phrase)) for (const token of textUnits(atom)>limit&&!/^[+−△▲-]?\d/u.test(atom)?Array.from(atom):[atom]) place(token);
     }
     lines.push(line);
     // Avoid a lone trailing character. Rebalance only the last two automatic
@@ -92,6 +133,8 @@ function baseContext(slide: SlideSpec, theme: Theme, mode: DeckSpec['mode']): La
       const clean=(s:string)=>s.replace(/\s/g,'');
       role??=slide.equation&&clean(text)===clean(slide.equation.text)?'equation':slide.items.some(it=>it.value&&clean(text)===clean(it.value))?'number':bold&&size>=27?'heading':bold?'label':'body';
       const noWrap=role==='number' && slide.items.some(it=>it.value&&clean(text)===clean(it.value));
+      // A stand-alone decrease (△8.8%, -1,900億円) reads as a decrease at a glance.
+      if(isNegativeValue(text)&&contrast(color,theme.background)>=3)color=negativeColor(theme);
       const fitted = measureText(text, rect, size,noWrap);
       if (fitted.overflow) {
         (scene.textIssues ??= []).push({text,maxCharacters:fitted.maxCharacters});
@@ -103,10 +146,9 @@ function baseContext(slide: SlideSpec, theme: Theme, mode: DeckSpec['mode']): La
     },
     itemColor(index){return itemColor(theme,index);},
     panel(rect,index,style=theme.panelStyle??'tint') {
-      const color=itemColor(theme,index),fill=panelFill(theme,index);
-      if(style==='outline')scene.elements.push({kind:'shape',...rect,shape:'rect',fill:theme.background,stroke:color});
-      else scene.elements.push({kind:'shape',...rect,shape:'rect',fill});
-      scene.elements.push({kind:'shape',x:rect.x,y:rect.y,w:style==='header'?rect.w:3,h:style==='header'?5:rect.h,shape:'rect',fill:color});
+      // A plain surface or hairline frame. No edge stripes: they read as filler.
+      if(style==='outline')scene.elements.push({kind:'shape',...rect,shape:'rect',fill:theme.background,stroke:ruleColor(theme)});
+      else scene.elements.push({kind:'shape',...rect,shape:'rect',fill:panelFill(theme,index)});
     },
     shape(rect, fill, shape = 'rect',stroke) { scene.elements.push({ kind: 'shape', ...rect, fill, shape,stroke }); },
     icon(item,rect,color=theme.accent){const id=resolveItemIcon(item);if(!id)return false;scene.elements.push(...iconElements(id,rect,color));return true;},
@@ -143,31 +185,79 @@ function itemsColumn(c: LayoutContext, x: number, y: number, w: number, h: numbe
   });
 }
 
+/** Earlier period in grey, the latest in the brand colour, when two series are periods. */
+function seriesColors(c:LayoutContext,data:NonNullable<SlideSpec['chart']>){
+  const colors=chartColors(c.theme),period=/前年|前期|当期|今期|前回|今回|\d{4}年|年度|FY|Q[1-4]|四半期|月/u;
+  if(data.series.length!==2||!data.series.every(s=>period.test(s.name)))return colors;
+  let grey=mixColor(c.theme.foreground,c.theme.background,.5);for(let w=.55;contrast(grey,c.theme.background)<3&&w<=1;w+=.05)grey=mixColor(c.theme.foreground,c.theme.background,w);
+  return [grey,colors[0],...colors.slice(2)];
+}
+const signed=(value:number,unit='')=>`${value>0?'+':value<0?'△':'±'}${chartNumber(Math.abs(value))}${unit}`;
+/** Start total → signed changes → end total, drawn as editable shapes from the real values. */
+function waterfall(c:LayoutContext,rect:Rect,data:NonNullable<SlideSpec['chart']>){
+  const values=data.series[0].values,n=values.length,unit=data.unit??'';
+  const tops:number[]=[],bottoms:number[]=[];let running=0;
+  values.forEach((v,i)=>{if(i===0||i===n-1){bottoms.push(0);tops.push(v);running=v;}else{bottoms.push(running);running+=v;tops.push(running);}});
+  const low=Math.min(0,...tops,...bottoms),high=Math.max(0,...tops,...bottoms),labelH=50,valueH=24,plot={x:rect.x,y:rect.y+valueH,w:rect.w,h:rect.h-labelH-valueH};
+  const y=(v:number)=>plot.y+plot.h*(high-v)/Math.max(1e-9,high-low),step=plot.w/n,barW=Math.min(72,step*.62);
+  const total=c.theme.foreground,up=itemColor(c.theme),down=negativeColor(c.theme),rule=ruleColor(c.theme);
+  c.scene.elements.push({kind:'line',x:plot.x,y:y(0),w:plot.w,h:0,stroke:rule,strokeWidth:1});
+  values.forEach((v,i)=>{
+    const isTotal=i===0||i===n-1,x=plot.x+i*step+(step-barW)/2,top=y(Math.max(tops[i],bottoms[i])),bottom=y(Math.min(tops[i],bottoms[i]));
+    c.scene.elements.push({kind:'shape',x,y:top,w:barW,h:Math.max(1.5,bottom-top),shape:'rect',fill:isTotal?total:v<0?down:up});
+    if(i<n-1){const level=y(tops[i]);c.scene.elements.push({kind:'line',x:x+barW,y:level,w:step-barW,h:0,stroke:rule,strokeWidth:1});}
+    const label=isTotal?`${chartNumber(v)}${unit}`:signed(v,unit);
+    c.text(label,{x:plot.x+i*step,y:Math.max(rect.y,top-valueH),w:step,h:valueH},12,isTotal?c.theme.foreground:v<0?down:up,true,'center','number');
+    c.text(data.categories[i],{x:plot.x+i*step+2,y:rect.y+rect.h-labelH+6,w:step-4,h:labelH-6},11,c.theme.muted,false,'center');
+  });
+}
 function chart(c: LayoutContext, rect: Rect) {
   const data = c.slide.chart;
   if (!data) return false;
-  c.scene.elements.push({kind:'chart',...rect,chartType:data.type,categories:data.categories,series:data.series,colors:chartColors(c.theme),unit:data.unit,background:c.theme.background,gridColor:chartGridColor(c.theme),labelSize:rect.w>=700?16:14,showValues:rect.h>=200&&data.categories.length*data.series.length<=12,categoryOrder:'input'});
+  chartAt(c,data,rect);
+  return true;
+}
+/** A chart at any position (used by layouts and by AI-designed slides). */
+function chartAt(c: LayoutContext, data: NonNullable<SlideSpec['chart']>, rect: Rect) {
+  if (data.type==='waterfall') waterfall(c,rect,data);
+  else {
+    // Data labels only where each bar has room for them; neighbouring labels in a
+    // cluster otherwise overlap. A tight chart gets smaller labels, then none.
+    const horizontal=data.type==='bar'||data.type==='stackedBar',bars=data.categories.length*(isStackedChart(data.type)?1:data.series.length);
+    const bar=(horizontal?rect.h:rect.w)*.8/(bars+data.categories.length*.75),widest=Math.max(...data.series.flatMap(s=>s.values.map(v=>textUnits(chartNumber(v)))));
+    const base=rect.w>=700?16:14,fits=(size:number)=>horizontal?bar>=size*1.3:bar*.7>=widest*size;
+    const labelSize=isShareChart(data.type)||data.type==='line'||fits(base)?base:fits(12)?12:base;
+    const showValues=rect.h>=200&&bars<=12&&(isShareChart(data.type)||data.type==='line'||fits(labelSize));
+    c.scene.elements.push({kind:'chart',...rect,chartType:data.type,categories:data.categories,series:data.series,colors:seriesColors(c,data),unit:data.unit,background:c.theme.background,gridColor:chartGridColor(c.theme),labelSize,showValues,categoryOrder:'input'});
+  }
   const unitWidth=isShareChart(data.type)&&data.unit?Math.min(rect.w*.45,Math.max(80,textUnits(data.unit)*12+42)):0;
   if (unitWidth) c.text(`単位：${data.unit}`,{x:rect.x+rect.w-unitWidth,y:rect.y+rect.h+6,w:unitWidth,h:36},12,c.theme.muted,false,'right');
   if (data.caption) c.text(data.caption,{x:rect.x,y:rect.y+rect.h+6,w:rect.w-(unitWidth?unitWidth+16:0),h:36},12,c.theme.muted);
-  return true;
 }
 function table(c: LayoutContext, rect: Rect) {
   const data = c.slide.table;
   if (!data?.headers.length) return false;
+  tableAt(c,data,rect);
+  return true;
+}
+function tableAt(c: LayoutContext, data: NonNullable<SlideSpec['table']>, rect: Rect, requested?: number) {
   const columns = data.headers.length;
   const rows = data.rows;
   const rowH = rect.h/(rows.length+1);
   const colW = rect.w/columns;
+  // A table placed by the AI takes the largest size (down to 10pt) at which every cell fits.
+  const cellFits=(s:number)=>[data.headers,...rows].every(row=>row.every(cell=>wrapText(cell,colW-28,s).length*s*1.35+3<=rowH-Math.min(9,Math.max(3,(rowH-s*1.35-3)/2))*2));
+  let size=requested??17;
+  if(requested!==undefined)while(size>10&&!cellFits(size))size--;
   const strong=c.theme.tableStyle==='contrast';
   c.shape({x:rect.x,y:rect.y,w:rect.w,h:rowH}, strong?c.theme.accent:c.theme.pale);
-  data.headers.forEach((header,i)=>c.text(header,{x:rect.x+i*colW+10,y:rect.y+9,w:colW-20,h:rowH-18},17,strong?c.theme.background:c.theme.foreground,true));
+  const pad=Math.min(9,Math.max(3,(rowH-size*1.35-3)/2));
+  data.headers.forEach((header,i)=>c.text(header,{x:rect.x+i*colW+10,y:rect.y+pad,w:colW-20,h:rowH-pad*2},size,strong?c.theme.background:c.theme.foreground,true));
   rows.forEach((row,r)=> {
     if(c.theme.tableStyle==='striped' && r%2===1)c.shape({x:rect.x,y:rect.y+(r+1)*rowH,w:rect.w,h:rowH},c.theme.pale);
     c.line(rect.x,rect.y+(r+2)*rowH,rect.w);
-    row.forEach((cell,i)=>c.text(cell,{x:rect.x+i*colW+10,y:rect.y+(r+1)*rowH+9,w:colW-20,h:rowH-18},17));
+    row.forEach((cell,i)=>c.text(cell,{x:rect.x+i*colW+10,y:rect.y+(r+1)*rowH+pad,w:colW-20,h:rowH-pad*2},size));
   });
-  return true;
 }
 function diagram(c: LayoutContext, layout: 'process'|'cycle'|'hierarchy'|'list', rect: Rect) {
   const items = c.slide.diagram?.items ?? c.slide.items;
@@ -178,36 +268,34 @@ function diagram(c: LayoutContext, layout: 'process'|'cycle'|'hierarchy'|'list',
 }
 
 registerLayout({ id:'cover', name:'表紙', description:'題名と導入を大きく見せる表紙', maxItems:3, render(c) {
+  // Large colour fields and type only: no stripes or underlines.
   if(c.theme.coverStyle==='block') {
     c.shape({x:0,y:0,w:240,h:540},c.theme.accent);
-    c.shape({x:240,y:0,w:720,h:20},c.theme.pale);
     c.text(c.slide.title,{x:284,y:108,w:620,h:221},42,c.theme.foreground,true);
     c.text(c.slide.headline||c.slide.body||'',{x:286,y:373,w:604,h:93},23,c.theme.muted);
     return;
   }
   if(c.theme.coverStyle==='split') {
     c.shape({x:0,y:0,w:310,h:540},c.theme.pale);
-    c.shape({x:304,y:0,w:8,h:540},c.theme.accent);
     c.text(c.slide.title,{x:353,y:104,w:550,h:230},40,c.theme.foreground,true);
     c.text(c.slide.headline||c.slide.body||'',{x:355,y:368,w:540,h:102},22,c.theme.muted);
     return;
   }
   if(c.theme.coverStyle==='band') {
-    c.shape({x:0,y:70,w:960,h:270},c.theme.pale);
-    c.shape({x:56,y:70,w:94,h:6},c.theme.accent);
-    c.text(c.slide.title,{x:62,y:113,w:836,h:196},42,c.theme.foreground,true);
-    c.text(c.slide.headline||c.slide.body||'',{x:65,y:385,w:828,h:84},23,c.theme.muted);
+    // A full-bleed dark cover (the opening of a dark/light/dark sandwich).
+    const field=coverField(c.theme),ink=readableColor('#FFFFFF',field);
+    c.shape({x:0,y:0,w:960,h:540},field);
+    c.text(c.slide.title,{x:64,y:150,w:800,h:190},44,ink,true);
+    c.text(c.slide.headline||c.slide.body||'',{x:66,y:366,w:780,h:84},22,mixColor(ink,field,.78));
     return;
   }
-  c.shape({x:0,y:0,w:14,h:540},c.theme.accent);
-  c.text(c.slide.title,{x:66,y:132,w:790,h:178},42,c.theme.foreground,true);
-  c.line(68,329,72,c.theme.accent);
-  c.text(c.slide.headline || c.slide.body || '',{x:68,y:358,w:768,h:93},23,c.theme.muted);
+  c.text(c.slide.title,{x:66,y:132,w:790,h:178},44,c.theme.foreground,true);
+  c.text(c.slide.headline || c.slide.body || '',{x:68,y:350,w:768,h:93},23,c.theme.muted);
 }});
 registerLayout({ id:'evidence', name:'主張と根拠', description:'図表の横に短い読み取り。長い表はtable_fullを使う', maxItems:3, chart:true,table:true,textBudget:'右欄の項目名8文字、説明18文字以内。表は短い数値中心。', render(c) {
   if (c.slide.chart || c.slide.table) {
     if (!chart(c,{x:54,y:162,w:574,h:272})) table(c,{x:54,y:162,w:574,h:292});
-    c.shape({x:661,y:157,w:3,h:289},c.theme.accent);
+    c.shape({x:661,y:157,w:1,h:289},ruleColor(c.theme));
     itemsColumn(c,685,158,218,291);
   } else {
     c.text(c.slide.headline || c.slide.body || '',{x:56,y:163,w:398,h:242},32,c.theme.accent,true);
@@ -269,9 +357,12 @@ registerLayout({ id:'summary', name:'要点', description:'要点と必要な説
   itemsColumn(c,66,164,826,302,true);
 }});
 
+/** Dark field of a full-bleed cover: the theme's ink on light themes, its accent field on dark ones. */
+function coverField(theme:Theme){return contrast(theme.foreground,'#FFFFFF')>=7?theme.foreground:mixColor(theme.accent,'#000000',.45);}
 /** The deck's theme: a built-in theme, or the company template copied into the deck. */
-export function deckTheme(deck:Pick<DeckSpec,'themeId'|'typographyId'|'customTheme'>):Theme{
+export function deckTheme(deck:Pick<DeckSpec,'themeId'|'typographyId'|'customTheme'|'aiTheme'>):Theme{
   if(deck.themeId===TEMPLATE_THEME_ID&&deck.customTheme)return deck.typographyId?withTypography(deck.customTheme,deck.typographyId):deck.customTheme;
+  if(deck.themeId===AI_THEME_ID&&deck.aiTheme)return deck.typographyId?withTypography(deck.aiTheme,deck.typographyId):deck.aiTheme;
   return withTypography(themes[deck.themeId] ?? themes.paper,deck.typographyId);
 }
 const superscripts='⁰¹²³⁴⁵⁶⁷⁸⁹';
@@ -292,25 +383,30 @@ export function compileDeck(deck: DeckSpec): RenderDocument {
   const result:RenderDocument={title:deck.title,mode:deck.mode,theme,width:960,height:540,slides:[]};
   for(const [i,source] of deck.slides.entries()) {
     const slide=citedSlide(source);
-    const numbered=slide.sources.length>1||slide.items.some(item=>item.refs?.length);
+    const numbered=slide.sources.length>1||slide.items.some(item=>item.refs?.length)||!!slide.design?.elements.some(e=>e.t==='text'&&e.refs?.length);
     const c=baseContext(slide,theme,deck.mode);
     const layout=registry.get(slide.layoutId) ?? registry.get('summary')!;
     if(!registry.has(slide.layoutId)) c.scene.warnings.push(`未登録の構図「${slide.layoutId}」は要点の配置で表示しました。`);
-    if(layout.id!=='cover') {
-      if(theme.headingStyle==='band') c.shape({x:0,y:0,w:960,h:135},theme.pale);
-      if(theme.headingStyle==='accent') c.shape({x:24,y:46,w:6,h:73},theme.accent);
-      c.text(slide.title,{x:56,y:34,w:848,h:96},deck.mode==='presentation'?34:32,theme.foreground,true,'left','heading');
-      c.line(56,139,848);
+    // An AI-designed slide draws its own title and composition.
+    if(slide.design){
+      drawDesign(c,slide.design,designHelpers);
+      // PowerPoint measures the real glyphs; an AI-placed text a little too wide is set
+      // up to 20% smaller there instead of stopping the whole export.
+      for(const el of c.scene.elements)if(el.kind==='text'&&!el.exact)el.minFontSize=Math.max(9,Math.floor(el.fontSize*.8));
     }
-    layout.render(c);
+    else {
+      // The title is set apart by size and white space; no band, bar or underline.
+      if(layout.id!=='cover') c.text(slide.title,{x:56,y:34,w:848,h:96},deck.mode==='presentation'?34:32,theme.foreground,true,'left','heading');
+      layout.render(c);
+    }
     const footer=slide.sources.map((s,index)=>sourceLine(s,index,numbered)).join(' / ');
-    c.line(56,496,848);
     const footerWidth=deck.pageNumbers===false?848:774;
-    if(footer){const rect={x:56,y:505,w:footerWidth,h:22};c.text(measureText('出典 '+footer,rect,10).overflow?`出典 ${slide.sources.map((_,i)=>`[${i+1}]`).join(' ')}　資料名・位置・引用は発表者ノートに記載`:'出典 '+footer,rect,10,theme.muted);}
-    if(deck.pageNumbers!==false)c.text(`${i+1} / ${deck.slides.length}`,{x:837,y:505,w:67,h:22},10,theme.muted,false,'right');
+    const field=!slide.design&&layout.id==='cover'&&theme.coverStyle==='band'?coverField(theme):undefined,footerColor=slide.design?footerInk(theme,slide.design):field?mixColor(readableColor('#FFFFFF',field),field,.62):theme.muted;
+    if(footer){const rect={x:56,y:505,w:footerWidth,h:22};c.text(measureText('出典 '+footer,rect,10).overflow?`出典 ${slide.sources.map((_,i)=>`[${i+1}]`).join(' ')}　資料名・位置・引用は発表者ノートに記載`:'出典 '+footer,rect,10,footerColor);}
+    if(deck.pageNumbers!==false)c.text(`${i+1} / ${deck.slides.length}`,{x:837,y:505,w:67,h:22},10,footerColor,false,'right');
     if(slide.sources.length)c.scene.notes+='\n\n出典:\n'+slide.sources.map((s,index)=>`${sourceLine(s,index,true)}${s.quote?'\n「'+s.quote+'」':''}`).join('\n');
     // Retain structured content in notes when a chosen layout has no dedicated field.
-    c.scene.notes+='\n\n内容:\n'+[slide.headline,slide.body,...slide.items.map(it=>[it.label,it.value,it.description].filter(Boolean).join(' — ')),slide.equation?.text,slide.equation?.explanation].filter(Boolean).join('\n');
+    c.scene.notes+='\n\n内容:\n'+[slide.headline,slide.body,...slide.items.map(it=>[it.label,it.value,it.description].filter(Boolean).join(' — ')),slide.equation?.text,slide.equation?.explanation,...designTexts(slide).filter(text=>text!==slide.title)].filter(Boolean).join('\n');
     const unknown:SceneElement[]=c.scene.elements.filter(el=>el.x<0||el.y<0||el.x+el.w>961||el.y+el.h>541);
     if(unknown.length)throw new Error(`「${slide.title}」の配置がスライドの範囲外です。`);
     c.scene.warnings=[...new Set(c.scene.warnings)];
@@ -352,3 +448,33 @@ registerLayout({id:'chart_icon_notes',name:'グラフとアイコン付きの読
   chart(c,{x:56,y:161,w:555,h:264});const step=316/Math.max(1,c.slide.items.length);
   c.slide.items.forEach((item,i)=>{const y=159+i*step,color=c.itemColor(i);c.panel({x:643,y,w:261,h:step-12},i,'tint');const icon=c.icon(item,{x:654,y:y+14,w:30,h:30},color);c.text(item.label,{x:icon?695:661,y:y+12,w:icon?193:227,h:38},23,color,true,'left','label');c.text([item.value,item.description].filter(Boolean).join('  '),{x:661,y:y+57,w:227,h:step-76},18);});
 }});
+/** Colour of a change line: decreases in the loss colour, increases in the brand colour. */
+function deltaColor(c:LayoutContext,text='') {return /[△▲−]\s?\d|(?:^|[^\d])-\d/u.test(text)?negativeColor(c.theme):/\+\s?\d|増加|増益|改善/u.test(text)?itemColor(c.theme):c.theme.muted;}
+registerLayout({id:'design_stat_hero',name:'大きな数字を主役にする',group:'metrics',description:'2〜4つの主要な値を大きく並べ、小さな指標名と増減を添える',maxItems:4,minItems:2,references:['cone'],
+  placement:'枠を使わず、値を最大の文字にする。3つまでは横一列、4つは2×2。区切りは細い線だけ。増減は減少を赤、増加を基調色で示す',
+  whenToUse:'最初に主要な数値を印象づけたいとき。決算・成果・調査結果の主要指標',avoidWhen:'値のない項目や、長い説明が必要な項目には使わない。',
+  textBudget:'指標名12文字、値は単位付きで12文字、説明（増減・条件）20文字。',render(c){
+  const items=c.slide.items.slice(0,4),grid=items.length===4,cols=grid?2:Math.max(1,items.length),rows=grid?2:1;
+  const lead=c.slide.headline&&c.slide.headline!==c.slide.title?c.slide.headline:'',top=lead?204:178,cellH=((grid?490:475)-top)/rows,cellW=848/cols,w=cellW-36;
+  if(lead)c.text(lead,{x:56,y:150,w:848,h:44},20,c.theme.muted);
+  const longest=Math.max(1,...items.map(item=>textUnits(item.value||''))),size=Math.max(28,Math.min(cols===1?72:cols===2?56:48,Math.floor((w-10)/longest),Math.floor((cellH-(grid?82:66))/1.35)));
+  items.forEach((item,i)=>{
+    const x=56+(i%cols)*cellW,y=top+Math.floor(i/cols)*cellH;
+    if(i%cols)c.shape({x:x-18,y:y+4,w:1,h:cellH-22},ruleColor(c.theme));
+    if(grid&&i>=2)c.line(56,y-12,848,ruleColor(c.theme));
+    c.text(item.label,{x,y,w,h:27},17,c.theme.muted,true,'left','label');
+    c.text(item.value||'',{x,y:y+28,w,h:size*1.35+4},size,c.theme.foreground,true,'left','number');
+    c.text(item.description||'',{x,y:y+36+size*1.35,w,h:Math.max(26,cellH-size*1.35-(grid?56:52))},17,deltaColor(c,item.description),true);
+  });
+}});
+
+/** Helpers handed to AI-designed slides: native charts and tables at the AI's position. */
+const designHelpers={
+  chart:(c:LayoutContext,data:NonNullable<SlideSpec['chart']>,rect:Rect)=>chartAt(c,data,data.caption||(isShareChart(data.type)&&data.unit)?{...rect,h:Math.max(60,rect.h-42)}:rect),
+  table:(c:LayoutContext,data:NonNullable<SlideSpec['table']>,rect:Rect,size?:number)=>tableAt(c,data,rect,size),
+  marker:citationMarker,
+  wrap:wrapText,
+};
+registerLayout({id:FREE_LAYOUT_ID,name:'AIによる自由デザイン',group:'free',description:'AIが要素の位置・図形・色を決めて描くページ',maxItems:8,autoSelect:false,
+  placement:'design.elementsの座標どおりに描画。題名もAIが配置する',whenToUse:'内容に合わせた図解・インフォグラフィックをAIに任せるとき',avoidWhen:'図形の大きさで数量を示す場合は実際の値に比例させる。',
+  textBudget:'文字枠は実測して収まるか確認する。はみ出す場合は短くするか枠を広げる。',render(c){if(c.slide.design)drawDesign(c,c.slide.design,designHelpers);}});

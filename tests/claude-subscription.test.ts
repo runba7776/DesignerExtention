@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
+import {existsSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {ClaudeSubscription,claudeEnvironment,runClaude,type ClaudeRun,type ClaudeRunResult,type ClaudeRunner} from '../server/claude-subscription.js';
@@ -106,5 +107,28 @@ test('real local process runner uses argument arrays and rejects oversized outpu
     await assert.rejects(runClaude({...base,args:['-e','setInterval(()=>{},1000)'],timeoutMs:30}),/timeout/);
     const controller=new AbortController();controller.abort();await assert.rejects(runClaude({...base,signal:controller.signal}),/interrupted/);
     const hidden=await runClaude({...base,args:['-e','console.log("not-returned")'],discardOutput:true});assert.equal(hidden.stdout,'');
+  }finally{await rm(cwd,{recursive:true,force:true});}
+});
+
+test('the app instructions replace Claude Code\'s own system prompt through a private file; the input JSON is sent unescaped',async()=>{
+  const cwd=await mkdtemp(path.join(tmpdir(),'designer-claude-file-')),calls:ClaudeRun[]=[];let seen='';
+  const runner:ClaudeRunner=async run=>{
+    calls.push(run);
+    if(run.args.includes('--version'))return {stdout:'2.1.291 (Claude Code)',exitCode:0};
+    if(run.args.includes('--help'))return {stdout:help+' via: --system-prompt[-file], --append-system-prompt[-file]',exitCode:0};
+    if(run.args.includes('status'))return response(auth);
+    const file=run.args[run.args.indexOf('--system-prompt-file')+1];seen=readFileSync(file,'utf8');
+    return response({result:'{"kind":"outline"}',usage:{input_tokens:50,output_tokens:5}});
+  };
+  const client=new ClaudeSubscription({cwd,command:{file:'official-claude'},runner,env:{PATH:'safe-path'}});
+  try{
+    await client.status();
+    const input='{"documents":[{"text":"引用 \\"原文\\""}]}';
+    const completion=await client.provider('sonnet').complete({system:'日本語のJSONだけを返す。',content:input,maxTokens:8000});
+    assert.equal(completion.text,'{"kind":"outline"}');
+    const run=calls.find(r=>r.args.includes('-p'))!,file=run.args[run.args.indexOf('--system-prompt-file')+1];
+    assert.equal(seen,'日本語のJSONだけを返す。');assert.ok(file.startsWith(path.join(cwd,'prompts')));assert.equal(existsSync(file),false,'the file is removed after the call');
+    assert.ok(run.stdin!.startsWith(input),'the input is passed as written, not escaped inside another JSON string');
+    assert.ok(!run.args.includes(input)&&!run.args.includes('日本語のJSONだけを返す。'));
   }finally{await rm(cwd,{recursive:true,force:true});}
 });

@@ -42,7 +42,7 @@ export function createRenderBridge(projectRoot: string) {
             const stderr = (error as {stderr?: string}).stderr ?? '';
             // Office occasionally returns a stale embedded Excel connection on the
             // next deck. Recreate our own unsaved deck once; never call the LLM again.
-            const transient = /RPC_E_CALL_REJECTED|0x80010001/i.test(stderr) || (/グラフ(?:データの(?:初期化|書き込み)|のセル入力)/.test(stderr) && /E_FAIL|RPC_E_DISCONNECTED|0x80010108|0x800706BA|0x800401FD/i.test(stderr));
+            const transient = /RPC_E_CALL_REJECTED|0x80010001/i.test(stderr) || (/グラフ(?:データの(?:初期化|書き込み)|のセル入力)/.test(stderr) && /E_FAIL|RPC_E_DISCONNECTED|0x80010108|0x800706BA|0x800401FD|キャスト|InvalidCast/i.test(stderr));
             const alreadySaved = await fs.access(path.join(directory, 'presentation.pptx')).then(()=>true,()=>false);
             if (attempt > 0 || !transient || alreadySaved || Date.now()+5000 >= deadline) throw error;
             await new Promise(resolve=>setTimeout(resolve, 1500));

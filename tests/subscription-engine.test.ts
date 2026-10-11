@@ -15,7 +15,7 @@ const render=async():Promise<RenderResult>=>({artifactId:'sample',pptxUrl:'/api/
 async function fixture(count=6){
   const directory=await mkdtemp(path.join(tmpdir(),'de-subscription-engine-'));
   const settings=await new SettingsStore(directory,'DO_NOT_IMPORT_ENV_SECRET').load();
-  await settings.update({provider:'subscription',subscriptionService:'chatgpt',slideCount:count,autoRepair:false});
+  await settings.update({provider:'subscription',subscriptionService:'chatgpt',slideCount:count,autoRepair:false,designMode:'template'});
   const bindings:Partial<Record<SubscriptionService,string>>={chatgpt:'opaque-account-A-generation-1',claude:'opaque-claude-generation-1'};
   const calls:CompletionRequest[]=[];
   const outline=demoOutline('説明する内容','presentation',[],count),deck=demoDeck(outline);

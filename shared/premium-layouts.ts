@@ -1,6 +1,7 @@
 import type {LayoutContext as C,LayoutDefinition} from './layouts';
 import type {Rect,SlideItem} from './contracts';
 import type {LayoutGroup,ResearchSource} from './layout-guidance';
+import {ruleColor} from './color';
 
 type Helpers={table:(c:C,r:Rect)=>boolean;chart:(c:C,r:Rect)=>boolean;items:(c:C,x:number,y:number,w:number,h:number,numbered?:boolean)=>void;diagram:(c:C,type:'process'|'cycle'|'hierarchy'|'list',r:Rect)=>void};
 const label=(i:SlideItem)=>[i.label,i.value].filter(Boolean).join('  ');
@@ -61,7 +62,7 @@ export function registerPremiumLayouts(register:(v:LayoutDefinition)=>void,h:Hel
     const w=872/c.slide.items.length;c.line(76,458,809,c.theme.accent);c.slide.items.forEach((item,i)=>{const x=56+i*w,y=i%2?213:160;badge(c,String(i+1),x,y);copy(c,item,{x,y:y+61,w:w-25,h:380-y});c.shape({x:x+20,y:439,w:2,h:19},c.theme.accent);});
   });
   add('milestone_flags','旗型のマイルストーン','timeline','下の横軸から各時点の縦線を立て、上に説明を掲げる','各出来事を同じ重さで順に紹介するとき',4,c=>{
-    const w=872/c.slide.items.length;c.line(56,463,848,c.theme.accent);c.slide.items.forEach((item,i)=>{const x=56+i*w;c.shape({x,y:165,w:3,h:298},c.theme.accent);c.shape({x:x+12,y:165,w:w-39,h:74},c.theme.pale);c.text(label(item),{x:x+24,y:181,w:w-63,h:48},22,c.theme.accent,true);c.text(item.description||'',{x:x+15,y:266,w:w-40,h:157},19);});
+    const w=872/c.slide.items.length;c.line(56,463,848,c.theme.accent);c.slide.items.forEach((item,i)=>{const x=56+i*w;c.shape({x,y:165,w:1,h:292},ruleColor(c.theme));c.shape({x:x-6,y:457,w:13,h:13},c.theme.accent,'ellipse');c.text(label(item),{x:x+16,y:165,w:w-40,h:58},22,c.theme.accent,true);c.text(item.description||'',{x:x+16,y:236,w:w-40,h:187},19);});
   });
   add('timeline_two_rows','二段に折り返す年表','timeline','上段を左から右、下段も左から右へ番号付きで続ける','4〜6の時点を広い説明枠に分けるとき',6,c=>{
     const cols=Math.ceil(c.slide.items.length/2),w=872/cols;c.slide.items.forEach((item,i)=>{const x=56+i%cols*w,y=159+Math.floor(i/cols)*165;c.text(String(i+1).padStart(2,'0'),{x,y,w:37,h:32},18,c.theme.muted);c.line(x+43,y+16,w-68,c.theme.accent);copy(c,item,{x,y:y+43,w:w-24,h:109});});

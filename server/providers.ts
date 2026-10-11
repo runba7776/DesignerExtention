@@ -38,9 +38,19 @@ export function createProvider(settings: Settings, apiKey?: string, fetcher: typ
   };
 }
 
+/** The reply's JSON. A model sometimes adds a sentence before or after it, or a
+ * fenced block in the middle; the complete JSON object inside is accepted as is
+ * (nothing is added or closed). An unreadable reply keeps its text privately so
+ * the caller can recover finished pages from it. */
 export function parseJsonResponse(text:string):unknown {
   const cleaned=text.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
-  try{return JSON.parse(cleaned);}catch{throw new AppError(422,'AIの出力形式が正しくありません。最後まで閉じたJSONを返すよう指示してください。','INVALID_MODEL_JSON');}
+  try{return JSON.parse(cleaned);}catch{/* Look for the JSON inside the reply. */}
+  const fenced=/```(?:json)?\s*([\s\S]*?)```/i.exec(text)?.[1],start=text.indexOf('{'),end=text.lastIndexOf('}');
+  for(const candidate of [fenced,start>=0&&end>start?text.slice(start,end+1):undefined]){
+    if(!candidate)continue;
+    try{const value=JSON.parse(candidate);if(value&&typeof value==='object'&&!Array.isArray(value))return value;}catch{/* Try the next form. */}
+  }
+  throw Object.assign(new AppError(422,'AIの出力形式が正しくありません。最後まで閉じたJSONを返すよう指示してください。','INVALID_MODEL_JSON'),{partialText:text});
 }
 const number=(value:unknown)=>typeof value==='number'&&Number.isFinite(value)&&value>=0?value:0;
 async function boundedResponse(response:Response){

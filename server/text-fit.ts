@@ -11,6 +11,11 @@ export function textFields(slide:SlideSpec) {
   slide.table?.rows.forEach((row,r)=>row.forEach((value,c)=>fields[`table.rows.${r}.${c}`]=value));
   if(slide.chart?.caption)fields['chart.caption']=slide.chart.caption;
   if(slide.equation?.explanation)fields['equation.explanation']=slide.equation.explanation;
+  // An AI-designed slide: each text element can be shortened in place.
+  slide.design?.elements.forEach((e,i)=>{
+    if(e.t==='text'&&e.role!=='title')fields[`design.elements.${i}.text`]=e.text;
+    if(e.t==='table'){e.headers.forEach((v,j)=>fields[`design.elements.${i}.headers.${j}`]=v);e.rows.forEach((row,r)=>row.forEach((v,j)=>fields[`design.elements.${i}.rows.${r}.${j}`]=v));}
+  });
   return fields;
 }
 

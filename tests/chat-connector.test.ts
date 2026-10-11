@@ -37,7 +37,7 @@ test('connector refuses public/credential/redirect-shaped startup addresses befo
 
 test('connector does not expose offline sessions, choose ambiguous work, or accept path-like IDs',async()=>{
   const dir=await state();let mode='multiple',calls=0;
-  const client=new ChatConnector(dir,async url=>{calls++;const route=new URL(String(url)).pathname;return new Response(JSON.stringify(route==='/api/chat-tasks'?{sessions:mode==='multiple'?[{id:sessionId,task:'plan'},{id:requestId,task:'generate'}]:[]}:{id:sessionId,provider:'local',chatHandoff:{requestId,instruction:'private'}}));});
+  const client=new ChatConnector(dir,async url=>{calls++;const route=new URL(String(url)).pathname;return new Response(JSON.stringify(route==='/api/chat-tasks'?{sessions:mode==='multiple'?[{id:sessionId,task:'plan'},{id:requestId,task:'generate'}]:[]}:{id:sessionId,provider:'local',designMode:'template',chatHandoff:{requestId,instruction:'private'}}));});
   try{
     await assert.rejects(client.task(),/複数/);mode='none';await assert.rejects(client.task(),/開始/);
     await assert.rejects(client.task(sessionId),/ローカルLLM/);const prior=calls;

@@ -103,6 +103,7 @@ namespace DesignerExtension.Native
                         else if (kind == "line") AddLine(slide, e);
                         else if (kind == "chart") AddChart(slide, e, i + 1);
                         else if (kind == "smartart") AddSmartArt(app, slide, e, i + 1);
+                        else if (kind == "image") AddImage(slide, e, output, i + 1);
                         else throw new InvalidDataException("Unknown element kind: " + kind);
                     }
                     Stage = "スライド " + (i + 1) + " のノート保存";
@@ -237,11 +238,16 @@ namespace DesignerExtension.Native
             range.Font.NameFarEast = ResolveFont(Text(e, "fontFarEast", Text(e, "font", FontName)), FontName);
             range.Font.Size = Number(e, "fontSize", 22);
             range.Font.Bold = Boolean(e, "bold") ? -1 : 0;
+            range.Font.Italic = Boolean(e, "italic") ? -1 : 0;
             range.Font.Fill.ForeColor.RGB = Color(Text(e, "color", null), Foreground);
             string align = Text(e, "align", "left");
             range.ParagraphFormat.Alignment = align == "center" ? 2 : align == "right" ? 3 : 1;
             range.ParagraphFormat.SpaceAfter = Number(e, "paragraphSpacing", 0);
-            FitNativeText(frame, Number(e,"w"), Number(e,"h"), Number(e,"fontSize",22), slideNumber);
+            // Fixed line pitch (points between baselines) for text laid out by a browser.
+            if (e.ContainsKey("lineHeight")) { range.ParagraphFormat.LineRuleWithin = 0; range.ParagraphFormat.SpaceWithin = Number(e, "lineHeight", 0); }
+            // Browser-measured text keeps its lines; only report if PowerPoint sets it wider.
+            if (Boolean(e, "exact")) { if ((float)range.BoundWidth > Number(e, "w") * 1.08f) Warnings.Add("スライド " + slideNumber + ": 文字がわずかに枠より広く表示されます（" + Short(Convert.ToString(range.Text)) + "）。"); }
+            else FitNativeText(frame, Number(e,"w"), Number(e,"h"), Number(e,"fontSize",22), slideNumber, Number(e, "minFontSize", 0));
             return shape;
         }
 
@@ -259,10 +265,10 @@ namespace DesignerExtension.Native
             return resolved;
         }
 
-        private static void FitNativeText(dynamic frame, float width, float height, float requested, int slideNumber)
+        private static void FitNativeText(dynamic frame, float width, float height, float requested, int slideNumber, float allowedMinimum = 0)
         {
             dynamic range = frame.TextRange;
-            float minimum = requested >= 27 ? Math.Max(24, requested * .8f) : requested >= 17 ? 17 : requested;
+            float minimum = allowedMinimum > 0 ? Math.Min(requested, allowedMinimum) : requested >= 27 ? Math.Max(24, requested * .8f) : requested >= 17 ? 17 : requested;
             float availableWidth = width - (float)frame.MarginLeft - (float)frame.MarginRight;
             float availableHeight = height - (float)frame.MarginTop - (float)frame.MarginBottom;
             float size = requested;
@@ -278,16 +284,44 @@ namespace DesignerExtension.Native
         private static void AddShape(dynamic slide, Dictionary<string, object> e)
         {
             string kind = Text(e, "shape", "rect");
-            int shapeType = kind == "roundRect" ? 5 : kind == "ellipse" ? 9 : kind == "triangle" ? 7 : kind == "arrow" ? 33 : 1;
-            dynamic shape = slide.Shapes.AddShape(shapeType, Number(e, "x"), Number(e, "y"), Number(e, "w"), Number(e, "h"));
+            dynamic shape = slide.Shapes.AddShape(ShapeType(kind), Number(e, "x"), Number(e, "y"), Number(e, "w"), Number(e, "h"));
             string fill = Text(e, "fill", "#FFFFFF");
             if (fill == "none" || fill == "transparent") shape.Fill.Visible = 0;
-            else { shape.Fill.Visible = -1; shape.Fill.Solid(); shape.Fill.ForeColor.RGB = Color(fill); }
+            else
+            {
+                shape.Fill.Visible = -1; shape.Fill.Solid(); shape.Fill.ForeColor.RGB = Color(fill);
+                if (e.ContainsKey("opacity")) shape.Fill.Transparency = (float)Math.Max(0, Math.Min(1, 1 - Number(e, "opacity", 1)));
+            }
+            // Corner radius of a rounded rectangle, as a share of the shorter side (0-0.5).
+            if (kind == "roundRect" && e.ContainsKey("radius")) { try { shape.Adjustments[1] = (float)Math.Max(0, Math.Min(.5f, Number(e, "radius", .1f))); } catch { } }
             string stroke = Text(e, "stroke", "none");
             if (stroke == "none" || stroke == "transparent") shape.Line.Visible = 0;
             else { shape.Line.Visible = -1; shape.Line.ForeColor.RGB = Color(stroke); shape.Line.Weight = Number(e, "strokeWidth", 1); }
             if (e.ContainsKey("rotation")) shape.Rotation = Number(e, "rotation");
             Release((object)shape);
+        }
+
+        /// <summary>Inserts SVG artwork (or PNG data) as a picture. The file is written next to the output and removed.</summary>
+        private static void AddImage(dynamic slide, Dictionary<string, object> e, string output, int slideNumber)
+        {
+            string svg = Text(e, "svg", null), png = Text(e, "png", null);
+            if (string.IsNullOrEmpty(svg) && string.IsNullOrEmpty(png)) return;
+            string file = Path.Combine(output, "image-" + slideNumber + "-" + Guid.NewGuid().ToString("N") + (svg != null ? ".svg" : ".png"));
+            if (svg != null) File.WriteAllText(file, svg, new UTF8Encoding(false)); else File.WriteAllBytes(file, Convert.FromBase64String(png));
+            try { dynamic picture = slide.Shapes.AddPicture(file, 0, -1, Number(e, "x"), Number(e, "y"), Number(e, "w"), Number(e, "h")); Release((object)picture); }
+            finally { try { File.Delete(file); } catch { } }
+        }
+
+        /// <summary>msoAutoShapeType for the shapes an AI-designed slide may use.</summary>
+        private static int ShapeType(string kind)
+        {
+            switch (kind)
+            {
+                case "roundRect": return 5; case "ellipse": return 9; case "triangle": return 7; case "arrow": return 33;
+                case "leftArrow": return 34; case "upArrow": return 35; case "downArrow": return 36; case "chevron": return 52;
+                case "pentagon": return 51; case "hexagon": return 10; case "diamond": return 4; case "parallelogram": return 2;
+                case "trapezoid": return 3; case "octagon": return 6; case "donut": return 18; default: return 1;
+            }
         }
 
         private static void AddLine(dynamic slide, Dictionary<string, object> e)
@@ -297,6 +331,8 @@ namespace DesignerExtension.Native
             shape.Line.ForeColor.RGB = Color(Text(e, "stroke", "#D7DEE5"));
             shape.Line.Weight = Number(e, "strokeWidth", 1);
             if (Boolean(e, "arrow")) shape.Line.EndArrowheadStyle = 3;
+            if (Boolean(e, "arrowStart")) shape.Line.BeginArrowheadStyle = 3;
+            if (Boolean(e, "dash")) shape.Line.DashStyle = 4;
             Release((object)shape);
         }
 
@@ -431,10 +467,14 @@ namespace DesignerExtension.Native
                     dynamic valueAxis = chart.Axes(2, 1);
                     valueAxis.HasMajorGridlines = true;
                     valueAxis.MajorGridlines.Format.Line.ForeColor.RGB = Color(Text(e,"gridColor","#E3E8EE"));
-                    valueAxis.TickLabels.NumberFormat = "General";
+                    // Thousands separators on the scale ("2,500,000", not "2500000").
+                    bool fractionalScale = false; foreach (object item in series) foreach (object number in ArrayOf(AsObject(item),"values")) { double v = Convert.ToDouble(number); if (v != Math.Truncate(v)) fractionalScale = true; }
+                    valueAxis.TickLabels.NumberFormat = fractionalScale ? "#,##0.0" : "#,##0";
                     valueAxis.TickLabels.Font.Color = Foreground; valueAxis.TickLabels.Font.Size = Number(e,"labelSize",14);
                     valueAxis.TickLabelPosition = -4134;
                     dynamic categoryAxis = chart.Axes(1,1); categoryAxis.TickLabels.Font.Color = Foreground; categoryAxis.TickLabels.Font.Size = Number(e,"labelSize",14); categoryAxis.TickLabelSpacing = 1; categoryAxis.TickLabelPosition = -4134;
+                    // Category names stay horizontal and wrap instead of being turned diagonally.
+                    categoryAxis.TickLabels.Orientation = -4128;
                     Release((object)categoryAxis);
                     string unit = Text(e, "unit", "");
                     if (unit.Length > 0) { valueAxis.HasTitle = true; valueAxis.AxisTitle.Text = unit; valueAxis.AxisTitle.Font.Size = 12; }

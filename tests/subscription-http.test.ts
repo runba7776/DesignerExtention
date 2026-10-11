@@ -76,7 +76,7 @@ test('subscription HTTP routes require a local authenticated origin and return p
 
 test('mock login provider completes create, generate and revise through HTTP, with consent and changed-account guards',async()=>{
   const f=await fixture();try{
-    const selected=await f.request('/settings',{provider:'subscription',subscriptionService:'chatgpt',autoRepair:false,apiKey:'FAKE_UNUSED_API_SECRET'},'PUT');assert.equal(selected.status,200);assert.equal(selected.body.model,'auto');assert.equal(selected.body.hasKey,false);
+    const selected=await f.request('/settings',{provider:'subscription',subscriptionService:'chatgpt',autoRepair:false,designMode:'template',apiKey:'FAKE_UNUSED_API_SECRET'},'PUT');assert.equal(selected.status,200);assert.equal(selected.body.model,'auto');assert.equal(selected.body.hasKey,false);
     let response=await f.request('/sessions',{prompt:'入力から分かりやすく説明',documentIds:[]});assert.equal(response.status,400);assert.equal(response.body.code,'CLOUD_CONSENT_REQUIRED');
     response=await f.request('/sessions',{prompt:'入力から分かりやすく説明',documentIds:[],cloudConsent:true});assert.equal(response.status,409);assert.equal(response.body.code,'SUBSCRIPTION_CONNECTION_REQUIRED');assert.equal(f.manager.calls.length,0);
     await f.request('/subscriptions/chatgpt/connect',{});

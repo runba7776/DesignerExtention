@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ProviderKind, Settings } from '../shared/contracts.js';
+import type { ProviderKind, Settings, AiTarget } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import { MAX_SLIDES } from '../shared/contracts.js';
 import { themes, TEMPLATE_THEME_ID } from '../shared/themes.js';
@@ -18,6 +18,29 @@ export function validateLocalEndpoint(endpoint: string): string {
     throw new AppError(400, '接続先はlocalhost、127.0.0.1、または社内のプライベートIPv4アドレスを指定してください。公開URL・認証情報入りURLは使用できません。');
   }
   return url.toString().replace(/\/$/, '');
+}
+
+/** Hosts where each chat service keeps its projects. A project link is only a
+ * page the add-in opens; nothing is sent there automatically. */
+const chatHosts:Record<string,string[]|undefined>={chatgpt:['chatgpt.com','chat.openai.com'],claude:['claude.ai'],gemini:['gemini.google.com'],copilot:['copilot.microsoft.com','m365.cloud.microsoft','copilot.cloud.microsoft'],other:undefined};
+export function validateChatProjectUrl(service:string,value:unknown):string{
+  let url:URL;
+  try{url=new URL(String(value??'').trim());}catch{throw new AppError(400,'AIのプロジェクトのURLを確認してください（https://で始まるURL）。','INVALID_CHAT_PROJECT');}
+  const hosts=chatHosts[service];
+  if(url.protocol!=='https:'||url.username||url.password||String(value).length>500||(hosts&&!hosts.includes(url.hostname)))throw new AppError(400,`${hosts?`${hosts.join(' / ')} の`:''}https://で始まるプロジェクトのURLを貼り付けてください。`,'INVALID_CHAT_PROJECT');
+  url.hash='';return url.toString();
+}
+function chatProjects(value:unknown):Settings['chatProjects']{
+  if(value===undefined||value===null)return undefined;
+  if(typeof value!=='object'||Array.isArray(value))throw new AppError(400,'AIのプロジェクト設定の形式が正しくありません。');
+  const result:NonNullable<Settings['chatProjects']>={};
+  for(const [service,link] of Object.entries(value as Record<string,any>)){
+    if(!Object.hasOwn(chatHosts,service))throw new AppError(400,'AIのプロジェクト設定のサービスが正しくありません。');
+    if(!link)continue;
+    if(typeof link.kitVersion!=='string'||!/^[0-9a-f]{8}$/.test(link.kitVersion))throw new AppError(400,'AI用の説明の版が正しくありません。','INVALID_CHAT_PROJECT');
+    result[service as keyof typeof result]={url:validateChatProjectUrl(service,link.url),kitVersion:link.kitVersion};
+  }
+  return Object.keys(result).length?result:undefined;
 }
 
 export class SettingsStore {
@@ -66,9 +89,17 @@ export class SettingsStore {
     if(!['chatgpt','claude','gemini','copilot','other'].includes(String(chatService)))throw new AppError(400,'連携するAIを一覧から選んでください。');
     const subscriptionService=value.subscriptionService??'chatgpt';
     if(!['chatgpt','claude'].includes(String(subscriptionService)))throw new AppError(400,'接続する月額サービスを一覧から選んでください。');
+    if(value.chatOpenIn!==undefined&&value.chatOpenIn!=='browser'&&value.chatOpenIn!=='app')throw new AppError(400,'AIの開き方を一覧から選んでください。');
+    if(value.designMode!==undefined&&value.designMode!=='free'&&value.designMode!=='template')throw new AppError(400,'スライドの作り方を一覧から選んでください。');
+    const projects=chatProjects(value.chatProjects);
     if(value.preferredDesignId!==undefined&&(typeof value.preferredDesignId!=='string'||(value.preferredDesignId!==''&&!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value.preferredDesignId))))throw new AppError(400,'保存したデザインの識別子が正しくありません。');
+    // The local model is kept apart from the current provider's model, so the local LLM can be
+    // chosen at creation next to a monthly service.
+    const localModel=value.localModel??(value.provider==='local'?value.model:undefined);
+    if(localModel!==undefined&&(typeof localModel!=='string'||!/^[\w.\-/:]{1,140}$/.test(localModel)))throw new AppError(400,'ローカルLLMのモデル名を入力してください（英数字・-・_・.・/・:）。');
+    const targets=value.targets===undefined?undefined:Array.isArray(value.targets)&&value.targets.length<=3&&value.targets.every(t=>t==='claude'||t==='chatgpt'||t==='local')&&new Set(value.targets).size===value.targets.length?value.targets as AiTarget[]:(()=>{throw new AppError(400,'作成するAIを一覧から3つまで選んでください。');})();
     const activeProjectId=value.activeProjectId??DEFAULT_PROJECT_ID;
     if(typeof activeProjectId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(activeProjectId))throw new AppError(400,'現在のプロジェクトを選び直してください。');
-    return { provider: value.provider as ProviderKind, model: value.model, mode: value.mode as Settings['mode'], endpoint, themeId:themeId as string, typographyId:typographyId as string, slideCount:value.slideCount as Settings['slideCount'],autoRepair:value.autoRepair!==false,chatService:chatService as Settings['chatService'],subscriptionService:subscriptionService as Settings['subscriptionService'],activeProjectId,...(value.preferredDesignId?{preferredDesignId:String(value.preferredDesignId)}:{}) };
+    return { ...(localModel?{localModel}:{}),...(targets?{targets}:{}), provider: value.provider as ProviderKind, model: value.model, mode: value.mode as Settings['mode'], endpoint, themeId:themeId as string, typographyId:typographyId as string, slideCount:value.slideCount as Settings['slideCount'],autoRepair:value.autoRepair!==false,chatService:chatService as Settings['chatService'],subscriptionService:subscriptionService as Settings['subscriptionService'],activeProjectId,...(value.preferredDesignId?{preferredDesignId:String(value.preferredDesignId)}:{}),...(projects?{chatProjects:projects}:{}),...(value.chatOpenIn==='app'?{chatOpenIn:'app' as const}:{}),...(value.designMode?{designMode:value.designMode as Settings['designMode']}:{}) };
   }
 }

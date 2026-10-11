@@ -1,21 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import { access,appendFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ChartType,DeckSpec, DeckVariant, DesignEntry, Feedback, Outline, RenderResult, RestoredPresentation, Session, Settings, SlideSpec, SubscriptionService, Usage } from '../shared/contracts.js';
+import type { AiTarget,SendScope,ChartType,ChatService,ChoiceStats,SendRecord,DeckSpec, DeckVariant, DesignEntry, Feedback, Outline, RenderResult, RestoredPresentation, Session, Settings, SlideSpec, SubscriptionService, Usage } from '../shared/contracts.js';
 import { documentContext, documentSummary, type ParsedDocument } from './document-model.js';
 import { HistoryStore } from './history.js';
 import { AppError, requireText } from './errors.js';
 import { createProvider, emptyUsage, OutputLimitError,parseJsonResponse, type Provider } from './providers.js';
 import { SettingsStore } from './settings.js';
-import { systemPrompt, type ModelTask } from './prompts.js';
-import { validateDeck, validateOutline, validatePlanResponse, validateSlide, validateTheme, validateTypography } from './validation.js';
+import { aiKitVersion, systemPrompt, type ModelTask } from './prompts.js';
+import { validateDeck, validateDesignReply, validateOutline, validatePlanResponse, validateSlide, validateTheme, validateTypography } from './validation.js';
 import { demoDeck, demoOutline, DEMO_WARNING } from './demo.js';
-import { GENERATION_BATCH_SIZE, READING_BATCH_SIZE, GENERATION_OUTPUT_TOKENS, MAX_SLIDES, MAX_PROMPT_CHARACTERS, PLAN_OUTPUT_TOKENS,PLAN_RETRY_OUTPUT_TOKENS } from '../shared/contracts.js';
+import { FREE_CHAT_BATCH_SIZE, FREE_GENERATION_BATCH_SIZE, CHAT_GENERATION_BATCH_SIZE, CHAT_READING_BATCH_SIZE, GENERATION_BATCH_SIZE, READING_BATCH_SIZE, GENERATION_OUTPUT_TOKENS, MAX_SLIDES, MAX_PROMPT_CHARACTERS, PLAN_OUTPUT_TOKENS,PLAN_RETRY_OUTPUT_TOKENS } from '../shared/contracts.js';
 import {completeSlidePrefix} from './partial-generation.js';
 import {repairReason,repairInstruction} from './repair-policy.js';
 import { themes } from '../shared/themes.js';
 import { fitProblems, applySummaries, assertTextFits } from './text-fit.js';
 import {candidateLayoutIds,diversifyDeck,fittingLayouts,improveTextFit} from '../shared/layout-selection.js';
+import {designTexts} from '../shared/free-design.js';
+import {slideContent,transplant} from '../shared/slots.js';
+import {designRequest,leakCheck,Masker,phraseLeak,sha256,type DesignPacket,type ShareLevel,type SlotContent} from '../shared/confidential.js';
+import {designOnlyPrompt} from './free-prompts.js';
+import {deckTheme} from '../shared/layouts.js';
 import {listLayouts} from '../shared/layouts.js';
 import {compatibleChartTypes} from '../shared/charts.js';
 import {prepareChatHandoff,parseChatResponse} from './chat-handoff.js';
@@ -24,15 +29,60 @@ import {applySavedDesign} from './design-application.js';
 import {ProjectStore} from './projects.js';
 import type {ProjectProfile,SourceReport,Theme} from '../shared/contracts.js';
 import {TEMPLATE_THEME_ID} from '../shared/themes.js';
+import {AI_THEME_ID,paletteTheme} from '../shared/ai-theme.js';
 import {templateToTheme} from '../shared/template-style.js';
-import {auditSlide} from '../shared/source-audit.js';
+import {auditSlide,sourceValues} from '../shared/source-audit.js';
+import {numbersIn} from '../shared/numbers.js';
+/** Text compared without spacing, line breaks and punctuation, which PDF extraction changes. */
+const looseText=(text:string)=>text.normalize('NFKC').replace(/[\s、。,.・「」『』()（）［］\[\]:：;；\-－―〜~]/g,'');
+import {applyRefresh,planRefresh,RefreshInputError} from '../shared/refresh.js';
+import type {RefreshPlan,RefreshSummary} from '../shared/contracts.js';
+import {DOCUMENT_LIMITS} from './document-model.js';
 
 interface FitDraft {deck:DeckSpec;batchSize:number;singleFailures:number}
-interface GenerationDraft {key:string;slides:SlideSpec[];themeId:string;batchSize:number;singleFailures:number;compact:boolean;fit?:FitDraft}
+/** ceiling: after a reply was cut or broken, the batch size that failed is not tried again. */
+interface GenerationDraft {key:string;slides:SlideSpec[];themeId:string;batchSize:number;ceiling?:number;singleFailures:number;compact:boolean;fit?:FitDraft}
 interface RevisionDraft {variantId:string;slideId:string;instruction:string;title:string;base:string;failures:number;compact:boolean;result?:SlideSpec;fit?:FitDraft}
-interface RepairOperation {remaining:number;startedCalls:number;next?:{task:ModelTask;code:string}}
-interface ChatDraft {task:ModelTask;payload:any;messages?:Session['messages'];purpose?:'generate'|'revise';summaryDeck?:DeckSpec;variantBase?:string;variantId?:string;instruction?:string;targetIds?:string[]}
-interface SessionState { session: Session; documents: ParsedDocument[]; settings: Settings; project:ProjectProfile; createdAt: number; busy: boolean; subscriptionBinding?:string; historyRevision?:number; design?:DesignEntry; pendingPlan?:{messages:Session['messages'];failures:number}; draft?:GenerationDraft;revision?:RevisionDraft;repairOperation?:RepairOperation;chat?:ChatDraft }
+interface RepairOperation {remaining:number;startedCalls:number;next?:{task:ModelTask;code:string;detail?:string}}
+/** full: the user chose the self-contained instruction for this request. */
+interface DesignDraft {variantId:string;level:ShareLevel;topic?:string;ids:string[];done:SlideSpec[];contents:Record<string,SlotContent>;base:string}
+interface ChatDraft {design?:DesignDraft;full?:boolean;task:ModelTask|'design';payload:any;messages?:Session['messages'];purpose?:'generate'|'revise'|'alternate'|'design';service?:ChatService;summaryDeck?:DeckSpec;variantBase?:string;variantId?:string;instruction?:string;targetIds?:string[]}
+/** A refresh compared with new documents, waiting for the user's review. base pins the deck it was made from. */
+interface RefreshDraft {plan:RefreshPlan;documents:ParsedDocument[];base:string}
+/** One AI writing for this session besides (or instead of) its own provider: the AI
+ * chosen at creation, another draft, or a design-only request. Each keeps its own
+ * call count and retry budget, so AIs can work at the same time. */
+interface AiRun {target:AiTarget;label:string;repair:RepairOperation;calls:number;notes:string[]}
+/** targets: the AIs chosen at creation (the first writes the main draft); bindings: the
+ * monthly accounts connected at that moment; extras: other drafts written alongside. */
+interface SessionState { targets?:AiTarget[]; sendScope?:SendScope; bindings?:Partial<Record<SubscriptionService,string>>; extras?:{started:boolean;ready:DeckVariant[];failed:string[]}; refresh?:RefreshDraft; masker?:Masker; oneShot?:boolean; session: Session; documents: ParsedDocument[]; settings: Settings; project:ProjectProfile; createdAt: number; busy: boolean; subscriptionBinding?:string; historyRevision?:number; design?:DesignEntry; pendingPlan?:{messages:Session['messages'];failures:number}; draft?:GenerationDraft;revision?:RevisionDraft;repairOperation?:RepairOperation;chat?:ChatDraft }
+const MAX_VARIANTS=3;
+const chatServiceNames:Record<string,string>={chatgpt:'ChatGPT',claude:'Claude',gemini:'Gemini',copilot:'Microsoft Copilot',other:'その他のAI'};
+const chatServiceName=(service:string)=>chatServiceNames[service]??'AI';
+const targetLabel=(target:AiTarget)=>target==='local'?'ローカルLLM':chatServiceName(target);
+/** The settings of one AI chosen for a session. */
+function settingsFor(base:Settings,target:AiTarget):Settings{
+  if(target==='local')return {...base,provider:'local',model:base.localModel??(base.provider==='local'?base.model:'')};
+  return {...base,provider:'subscription',subscriptionService:target,model:base.provider==='subscription'&&base.subscriptionService===target?base.model:'auto'};
+}
+/** A design reply filled with the real content. A text a little long for its box is
+ * set smaller first; a real overflow is reported by slot name only (never the wording). */
+function fillDesign(raw:unknown,packet:DesignPacket,contents:Record<string,SlotContent>,deck:DeckSpec){
+  const slides=improveTextFit({...deck,slides:validateDesignReply(raw,packet,contents,deck)}).slides;
+  const fit=fitProblems({...deck,slides});
+  if(fit.length){
+    const problems=fit.flatMap(p=>p.issues.map(issue=>{const slot=Object.entries(contents[p.slideId].texts).find(([,v])=>issue.text.startsWith(v.text))?.[0];return `${p.slideId}の${slot??'文字の枠'}は、その大きさでは文字が収まりません。枠を広げるか、文字を小さくしてください。`;}));
+    throw new AppError(422,[...new Set(problems)].join(' '),'TEXT_FIT_REQUIRED');
+  }
+  return slides;
+}
+/** What a later batch needs to keep the deck consistent without re-reading earlier pages. */
+function continued(slide:SlideSpec){
+  if(!slide.design)return {title:slide.title,headline:slide.headline,layoutId:slide.layoutId};
+  const kinds=new Map<string,number>();for(const e of slide.design.elements){const key=e.t==='box'?e.shape??'rect':e.t;kinds.set(key,(kinds.get(key)??0)+1);}
+  const title=slide.design.elements.find(e=>e.t==='text'&&e.role==='title');
+  return {title:slide.title,layoutId:slide.layoutId,composition:[...kinds].map(([k,n])=>`${k}×${n}`).join(' '),...(slide.design.background?{background:slide.design.background}:{}),...(title&&title.t==='text'?{titleBox:[title.x,title.y,title.w,title.h,title.size]}:{})};
+}
 export interface EngineOptions {
   settings: SettingsStore; projects?:ProjectStore; dataDir: string;
   render: (deck: DeckSpec, variantId: string) => Promise<RenderResult>;
@@ -94,7 +144,7 @@ export class SessionEngine {
     try{if(settings.preferredDesignId){const explicit=await this.designs.load(settings.preferredDesignId);if(explicit.projectId===projectId)return explicit;warnings.push('指定されたお気に入りは別のプロジェクトにあるため、このプロジェクトのデザインを使います。');}return (await this.designs.list(projectId)).entries.find(entry=>entry.mode===settings.mode);}
     catch{warnings.push('お気に入りデザインを読み取れませんでした。通常のデザイン候補で作成します。');return undefined;}
   }
-  private designGuidance(state:SessionState){const design=state.design;return design?{themeId:design.themeId,typographyId:design.typographyId,layoutIds:design.layoutIds,explicit:Boolean(state.settings.preferredDesignId)}:undefined;}
+  private designGuidance(state:SessionState){const design=state.design;return design?{themeId:design.themeId,typographyId:design.typographyId,...(this.freeDesign(state)?{}:{layoutIds:design.layoutIds}),explicit:Boolean(state.settings.preferredDesignId)}:undefined;}
   async removeHistory(id:string){
     const affected=[...this.states.values()].filter(s=>s.session.historyId===id);
     if(affected.some(s=>s.busy))throw new AppError(409,'この資料は処理中です。完了してから削除してください。');
@@ -145,7 +195,7 @@ export class SessionEngine {
   listChatTasks(){return {sessions:[...this.states.values()].filter(s=>s.settings.provider==='chat').map(s=>({id:s.session.id,title:s.session.outline?.title??'作成中の資料',phase:s.session.phase,...(s.session.chatHandoff?{task:s.session.chatHandoff.task}:{})}))};}
   delete(id: string) { this.states.delete(id); }
 
-  async create(input: { prompt: unknown; mode?: unknown; cloudConsent?: unknown }, documents: ParsedDocument[]) {
+  async create(input: { prompt: unknown; mode?: unknown; cloudConsent?: unknown; oneShot?: unknown; targets?: unknown; sendScope?: unknown }, documents: ParsedDocument[]) {
     const prompt = requireText(input.prompt, '指示',MAX_PROMPT_CHARACTERS);
     const settings = this.options.settings.get();
     const project=this.projects.get(settings.activeProjectId);
@@ -153,13 +203,15 @@ export class SessionEngine {
       if (!['presentation', 'reading'].includes(String(input.mode))) throw new AppError(400, '表示モードが正しくありません。');
       settings.mode = input.mode as Settings['mode'];
     }
-    if (settings.provider === 'subscription' && input.cloudConsent !== true) throw new AppError(400, `${settings.subscriptionService==='claude'?'Claude':'ChatGPT'}へ指示・資料・会話を送ることを確認してください。`, 'CLOUD_CONSENT_REQUIRED');
-    const subscriptionBinding=settings.provider==='subscription'?this.options.subscriptionBinding?.(settings.subscriptionService??'chatgpt'):undefined;
+    const choice=this.creationTargets(settings,input,project);
+    if(choice){Object.assign(settings,settingsFor(settings,choice.targets[0]));if(choice.scope==='design')settings.designMode='template';}
+    else if (settings.provider === 'subscription' && input.cloudConsent !== true) throw new AppError(400, `${settings.subscriptionService==='claude'?'Claude':'ChatGPT'}へ指示・資料・会話を送ることを確認してください。`, 'CLOUD_CONSENT_REQUIRED');
+    const subscriptionBinding=settings.provider==='subscription'?choice?.bindings[settings.subscriptionService??'chatgpt']??this.options.subscriptionBinding?.(settings.subscriptionService??'chatgpt'):undefined;
     if(settings.provider==='subscription'&&!subscriptionBinding)throw new AppError(409,'設定から月額サービスのアカウントに接続してから作成してください。','SUBSCRIPTION_CONNECTION_REQUIRED');
     documentContext(documents);
     this.reserveSession();
-    const session: Session = { id: randomUUID(),provider:settings.provider,projectId:project.id,...(settings.provider==='subscription'?{subscriptionService:settings.subscriptionService??'chatgpt'}:{}), phase: 'clarifying', messages: [{ role: 'user', text: prompt }], variants: [], usage: emptyUsage(), warnings: documents.flatMap((document) => document.warnings.map((warning) => `${document.name}: ${warning}`)) };
-    const state: SessionState = { session, documents, settings, project, subscriptionBinding, busy: false, createdAt: Date.now(),design:await this.preferredDesign(settings,project.id,session.warnings) };
+    const session: Session = { id: randomUUID(),provider:settings.provider,projectId:project.id,...(choice?{targets:choice.targets,sendScope:choice.scope}:{}),...(settings.provider==='subscription'?{subscriptionService:settings.subscriptionService??'chatgpt'}:{}), phase: 'clarifying', messages: [{ role: 'user', text: prompt }], variants: [], usage: emptyUsage(), warnings: documents.flatMap((document) => document.warnings.map((warning) => `${document.name}: ${warning}`)) };
+    const state: SessionState = { ...(choice?{targets:choice.targets,sendScope:choice.scope,bindings:choice.bindings}:{}), ...(settings.provider==='chat'&&input.oneShot===true?{oneShot:true}:{}), session, documents, settings, project, subscriptionBinding, busy: false, createdAt: Date.now(),design:await this.preferredDesign(settings,project.id,session.warnings) };
     this.states.set(session.id, state);
     try {
       if (settings.provider === 'demo') {
@@ -171,6 +223,27 @@ export class SessionEngine {
     } catch (error) { this.states.delete(session.id); throw error; }
   }
 
+  /** The AIs chosen for one creation, checked: connected accounts, a configured local
+   * LLM, and consent for what each may receive. Undefined when none were chosen. */
+  private creationTargets(settings:Settings,input:{targets?:unknown;sendScope?:unknown;cloudConsent?:unknown},project:ProjectProfile){
+    if(input.targets===undefined)return undefined;
+    if(settings.provider!=='subscription'&&settings.provider!=='local')throw new AppError(400,'作成するAIを選べるのは、月額版での自動作成かローカルLLMを使う設定のときです。');
+    const targets=input.targets;
+    if(!Array.isArray(targets)||!targets.length||targets.length>MAX_VARIANTS||targets.some(t=>t!=='claude'&&t!=='chatgpt'&&t!=='local')||new Set(targets).size!==targets.length)throw new AppError(400,`作成するAIを1〜${MAX_VARIANTS}つ選んでください。`);
+    const scope=input.sendScope??(project.privacy?.mode==='masked'?'masked':'full');
+    if(scope!=='full'&&scope!=='masked'&&scope!=='design')throw new AppError(400,'外部のAIに送る内容を選んでください。');
+    const cloud=targets.filter((t):t is SubscriptionService=>t!=='local');
+    if(targets.includes('local')&&!settingsFor(settings,'local').model)throw new AppError(400,'設定でローカルLLMの接続先とモデル名を登録してください。','LOCAL_MODEL_REQUIRED');
+    if(scope==='design'&&(!targets.includes('local')||!cloud.length))throw new AppError(400,'内容を送らない作成では、内容を書くローカルLLMと、デザインを頼むAI（ClaudeかChatGPT）を選んでください。','DESIGN_TARGETS_REQUIRED');
+    const bindings:Partial<Record<SubscriptionService,string>>={};
+    for(const service of cloud){
+      const binding=this.options.subscriptionBinding?.(service);
+      if(!binding)throw new AppError(409,`設定から${chatServiceName(service)}のアカウントに接続してから作成してください。`,'SUBSCRIPTION_CONNECTION_REQUIRED');
+      bindings[service]=binding;
+    }
+    if(scope!=='design'&&cloud.length&&input.cloudConsent!==true)throw new AppError(400,`${cloud.map(chatServiceName).join('・')}へ指示・資料・会話を送ることを確認してください。`,'CLOUD_CONSENT_REQUIRED');
+    return {targets:scope==='design'?['local' as AiTarget,...cloud]:targets as AiTarget[],scope:scope as SendScope,bindings};
+  }
   async message(id: string, text: unknown) {
     return this.lock(id, async (state) => {
       const messages = [...state.session.messages, { role: 'user' as const, text: requireText(text, 'メッセージ',MAX_PROMPT_CHARACTERS) }];
@@ -206,55 +279,16 @@ export class SessionEngine {
       if(state.session.recovery?.task==='generate'&&!state.session.recovery.retryAvailable)throw new AppError(429,'再開の上限に達しました。追加の呼び出しは行っていません。構成から情報を分けるか、優先条件を整理してください。');
       state.session.outline=outline;
       if(state.settings.provider==='chat'){this.prepareChatGeneration(state,outline);return state.session;}
-      let value:unknown;
+      let value:unknown,extras:Promise<void>=Promise.resolve();
       if(state.settings.provider==='demo')value=demoDeck(outline);
       else {
         const key=JSON.stringify({outline,messages:state.session.messages,settings:state.settings});
-        if(state.draft?.key!==key)state.draft={key,slides:[],themeId:outline.themeId??this.preferredTheme,batchSize:outline.mode==='reading'?READING_BATCH_SIZE:GENERATION_BATCH_SIZE,singleFailures:0,compact:false};
+        if(state.draft?.key!==key)state.draft={key,slides:[],themeId:outline.themeId??this.preferredTheme,batchSize:this.baseBatch(state,outline),singleFailures:0,compact:false};
         const draft=state.draft;
-        while(draft.slides.length<outline.slides.length) {
-          const start=draft.slides.length,targetSlides=outline.slides.slice(start,start+draft.batchSize);
-          const warningsBefore=[...state.session.warnings];
-          let response:any;
-          try{
-            response=await this.complete(state,'generate',{outline,targetSlides,messages:state.session.messages,compactOutput:draft.compact,continuedFrom:draft.slides.map(s=>({title:s.title,headline:s.headline,layoutId:s.layoutId}))},draft.compact?GENERATION_OUTPUT_TOKENS:Math.min(GENERATION_OUTPUT_TOKENS,4000+targetSlides.length*2500));
-            if(!response||response.mode!==outline.mode||!Array.isArray(response.slides)||response.slides.length!==targetSlides.length)throw new AppError(422,'指定したページ数・モードで応答されませんでした。','INVALID_CONTENT');
-            if(response.slides.some((s:any,i:number)=>s?.id!==targetSlides[i].id))throw new AppError(422,'生成したページの識別子・順序が構成と一致しません。','INVALID_CONTENT');
-            const slides=response.slides.map((s:unknown,i:number)=>validateSlide(s,targetSlides[i].id));
-            if(slides.some((s:SlideSpec)=>(s.id==='slide-1')!==(s.layoutId==='cover')))throw new AppError(422,'表紙と本文の役割が構成と一致しません。','INVALID_CONTENT');
-            this.verifySources(state,slides);
-            if(start===0&&response.themeId)draft.themeId=validateTheme(response.themeId);
-            draft.slides.push(...slides);draft.singleFailures=0;
-          }
-          catch(error){
-            state.session.warnings=warningsBefore;
-            if(error instanceof AppError&&error.code==='CALL_LIMIT')return this.generationRecovery(state,outline,'content',false);
-            if(!repairReason(error)||(this.options.settings.get().autoRepair===false&&!(error instanceof OutputLimitError)))throw error;
-            const prefix=error instanceof OutputLimitError?completeSlidePrefix(error.partialText):undefined;
-            if(prefix?.mode===outline.mode){
-              for(let i=0;i<Math.min(prefix.slides.length,targetSlides.length);i++){
-                const warnings=[...state.session.warnings];
-                try{
-                  const raw=prefix.slides[i] as any;
-                  if(raw?.id!==targetSlides[i].id)break;
-                  const slide=validateSlide(raw,targetSlides[i].id);
-                  if((slide.id==='slide-1')!==(slide.layoutId==='cover'))break;
-                  this.verifySources(state,[slide]);
-                  if(start===0&&i===0&&prefix.themeId)draft.themeId=validateTheme(prefix.themeId);
-                  draft.slides.push(slide);
-                }catch{state.session.warnings=warnings;break;}
-              }
-            }
-            const gained=draft.slides.length-start;
-            draft.singleFailures=targetSlides.length===1&&!gained?draft.singleFailures+1:0;
-            draft.batchSize=Math.max(1,Math.floor(targetSlides.length/2));draft.compact=true;
-            if(draft.slides.length===outline.slides.length&&this.options.settings.get().autoRepair!==false){
-              this.recordRepair(state,error,'最後まで返された全ページを検証し、追加の本文生成なしで仕上げへ進めました。',false);continue;
-            }
-            if(draft.singleFailures<2&&this.tryRepair(state,'generate',error,`検証できた${draft.slides.length}枚を再利用し、残りを最大${draft.batchSize}枚ずつ、回答枠16,000トークンで再生成。文章とノートの重複を減らし、ページ・図表・出典を検証します。`))continue;
-            return this.generationRecovery(state,outline,'content',draft.singleFailures<2);
-          }
-        }
+        // Other AIs chosen at creation write their drafts of the same outline at the same time.
+        extras=this.startExtras(state,outline);
+        const stopped=await this.writePages(state,outline,draft);
+        if(stopped){await extras;return this.generationRecovery(state,outline,'content',stopped.canRetry);}
         value={id:'draft',title:outline.title,mode:outline.mode,themeId:draft.themeId,slides:draft.slides};
       }
       let deck = validateDeck(value, outline);
@@ -269,20 +303,118 @@ export class SessionEngine {
       const draft=state.draft;
       if(draft&&!draft.fit)draft.fit={deck:improveTextFit(deck),batchSize:READING_BATCH_SIZE,singleFailures:0};
       try{deck=await this.fitText(state,draft?.fit?.deck??improveTextFit(deck),draft?.fit);}
-      catch(error){if(!draft?.fit||(!repairReason(error)&&!(error instanceof AppError&&error.code==='CALL_LIMIT')))throw error;return this.generationRecovery(state,outline,'text-fit',!!repairReason(error)&&draft.fit.singleFailures<2);}
+      catch(error){if(!draft?.fit||(!repairReason(error)&&!(error instanceof AppError&&error.code==='CALL_LIMIT')))throw error;await extras;return this.generationRecovery(state,outline,'text-fit',!!repairReason(error)&&draft.fit.singleFailures<2);}
       deck = diversifyDeck(deck,state.session.id,this.recentLayouts);
       if(state.settings.preferredDesignId&&state.design)deck=applySavedDesign(deck,state.design,true,this.templateTheme(state)).deck;
       assertTextFits(deck);
       state.session.outline = outline;
-      state.session.variants = [{ id: randomUUID(), label: 'A', deck }];
+      const ai=state.settings.provider==='local'?'ローカルLLM':state.settings.provider==='demo'?'サンプル':state.settings.provider==='subscription'?(state.settings.subscriptionService==='claude'?'Claude':'ChatGPT'):'AI';
+      const main:DeckVariant={ id: randomUUID(), label: state.sendScope==='design'?'内容（ローカルLLM）':ai, deck, origin:{kind:'ai',ai} };
+      state.session.variants = [main];
+      await extras;
+      for(const variant of state.extras?.ready??[])if(state.session.variants.length<MAX_VARIANTS)state.session.variants.push(variant);
+      for(const failure of state.extras?.failed??[])state.session.warnings.push(failure);
+      // Content written on this PC; each chosen cloud AI receives only the skeleton for its design.
+      if(state.sendScope==='design')await Promise.all((state.targets??[]).filter((t):t is SubscriptionService=>t!=='local').map(async target=>{
+        const run=this.newRun(state,target);
+        try{
+          const designed=await this.designPages(state,main.deck,'structure',undefined,run);
+          state.session.variants.push({id:randomUUID(),label:`デザイン：${run.label}`,deck:designed,origin:{kind:'ai',ai:run.label,parents:[main.id],notes:[`${run.label}には内容を送らず、文字の枠の役割・文字数・グラフと表の形だけを渡しました。`]}});
+        }catch(error){state.session.warnings.push(`${run.label}のデザインは作成できませんでした（${error instanceof AppError?error.message:'接続または応答の不備'}）。内容の案はこのPCで作成済みです。`);}
+      }));
       state.session.phase = 'ready';
-      delete state.session.recovery;delete state.draft;
+      delete state.session.recovery;delete state.draft;delete state.extras;
       await this.rememberLayouts(deck,state.session);
-      state.session.messages.push({ role: 'assistant', text: `${deck.slides.length}枚を作成しました。サムネイルで確認し、必要なら対象のスライドに修正を指示してください。` });
+      const others=state.session.variants.slice(1).map(v=>v.label);
+      state.session.messages.push({ role: 'assistant', text: `${deck.slides.length}枚を作成しました。${others.length?`${others.join('・')}の案も同じ構成で作りました。並べて比べたり、ページごとに組み合わせたりできます。`:''}サムネイルで確認し、必要なら対象のスライドに修正を指示してください。` });
       return state.session;
     },true,true);
   }
 
+  private baseBatch(state:SessionState,outline:Outline){return this.freeDesign(state)?FREE_GENERATION_BATCH_SIZE:outline.mode==='reading'?READING_BATCH_SIZE:GENERATION_BATCH_SIZE;}
+  /** Writes the outline's pages into draft.slides batch by batch, keeping every page that
+   * passes. Returns why it stopped, or undefined when all pages are written. The session's
+   * own provider writes unless run names another AI chosen for this session. */
+  private async writePages(state:SessionState,outline:Outline,draft:GenerationDraft,run?:AiRun):Promise<{canRetry:boolean}|undefined>{
+    const free=this.freeDesign(state),baseBatch=this.baseBatch(state,outline);
+    /** One returned page, checked on its own: a later page's problem never discards an earlier valid page. */
+    const accept=(raw:any,expected:string)=>{
+      if(!raw||raw.id!==expected)throw new AppError(422,`${expected}がありません。生成したページの識別子・順序を構成と一致させてください。`,'INVALID_CONTENT');
+      const warnings=[...state.session.warnings];
+      try{
+        const slide=validateSlide(raw,expected);
+        if((slide.id==='slide-1')!==(slide.layoutId==='cover'))throw new AppError(422,'表紙と本文の役割が構成と一致しません。','INVALID_CONTENT');
+        this.verifySources(state,[slide]);draft.slides.push(slide);
+      }catch(error){state.session.warnings=warnings;if(error instanceof AppError)error.message=`${expected}：${error.message.replace(/^生成内容を確認できません: /,'')}`;throw error;}
+    };
+    while(draft.slides.length<outline.slides.length) {
+      const start=draft.slides.length,targetSlides=outline.slides.slice(start,start+draft.batchSize);
+      let response:any;
+      try{
+        // AI-designed pages carry every element's position, so each page needs a larger answer
+        // budget. The budget is a ceiling, not usage; a cut reply costs a whole extra call.
+        response=await this.complete(state,'generate',{outline,targetSlides,messages:state.session.messages,compactOutput:draft.compact,continuedFrom:draft.slides.map(continued)},draft.compact?GENERATION_OUTPUT_TOKENS:Math.min(GENERATION_OUTPUT_TOKENS,free?3000+targetSlides.length*4000:4000+targetSlides.length*2500),run);
+        if(!response||response.mode!==outline.mode||!Array.isArray(response.slides))throw new AppError(422,'指定したページ数・モードで応答されませんでした。','INVALID_CONTENT');
+        if(start===0&&response.themeId)draft.themeId=validateTheme(response.themeId);
+        targetSlides.forEach((target,i)=>accept(response.slides[i],target.id));
+        draft.singleFailures=0;
+        // After a failure the batch was made smaller; each success restores it step by step,
+        // up to a size below one whose reply was cut or broken.
+        const cap=Math.min(baseBatch,draft.ceiling??baseBatch);
+        if(draft.batchSize<cap)draft.batchSize=Math.min(cap,draft.batchSize*2);
+      }
+      catch(error){
+        if(error instanceof AppError&&error.code==='CALL_LIMIT')return {canRetry:false};
+        if(!repairReason(error)||(this.options.settings.get().autoRepair===false&&!(error instanceof OutputLimitError)))throw error;
+        // A reply cut off or broken partway still holds finished pages; keep those that pass.
+        const partial=error instanceof OutputLimitError?error.partialText:error instanceof AppError&&error.code==='INVALID_MODEL_JSON'?(error as AppError&{partialText?:string}).partialText:undefined;
+        const prefix=partial?completeSlidePrefix(partial):undefined;
+        if(prefix?.mode===outline.mode){
+          for(let i=draft.slides.length-start;i<Math.min(prefix.slides.length,targetSlides.length);i++){
+            try{
+              if(start===0&&i===0&&prefix.themeId)draft.themeId=validateTheme(prefix.themeId);
+              accept(this.unmask(state,prefix.slides[i]),targetSlides[i].id);
+            }catch{break;}
+          }
+        }
+        const gained=draft.slides.length-start;
+        draft.singleFailures=targetSlides.length===1&&!gained?draft.singleFailures+1:0;
+        draft.batchSize=Math.max(1,Math.floor(targetSlides.length/2));draft.compact=true;
+        if(error instanceof OutputLimitError||(error instanceof AppError&&error.code==='INVALID_MODEL_JSON'))draft.ceiling=Math.max(1,Math.min(draft.ceiling??baseBatch,targetSlides.length-1));
+        if(draft.slides.length===outline.slides.length&&this.options.settings.get().autoRepair!==false){
+          if(!run)this.recordRepair(state,error,'最後まで返された全ページを検証し、追加の本文生成なしで仕上げへ進めました。',false);continue;
+        }
+        if(draft.singleFailures<2&&this.tryRepair(state,'generate',error,`検証できた${draft.slides.length}枚を再利用し、残りを最大${draft.batchSize}枚ずつ、回答枠16,000トークンで再生成。文章とノートの重複を減らし、ページ・図表・出典を検証します。`,run))continue;
+        return {canRetry:draft.singleFailures<2};
+      }
+    }
+    return undefined;
+  }
+  private newRun(state:SessionState,target:AiTarget):AiRun{return {target,label:targetLabel(target),repair:{remaining:this.options.settings.get().autoRepair!==false?2:0,startedCalls:state.session.usage.calls},calls:0,notes:[]};}
+  /** Other AIs chosen at creation write their own drafts of the same outline while the
+   * main draft is written. A failed one is reported and never stops the main draft. */
+  private startExtras(state:SessionState,outline:Outline):Promise<void>{
+    const targets=state.sendScope==='design'?[]:(state.targets??[]).slice(1);
+    if(!targets.length||state.extras?.started)return Promise.resolve();
+    const extras=state.extras={started:true,ready:[] as DeckVariant[],failed:[] as string[]};
+    return Promise.all(targets.map(async target=>{
+      const run=this.newRun(state,target);
+      try{const deck=await this.draftFor(state,outline,run);extras.ready.push({id:randomUUID(),label:run.label,deck,origin:{kind:'ai',ai:run.label,...(run.notes.length?{notes:run.notes.map(n=>`自動で対処：${n}`)}:{})}});}
+      catch(error){extras.failed.push(`${run.label}の案は作成できませんでした（${error instanceof AppError?error.message:'接続または応答の不備'}）。`);}
+    })).then(()=>undefined);
+  }
+  /** A whole draft of the outline by one chosen AI, checked and fitted like the main one. */
+  private async draftFor(state:SessionState,outline:Outline,run:AiRun):Promise<DeckSpec>{
+    const draft:GenerationDraft={key:run.target,slides:[],themeId:outline.themeId??this.preferredTheme,batchSize:this.baseBatch(state,outline),singleFailures:0,compact:false};
+    const stopped=await this.writePages(state,outline,draft,run);
+    if(stopped)throw new AppError(422,`${draft.slides.length} / ${outline.slides.length}枚で止まりました`,'EXTRA_STOPPED');
+    let deck=validateDeck({id:randomUUID(),title:outline.title,mode:outline.mode,themeId:draft.themeId,slides:draft.slides},outline);
+    deck.title=outline.title;this.verifySources(state,deck.slides);this.styleDeck(state,deck,outline);
+    const typography=state.settings.typographyId;deck.typographyId=typography&&typography!=='auto'?typography:outline.typographyId??deck.typographyId;
+    deck=await this.fitText(state,improveTextFit(deck),undefined,run);
+    deck=diversifyDeck(deck,randomUUID(),this.recentLayouts);assertTextFits(deck);
+    return deck;
+  }
   private generationRecovery(state:SessionState,outline:Outline,stage:'content'|'text-fit',canRetry:boolean){
     const draft=state.draft!,complete=draft.slides.length;
     const hasRemaining=stage==='text-fit'||complete<outline.slides.length;
@@ -367,36 +499,43 @@ export class SessionEngine {
   private prepareChatPlan(state:SessionState,messages:Session['messages']){
     this.checkChatMode(state);delete state.draft;delete state.revision;delete state.session.recovery;
     state.session.messages=messages;
-    state.chat={task:'plan',payload:{messages,currentOutline:state.session.outline,needsInputBrief:messages.filter(m=>m.role==='user').reduce((sum,m)=>sum+m.text.length,0)>12_000,compactOutline:true},messages};
+    state.chat={task:'plan',payload:{messages,currentOutline:state.session.outline,needsInputBrief:messages.filter(m=>m.role==='user').reduce((sum,m)=>sum+m.text.length,0)>12_000,compactOutline:true,...(state.oneShot&&!state.session.variants.length?{oneShot:true}:{})},messages};
     this.exposeChat(state);
   }
-  private prepareChatGeneration(state:SessionState,outline:Outline){
+  private prepareChatGeneration(state:SessionState,outline:Outline,issues?:string[],correctionCode?:string,start?:{purpose:'generate'|'alternate';service?:ChatService}){
     this.checkChatMode(state);
-    const key=JSON.stringify({outline,messages:state.session.messages,settings:state.settings});
-    if(state.draft?.key!==key)state.draft={key,slides:[],themeId:outline.themeId??this.preferredTheme,batchSize:outline.mode==='reading'?READING_BATCH_SIZE:GENERATION_BATCH_SIZE,singleFailures:0,compact:false};
+    const purpose=start?.purpose??(state.chat?.purpose==='alternate'?'alternate':'generate'),service=start?.service??(purpose==='alternate'?state.chat?.service:undefined);
+    const key=JSON.stringify({outline,messages:state.session.messages,settings:state.settings,purpose,service});
+    if(state.draft?.key!==key)state.draft={key,slides:[],themeId:outline.themeId??this.preferredTheme,batchSize:this.freeDesign(state)?FREE_CHAT_BATCH_SIZE:outline.mode==='reading'?CHAT_READING_BATCH_SIZE:CHAT_GENERATION_BATCH_SIZE,singleFailures:0,compact:false};
     const draft=state.draft,targetSlides=outline.slides.slice(draft.slides.length,draft.slides.length+draft.batchSize);
     if(!targetSlides.length)throw new AppError(409,'本文は作成済みです。現在表示されている文字量調整の指示を使用してください。');
-    state.chat={task:'generate',purpose:'generate',targetIds:targetSlides.map(s=>s.id),payload:{outline,targetSlides,messages:state.session.messages,compactOutput:true,continuedFrom:draft.slides.map(s=>({title:s.title,headline:s.headline,layoutId:s.layoutId}))}};
-    this.exposeChat(state);
+    state.chat={full:state.chat?.full,task:'generate',purpose,...(service?{service}:{}),targetIds:targetSlides.map(s=>s.id),payload:{outline,targetSlides,messages:state.session.messages,compactOutput:true,continuedFrom:draft.slides.map(continued)}};
+    this.exposeChat(state,issues,correctionCode);
   }
   private exposeChat(state:SessionState,issues?:string[],correctionCode?:string){
     const pending=state.chat!;
     const request={...pending.payload};
     if(pending.task==='generate'&&request.outline?.inputBrief){request.confirmedInstructions=request.outline.inputBrief;delete request.messages;}
     const selected=pending.task==='generate'?request.targetSlides?.map((s:any)=>s.layoutId):pending.task==='revise'?[request.targetSlide?.layoutId]:undefined;
-    state.session.chatHandoff=prepareChatHandoff({task:pending.task,service:this.options.settings.get().chatService??'chatgpt',candidateIds:selected?candidateLayoutIds(selected):undefined,content:{mode:state.settings.mode,projectContext:{audience:state.project.audience,designAndWritingGuidance:state.project.guidance},preferences:{...this.stylePreferences(state),...(pending.task==='plan'?{recentLayouts:this.recentLayouts.slice(-40),variationSeed:state.session.id}:{})},documents:pending.task==='summarize'?[]:documentContext(state.documents),request},...(pending.purpose==='generate'?{completedSlides:state.draft?.slides.length??0,totalSlides:state.session.outline?.slides.length}:{}),...(pending.purpose==='revise'?{slideId:pending.targetIds?.[0]}:{}),validationIssues:issues,correctionCode});
+    const current=this.options.settings.get(),service=pending.service??current.chatService??'chatgpt',link=current.chatProjects?.[service];
+    const projectMode=!!link&&link.kitVersion===aiKitVersion()&&!pending.full&&pending.task!=='summarize'&&this.freeDesign(state);
+    const candidateIds=selected?candidateLayoutIds(selected):undefined;
+    const masker=this.masking(state);
+    state.session.chatHandoff=prepareChatHandoff({task:pending.task,service,candidateIds,...(pending.task==='summarize'?(masker?{system:systemPrompt('summarize')+'\n\n## 伏せ字について\nこのメッセージの資料・指示・会話では、社名・指定された語・連絡先・数値を【社名1】【語1】【連絡先1】【数値1】のような伏せ字にしています。伏せ字は、そのままの形で文章・見出し・出典の引用に使い、分解・計算・推測をしません。グラフの値には、資料にある数値の伏せ字（【数値n】の形）を文字列のまま書きます。アプリがこのPCで元の語と数値に戻します。'}:{}):{system:(masker?(text:string)=>text+'\n\n## 伏せ字について\nこのメッセージの資料・指示・会話では、社名・指定された語・連絡先・数値を【社名1】【語1】【連絡先1】【数値1】のような伏せ字にしています。伏せ字は、そのままの形で文章・見出し・出典の引用に使い、分解・計算・推測をしません。グラフの値には、資料にある数値の伏せ字（【数値n】の形）を文字列のまま書きます。アプリがこのPCで元の語と数値に戻します。':(text:string)=>text)(systemPrompt(pending.task as ModelTask,candidateIds,{mode:projectMode?'project':'full',focusIds:selected,oneShot:request.oneShot===true,...this.designOptions(state,request.outline)}))}),serviceUrl:link?.url,instructionMode:projectMode?'project':'full',projectStale:!!link&&link.kitVersion!==aiKitVersion(),content:(masker?<T,>(value:T)=>masker.maskDeep(value):<T,>(value:T)=>value)({mode:state.settings.mode,projectContext:{audience:state.project.audience,designAndWritingGuidance:state.project.guidance},preferences:{...this.stylePreferences(state),...(pending.task==='plan'&&!this.freeDesign(state)?{recentLayouts:this.recentLayouts.slice(-40),variationSeed:state.session.id}:{})},documents:pending.task==='summarize'?[]:documentContext(state.documents),request}),...(pending.purpose==='generate'?{completedSlides:state.draft?.slides.length??0,totalSlides:state.session.outline?.slides.length}:{}),...(pending.purpose==='revise'?{slideId:pending.targetIds?.[0]}:{}),validationIssues:issues,correctionCode});
+    if(masker)this.recordMasked(state,masker,pending.task,service);
     delete state.session.recovery;
   }
   async cancelChat(id:string){
     return this.lock(id,async state=>{
-      this.checkChatMode(state);delete state.chat;delete state.draft;delete state.revision;delete state.session.chatHandoff;delete state.session.recovery;
+      if(state.chat?.task!=='design')this.checkChatMode(state);delete state.chat;delete state.draft;delete state.revision;delete state.session.chatHandoff;delete state.session.recovery;
       state.session.phase=state.session.variants.length?'ready':state.session.outline?'outline':'clarifying';return state.session;
     },false);
   }
   async chatResponse(id:string,input:{requestId?:unknown;response?:unknown}){
     return this.lock(id,async state=>{
-      this.checkChatMode(state);
       const pending=state.chat;
+      if(pending?.task==='design')return this.designResponse(state,pending,input);
+      this.checkChatMode(state);
       if(!pending||!state.session.chatHandoff)throw new AppError(409,'取り込むAIの指示がありません。');
       if(typeof input.requestId!=='string'||input.requestId!==state.session.chatHandoff.requestId)throw new AppError(409,'古い指示への返答です。現在表示されている指示と返答を使用してください。','STALE_CHAT_RESPONSE');
       if(pending.purpose==='revise'){
@@ -405,7 +544,11 @@ export class SessionEngine {
       }
       const warnings=[...state.session.warnings],priorDraftCount=state.draft?.slides.length??0;
       try{
-        const raw=parseChatResponse(input.response);
+        const raw=this.unmask(state,parseChatResponse(input.response));
+        if(pending.task==='plan'&&(raw as any)?.kind==='deck'){
+          if(!pending.payload.oneShot)throw new AppError(422,'今回は構成の確認です。kindをquestionsまたはoutlineにして返してください。','INVALID_CONTENT');
+          await this.acceptOneShot(state,pending,raw as any);return state.session;
+        }
         if(pending.task==='plan'){
           const result=validatePlanResponse(raw);
           if(result.outline){
@@ -452,11 +595,41 @@ export class SessionEngine {
         state.session.warnings=warnings;
         if(pending.task==='generate'&&state.chat===pending&&state.draft)state.draft.slides.splice(priorDraftCount);
         if(!(error instanceof AppError)||(!repairReason(error)&&!['CHAT_RESPONSE_REQUIRED','CHAT_RESPONSE_TOO_LARGE'].includes(error.code)))throw error;
+        // A reply that is not complete JSON was often cut off by the chat's output
+        // limit. Ask for half as many slides; validated slides are kept.
+        if(pending.task==='generate'&&state.draft&&state.session.outline&&['INVALID_MODEL_JSON','CHAT_RESPONSE_TOO_LARGE'].includes(error.code)&&(pending.targetIds?.length??0)>1){
+          state.draft.batchSize=Math.max(1,Math.ceil(pending.targetIds!.length/2));
+          this.prepareChatGeneration(state,state.session.outline,[`${error.message} 返答が長すぎて途中で切れた可能性があるため、今回の対象を${state.draft.batchSize}枚に減らしました。`],error.code);return state.session;
+        }
         // Keep old slides, original instructions and validated batches. Never
         // replay raw failed responses as instructions to an external model.
         this.exposeChat(state,[error.message],error.code);return state.session;
       }
     },false);
+  }
+  /** Uses the self-contained instruction for the current request, e.g. when the
+   * chat could not read the project's catalog file. */
+  async useFullInstruction(id:string){
+    return this.lock(id,async state=>{this.checkChatMode(state);if(!state.chat||!state.session.chatHandoff)throw new AppError(409,'切り替えるAIへの指示がありません。');if(state.chat.task==='design')throw new AppError(409,'デザインだけの依頼は、常に完全な指示です。');state.chat.full=true;this.exposeChat(state,state.session.chatHandoff.validationIssues);return state.session;},false);
+  }
+  /** Outline and every slide returned at once (manual chat, "一度に作る"). The
+   * same validation as the batch path applies; nothing is accepted partially. */
+  private async acceptOneShot(state:SessionState,pending:ChatDraft,raw:{outline?:unknown;deck?:any}){
+    const outline=validateOutline(raw.outline);
+    if(outline.mode!==state.settings.mode)throw new AppError(422,'構成案のモードが設定と異なります。','INVALID_CONTENT');
+    this.checkSlideCount(state,outline);
+    for(const s of outline.slides)if(s.sourceIds?.some(id=>!state.documents.some(d=>d.id===id)))throw new AppError(422,'構成案に資料にない出典IDがあります。','INVALID_SOURCE');
+    const value=raw.deck;
+    if(!value||!Array.isArray(value.slides)||value.slides.length!==outline.slides.length||value.slides.some((s:any,i:number)=>s?.id!==outline.slides[i].id))throw new AppError(422,'deckのページID・順序・枚数がoutlineと一致しません。全ページを同じidで返してください。','INVALID_CONTENT');
+    const slides=value.slides.map((s:unknown,i:number)=>validateSlide(s,outline.slides[i].id));
+    if(slides.some((s:SlideSpec)=>(s.id==='slide-1')!==(s.layoutId==='cover')))throw new AppError(422,'表紙と本文の役割が構成と一致しません。','INVALID_CONTENT');
+    this.verifySources(state,slides);
+    let deck=validateDeck({id:randomUUID(),title:outline.title,mode:outline.mode,themeId:outline.themeId??this.preferredTheme,slides},outline);
+    this.styleDeck(state,deck,outline);
+    deck.typographyId=state.settings.typographyId&&state.settings.typographyId!=='auto'?state.settings.typographyId:outline.typographyId;
+    state.session.messages=pending.messages??state.session.messages;state.session.outline=outline;
+    deck=improveTextFit(deck);
+    await this.finishChatDeck(state,deck,{...pending,purpose:'generate'});
   }
   private verifyRevisionValues(old:SlideSpec,revised:SlideSpec,instruction:string,state:SessionState){
     // Compare exact decimal values without rounding or unit conversion. A
@@ -474,10 +647,11 @@ export class SessionEngine {
       const value=whole+(tail?'.'+tail:'');return (match[1]&&value!=='0'?'-':'')+value;
     };
     const numbers=(text:string)=>Array.from(text.normalize('NFKC').match(/[+−△-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?:[eE][+−-]?\d+)?%?/g)??[]).map(canonical);
-    const existingText=[old.title,old.headline,old.body,old.notes,...old.items.flatMap(i=>[i.label,i.description,i.value]),...(old.diagram?.items.flatMap(i=>[i.label,i.description,i.value])??[]),...(old.table?.headers??[]),...(old.table?.rows.flat()??[]),old.chart?.caption,old.chart?.unit,old.equation?.text,old.equation?.explanation].filter((v):v is string=>typeof v==='string').join(' ');
-    const allowed=new Set([...numbers(instruction+' '+existingText),...(old.chart?.series.flatMap(s=>s.values.map(v=>canonical(String(v))))??[])]);
+    const existingText=[old.title,old.headline,old.body,old.notes,...old.items.flatMap(i=>[i.label,i.description,i.value]),...(old.diagram?.items.flatMap(i=>[i.label,i.description,i.value])??[]),...(old.table?.headers??[]),...(old.table?.rows.flat()??[]),old.chart?.caption,old.chart?.unit,old.equation?.text,old.equation?.explanation,...designTexts(old)].filter((v):v is string=>typeof v==='string').join(' ');
+    const chartsOf=(slide:SlideSpec)=>[slide.chart,...(slide.design?.elements.flatMap(e=>e.t==='chart'?[e.chart]:[])??[])].filter((c):c is NonNullable<SlideSpec['chart']>=>!!c);
+    const allowed=new Set([...numbers(instruction+' '+existingText),...chartsOf(old).flatMap(c=>c.series.flatMap(s=>s.values.map(v=>canonical(String(v)))))]);
     for(const source of revised.sources){const document=state.documents.find(d=>d.id===source.documentId);const unit=document?.sources.find(u=>u.locator===source.locator);for(const value of numbers(unit?.text??''))allowed.add(value);}
-    const newValues=[...(revised.chart?.series.flatMap(s=>s.values.map(v=>canonical(String(v))))??[]),...revised.items.flatMap(i=>numbers(i.value??''))];
+    const newValues=[...chartsOf(revised).flatMap(c=>c.series.flatMap(s=>s.values.map(v=>canonical(String(v))))),...revised.items.flatMap(i=>numbers(i.value??'')),...(revised.design?.elements.flatMap(e=>e.t==='text'&&e.role==='number'?numbers(e.text):[])??[])];
     if(newValues.some(v=>!allowed.has(v)))throw new AppError(422,'修正で根拠のない数値が追加されました。元の数値、指示で指定した数値、または実在する出典の数値を使用してください。','INVALID_CONTENT');
   }
   private async finishChatDeck(state:SessionState,deck:DeckSpec,pending:ChatDraft){
@@ -494,11 +668,17 @@ export class SessionEngine {
       for(const item of state.session.variants){item.deck.slides=item.deck.slides.map(s=>s.id===id?structuredClone(result):s);delete item.render;}
       const entry=state.session.outline?.slides.find(s=>s.id===id);if(entry){entry.title=result.title;entry.layoutId=result.layoutId;}
       state.session.messages.push({role:'user',text:`「${old.title}」の修正: ${pending.instruction}`},{role:'assistant',text:`AIの返答を検証し、${changes.length?changes.join('・'):'内容（変更なし）'}を反映しました。外部APIの呼び出しはありません。`});
+    }else if(pending.purpose==='alternate'){
+      deck=diversifyDeck(deck,state.session.id,this.recentLayouts);assertTextFits(deck);
+      const ai=chatServiceName(pending.service??'other');
+      state.session.variants.push({id:randomUUID(),label:ai,deck,origin:{kind:'ai',ai}});
+      state.session.messages.push({role:'assistant',text:`${ai}の案を追加しました。同じページを並べて比べ、ページごとに内容とデザインを組み合わせられます。`});
     }else{
       deck=diversifyDeck(deck,state.session.id,this.recentLayouts);
       if(state.settings.preferredDesignId&&state.design)deck=applySavedDesign(deck,state.design,true,this.templateTheme(state)).deck;
       assertTextFits(deck);
-      state.session.variants=[{id:randomUUID(),label:'A',deck}];await this.rememberLayouts(deck,state.session);
+      const ai=chatServiceName(state.chat?.service??this.options.settings.get().chatService??state.settings.chatService??'chatgpt');
+      state.session.variants=[{id:randomUUID(),label:ai,deck,origin:{kind:'ai',ai}}];await this.rememberLayouts(deck,state.session);
       state.session.messages.push({role:'assistant',text:`AIの返答から${deck.slides.length}枚を作成しました。検証済みのページを再利用し、外部APIは呼び出していません。`});
     }
     state.session.phase='ready';delete state.chat;delete state.session.chatHandoff;delete state.draft;delete state.revision;delete state.session.recovery;
@@ -508,7 +688,7 @@ export class SessionEngine {
   async variants(id: string) {
     return this.lock(id, async (state) => {
       if (state.session.phase !== 'ready' || !state.session.variants.length) throw new AppError(409, '先にスライドを作成してください。');
-      if (state.session.variants.length >= 2) return state.session;
+      if (state.session.variants.length >= MAX_VARIANTS) throw new AppError(409, `比較できる案は${MAX_VARIANTS}つまでです。不要な案を削除してから作成してください。`);
       let deck = structuredClone(state.session.variants[0].deck);
       deck.id = randomUUID();
       const candidates=Object.keys(themes).filter(id=>id!==deck.themeId);
@@ -516,10 +696,320 @@ export class SessionEngine {
       delete deck.customTheme;
       deck = diversifyDeck(deck,randomUUID(),[...this.recentLayouts,...deck.slides.map(s=>s.layoutId)]);
       assertTextFits(deck);
-      state.session.variants.push({ id: randomUUID(), label: 'B', deck });
+      state.session.variants.push({ id: randomUUID(), label: 'テーマ違い', deck, origin:{kind:'restyle',parents:[state.session.variants[0].id]} });
       state.session.messages.push({ role: 'assistant', text: '同じ内容でテーマと構図の比較案を作成しました。文字が収まる候補から選び、追加のAI呼び出しはありません。' });
       return state.session;
     });
+  }
+
+  /** Creates the same approved outline with another AI chat (manual hand-off). The
+   * result is added as a separate draft; the existing drafts are kept. */
+  async alternate(id:string,input:{service?:unknown;direct?:unknown;cloudConsent?:unknown}){
+    if(input.direct===true)return this.lock(id,async state=>{
+      if(state.session.phase!=='ready'||!state.session.outline||!state.session.variants.length)throw new AppError(409,'先にスライドを作成してください。');
+      if(state.session.chatHandoff)throw new AppError(409,'進行中のAIとの受け渡しを終えるか取り消してから作成してください。');
+      if(state.session.variants.length>=MAX_VARIANTS)throw new AppError(409,`比較できる案は${MAX_VARIANTS}つまでです。不要な案を削除してから作成してください。`);
+      const target=input.service;
+      if(target!=='chatgpt'&&target!=='claude')throw new AppError(400,'直接作れるのは、設定で接続したClaudeかChatGPTです。');
+      if(input.cloudConsent!==true)throw new AppError(400,`${chatServiceName(target)}へ指示・資料・会話を送ることを確認してください。`,'CLOUD_CONSENT_REQUIRED');
+      const binding=this.options.subscriptionBinding?.(target);
+      if(!binding)throw new AppError(409,`設定から${chatServiceName(target)}のアカウントに接続してください。`,'SUBSCRIPTION_CONNECTION_REQUIRED');
+      state.bindings={...state.bindings,[target]:binding};
+      const run=this.newRun(state,target),deck=await this.draftFor(state,state.session.outline,run);
+      state.session.variants.push({id:randomUUID(),label:run.label,deck,origin:{kind:'ai',ai:run.label,...(run.notes.length?{notes:run.notes.map(n=>`自動で対処：${n}`)}:{})}});
+      state.session.messages.push({role:'assistant',text:`${run.label}でも同じ構成の案を作りました（AIの呼び出し${run.calls}回）。並べて比べたり、ページごとに組み合わせたりできます。`});
+      return state.session;
+    });
+    return this.lock(id,async state=>{
+      this.checkChatMode(state);
+      if(state.session.phase!=='ready'||!state.session.outline||!state.session.variants.length)throw new AppError(409,'先にスライドを作成してください。');
+      if(state.session.chatHandoff)throw new AppError(409,'進行中のAIとの受け渡しを終えるか取り消してから作成してください。');
+      if(state.session.variants.length>=MAX_VARIANTS)throw new AppError(409,`比較できる案は${MAX_VARIANTS}つまでです。不要な案を削除してから作成してください。`);
+      const service=input.service;
+      if(typeof service!=='string'||!['chatgpt','claude','gemini','copilot','other'].includes(service))throw new AppError(400,'案を作るAIを一覧から選んでください。');
+      delete state.draft;
+      this.prepareChatGeneration(state,state.session.outline,undefined,undefined,{purpose:'alternate',service:service as ChatService});
+      return state.session;
+    },false);
+  }
+  /** Builds a new draft page by page: the content of one draft set in the design of
+   * another. Nothing is generated; a page whose places do not match keeps the design
+   * of its content's draft, and the reason is reported. */
+  async combine(id:string,input:{picks?:unknown;themeFrom?:unknown}){
+    return this.lock(id,async state=>{
+      const variants=state.session.variants;
+      if(state.session.phase!=='ready'||variants.length<2)throw new AppError(409,'組み合わせるには2つ以上の案が必要です。');
+      if(state.session.chatHandoff)throw new AppError(409,'進行中のAIとの受け渡しを終えてから組み合わせてください。');
+      const base=variants[0].deck,count=base.slides.length;
+      if(variants.some(v=>v.deck.slides.length!==count||v.deck.slides.some((s,i)=>s.id!==base.slides[i].id)))throw new AppError(409,'ページ数が違う案は組み合わせられません。');
+      if(!Array.isArray(input.picks)||input.picks.length!==count)throw new AppError(400,'すべてのページについて、内容とデザインの案を選んでください。');
+      const picks=(input.picks as any[]).map(p=>({content:this.variant(state,p?.content),design:this.variant(state,p?.design)}));
+      const themeSource=this.variant(state,input.themeFrom??picks[0].design.id);
+      const notes:string[]=[],slides:SlideSpec[]=[];
+      picks.forEach(({content,design},i)=>{
+        const page=content.deck.slides[i],target=design.deck.slides[i];
+        if(content.id===design.id){slides.push(structuredClone(page));return;}
+        const result=target.design?transplant(page,target):!page.design?{slide:{...structuredClone(page),layoutId:target.layoutId}}:{reason:'デザイン側のページが型で作られているため、配置を取り出せません。'};
+        const fits=result.slide&&(target.design||fittingLayouts({...themeSource.deck,slides:[page]},page).some(l=>l.id===target.layoutId))&&!fitProblems({...themeSource.deck,slides:[result.slide]}).length;
+        if(result.slide&&fits){slides.push(result.slide);return;}
+        slides.push(structuredClone(page));
+        notes.push(`${i+1}枚目：${result.slide?'文字がデザインの枠に収まりません。':result.reason}内容側（${content.label}）のデザインのままにしました。`);
+      });
+      const deck=validateDeck({...structuredClone(themeSource.deck),id:randomUUID(),slides});
+      if(themeSource.deck.customTheme)deck.customTheme=structuredClone(themeSource.deck.customTheme);
+      if(themeSource.deck.typographyId)deck.typographyId=themeSource.deck.typographyId;
+      deck.title=base.title;
+      this.verifySources(state,deck.slides);assertTextFits(deck);
+      const existing=variants.findIndex(v=>v.origin?.kind==='combined');
+      const variant:DeckVariant={id:randomUUID(),label:'組み合わせ',deck,origin:{kind:'combined',parents:[...new Set(picks.flatMap(p=>[p.content.id,p.design.id]))],notes}};
+      if(existing>=0)variants[existing]=variant;else if(variants.length<MAX_VARIANTS)variants.push(variant);else throw new AppError(409,`比較できる案は${MAX_VARIANTS}つまでです。不要な案を削除してから組み合わせてください。`);
+      await this.recordChoices(picks.map(p=>({content:p.content.origin?.ai??p.content.label,design:p.design.origin?.ai??p.design.label})));
+      state.session.messages.push({role:'assistant',text:`${count}枚を組み合わせた案を作りました。${notes.length?`${notes.length}枚は配置が合わないため、内容側のデザインのままです。`:''}AIは呼び出していません。`});
+      return state.session;
+    });
+  }
+  /** Asks a chat AI for a design only. The AI receives the places of each slide
+   * (role, length, dummy sample), chart and table shapes and colour names; the
+   * wording, numbers, documents, conversation and project notes stay on this PC.
+   * Works for decks made by any provider, including a local LLM. */
+  async requestDesign(id:string,input:{variantId?:unknown;service?:unknown;level?:unknown;topic?:unknown;direct?:unknown}){
+    return this.lock(id,async state=>{
+      if(state.session.phase!=='ready'||!state.session.variants.length)throw new AppError(409,'先にスライドを作成してください。');
+      if(state.session.chatHandoff)throw new AppError(409,'進行中のAIとの受け渡しを終えるか取り消してから依頼してください。');
+      if(state.session.variants.length>=MAX_VARIANTS)throw new AppError(409,`比較できる案は${MAX_VARIANTS}つまでです。不要な案を削除してから依頼してください。`);
+      const variant=this.variant(state,input.variantId),service=input.service;
+      if(typeof service!=='string'||!['chatgpt','claude','gemini','copilot','other'].includes(service))throw new AppError(400,'デザインを頼むAIを一覧から選んでください。');
+      if(input.level!=='structure'&&input.level!=='topic')throw new AppError(400,'送る範囲を選んでください。');
+      let topic:string|undefined;
+      if(input.level==='topic'){
+        if(typeof input.topic!=='string'||!input.topic.trim()||input.topic.length>40||/[\r\n]/.test(input.topic))throw new AppError(400,'送ってよい話題名を40文字以内で入力してください（例：四半期の業績報告）。');
+        topic=input.topic.trim();
+      }
+      if(input.direct===true){
+        // Sent straight to the connected account: retries and text fitting happen here, with no copying.
+        if(service!=='chatgpt'&&service!=='claude')throw new AppError(400,'直接送れるのは、設定で接続したClaudeかChatGPTです。');
+        const binding=this.options.subscriptionBinding?.(service);
+        if(!binding)throw new AppError(409,`設定から${chatServiceName(service)}のアカウントに接続してください。`,'SUBSCRIPTION_CONNECTION_REQUIRED');
+        state.bindings={...state.bindings,[service]:binding};
+        const run=this.newRun(state,service),designed=await this.designPages(state,variant.deck,input.level,topic,run);
+        state.session.variants.push({id:randomUUID(),label:`デザイン：${run.label}`,deck:designed,origin:{kind:'ai',ai:run.label,parents:[variant.id],notes:[`${run.label}には内容を送らず、${input.level==='topic'?`許可した話題名「${topic}」と`:''}文字の枠の役割・文字数・グラフと表の形だけを渡しました。`,...run.notes.map(n=>`自動で対処：${n}`)]}});
+        state.session.messages.push({role:'assistant',text:`${run.label}のデザインに、このPCで内容を入れた案を追加しました。内容・数値・資料は送信していません（AIの呼び出し${run.calls}回）。`});
+        await this.persist(state);
+        return state.session;
+      }
+      const ids=variant.deck.slides.map(s=>s.id),{contents}=designRequest(variant.deck,ids,input.level,topic);
+      state.chat={task:'design',purpose:'design',service:service as ChatService,payload:{},design:{variantId:variant.id,level:input.level,topic,ids,done:[],contents,base:JSON.stringify(variant.deck)}};
+      await this.exposeDesign(state);
+      return state.session;
+    },false);
+  }
+  /** Everything the user typed, uploaded or received for this deck. Nothing of it may
+   * appear in a design-only request. */
+  private protectedTexts(state:SessionState,deck:DeckSpec){
+    return [...state.documents.flatMap(d=>[d.name,...d.sources.map(u=>u.text)]),...state.session.messages.map(m=>m.text),state.project.audience,state.project.guidance,state.project.name,deck.title,
+      ...deck.slides.flatMap(s=>[s.title,s.notes,...slideContent(s).texts.map(t=>t.text),...slideContent(s).charts.flatMap(c=>[...c.categories,...c.series.map(x=>x.name),c.caption??'',c.unit??'',...c.series.flatMap(x=>x.values.map(String))]),...slideContent(s).tables.flatMap(t=>[...t.headers,...t.rows.flat()]),...s.sources.map(x=>x.quote??'')])].filter(Boolean);
+  }
+  private async exposeDesign(state:SessionState,issues?:string[]){
+    const pending=state.chat!,draft=pending.design!,variant=this.variant(state,draft.variantId);
+    const remaining=draft.ids.filter(id=>!draft.done.some(s=>s.id===id)),batch=remaining.slice(0,FREE_CHAT_BATCH_SIZE);
+    const {packet}=designRequest(variant.deck,batch,draft.level,draft.topic);
+    // The packet is built only from roles, lengths and dummy samples; this check proves
+    // it holds none of the protected wording or numbers before anything is shown.
+    const protectedTexts=this.protectedTexts(state,variant.deck),check=leakCheck(packet,protectedTexts,draft.topic?[draft.topic]:[]);
+    if(check.hits.length)throw new AppError(422,`送信内容に資料・本文と同じ文字（${check.hits.length}件）が見つかったため、指示の作成を止めました。`,'DESIGN_LEAK_BLOCKED');
+    // Correction notes are sent too; if one ever names real wording, a generic note replaces it.
+    if(issues?.length&&phraseLeak(issues,[...protectedTexts.filter(t=>!state.session.messages.some(m=>m.role==='assistant'&&m.text===t))]))issues=['前の返答に不備がありました。すべてのslotを1回ずつ、文字数が収まる大きさで、枠が重ならないように配置してください。'];
+    pending.payload=packet;
+    const handoff=prepareChatHandoff({task:'design',service:pending.service??'chatgpt',system:designOnlyPrompt(draft.level),content:{request:packet},validationIssues:issues,completedSlides:draft.done.length,totalSlides:draft.ids.length});
+    const hash=sha256(handoff.instruction);
+    state.session.chatHandoff={...handoff,privacy:{level:draft.level,...(draft.topic?{topic:draft.topic}:{}),checkedCharacters:check.checkedCharacters,hits:0,sha256:hash,characters:handoff.instruction.length}};
+    const record:SendRecord={at:new Date().toISOString(),task:'design',service:pending.service??'chatgpt',level:draft.level,...(draft.topic?{topic:draft.topic}:{}),slides:batch.length,characters:handoff.instruction.length,checkedCharacters:check.checkedCharacters,hits:0,sha256:hash};
+    await appendFile(path.join(this.options.dataDir,'send-log.jsonl'),JSON.stringify(record)+'\n','utf8').catch(()=>{});
+  }
+  private async designResponse(state:SessionState,pending:ChatDraft,input:{requestId?:unknown;response?:unknown}){
+    const draft=pending.design!;
+    if(!state.session.chatHandoff||typeof input.requestId!=='string'||input.requestId!==state.session.chatHandoff.requestId)throw new AppError(409,'古い指示への返答です。現在表示されている指示と返答を使用してください。','STALE_CHAT_RESPONSE');
+    const variant=this.variant(state,draft.variantId);
+    if(JSON.stringify(variant.deck)!==draft.base)throw new AppError(409,'元の案が変更されました。デザインの依頼をやり直してください。','STALE_CHAT_RESPONSE');
+    try{
+      const raw=parseChatResponse(input.response),packet=pending.payload as DesignPacket;
+      draft.done.push(...fillDesign(raw,packet,draft.contents,variant.deck));
+      if(draft.done.length<draft.ids.length){await this.exposeDesign(state);return state.session;}
+      const deck=validateDeck({...structuredClone(variant.deck),id:randomUUID(),slides:draft.ids.map(id=>draft.done.find(s=>s.id===id)!)});
+      if(variant.deck.customTheme)deck.customTheme=structuredClone(variant.deck.customTheme);
+      if(variant.deck.typographyId)deck.typographyId=variant.deck.typographyId;
+      this.verifySources(state,deck.slides);assertTextFits(deck);
+      const ai=chatServiceName(pending.service??'other');
+      state.session.variants.push({id:randomUUID(),label:`デザイン：${ai}`,deck,origin:{kind:'ai',ai,parents:[variant.id],notes:[`${ai}には内容を送らず、${draft.level==='topic'?`許可した話題名「${draft.topic}」と`:''}文字の枠の役割・文字数・グラフと表の形だけを渡しました。`]}});
+      state.session.messages.push({role:'assistant',text:`${ai}のデザインに、このPCで内容を入れた案を追加しました。内容・数値・資料は送信していません。`});
+      delete state.chat;delete state.session.chatHandoff;state.session.phase='ready';
+      await this.persist(state);
+      return state.session;
+    }catch(error){
+      if(!(error instanceof AppError)||(!repairReason(error)&&!['CHAT_RESPONSE_REQUIRED','CHAT_RESPONSE_TOO_LARGE','TEXT_FIT_REQUIRED'].includes(error.code)))throw error;
+      // The correction is built from slot names and dummy text only.
+      await this.exposeDesign(state,[error.message]);return state.session;
+    }
+  }
+  /** A design-only request sent directly to a connected AI, batch by batch. Only the
+   * skeleton is sent (roles, lengths, dummy samples, chart and table shapes), each request
+   * is checked against everything the user provided first, the reply is checked on the
+   * dummy text, filled with the real content here, and slightly long text is set smaller
+   * locally. Problems are retried with notes that name slots only. */
+  private async designPages(state:SessionState,deck:DeckSpec,level:ShareLevel,topic:string|undefined,run:AiRun):Promise<DeckSpec>{
+    const ids=deck.slides.map(s=>s.id),{contents}=designRequest(deck,ids,level,topic),protectedTexts=this.protectedTexts(state,deck),done:SlideSpec[]=[];
+    let issues:string[]|undefined,batchSize=FREE_GENERATION_BATCH_SIZE;
+    while(done.length<ids.length){
+      const batch=ids.filter(id=>!done.some(s=>s.id===id)).slice(0,batchSize),{packet}=designRequest(deck,batch,level,topic);
+      const check=leakCheck(packet,protectedTexts,topic?[topic]:[]);
+      if(check.hits.length)throw new AppError(422,`送信内容に資料・本文と同じ文字（${check.hits.length}件）が見つかったため、送信を止めました。`,'DESIGN_LEAK_BLOCKED');
+      // The app's own messages in the conversation are not the user's content.
+      if(issues?.length&&phraseLeak(issues,protectedTexts.filter(t=>!state.session.messages.some(m=>m.role==='assistant'&&m.text===t))))issues=['前の返答に不備がありました。すべてのslotを1回ずつ、文字数が収まる大きさで、枠が重ならないように配置してください。'];
+      const system=designOnlyPrompt(level),content=JSON.stringify({request:packet,...(issues?.length?{issues}:{})});
+      await this.recordSend({task:'design',service:run.target,level,...(topic?{topic}:{}),slides:batch.length,checkedCharacters:check.checkedCharacters},system+content);
+      try{
+        const raw=await this.callDirect(state,run,system,content,Math.min(GENERATION_OUTPUT_TOKENS,3000+batch.length*3500));
+        done.push(...fillDesign(raw,packet,contents,deck));issues=undefined;
+        if(batchSize<FREE_GENERATION_BATCH_SIZE)batchSize++;
+      }catch(error){
+        const reason=repairReason(error);
+        if(!(error instanceof AppError)||!reason||run.repair.remaining<=0||run.calls>=12||this.options.settings.get().autoRepair===false)throw error;
+        run.repair.remaining--;run.notes.push(reason.reason);
+        const broken=error instanceof OutputLimitError||error.code==='INVALID_MODEL_JSON';
+        issues=[broken?'前の返答がJSONとして読めませんでした。説明を付けず、最後まで閉じたJSONだけを返してください。':error.message];
+        if(broken)batchSize=Math.max(1,Math.floor(batch.length/2));
+      }
+    }
+    const result=validateDeck({...structuredClone(deck),id:randomUUID(),slides:ids.map(id=>done.find(s=>s.id===id)!)});
+    if(deck.customTheme)result.customTheme=structuredClone(deck.customTheme);
+    if(deck.typographyId)result.typographyId=deck.typographyId;
+    this.verifySources(state,result.slides);assertTextFits(result);
+    return result;
+  }
+  /** Exactly the given instruction and input, to one AI (no documents or conversation are added). */
+  private async callDirect(state:SessionState,run:AiRun,system:string,content:string,maxTokens:number){
+    const settings=this.targetSettings(state,run.target);
+    this.checkDestination(state,settings,true);
+    if(run.calls>=12)throw new AppError(429,'1つの作業につきLLM呼び出しは12回までです。','CALL_LIMIT');
+    const provider=(this.options.providerFactory??createProvider)(settings,this.options.settings.secret(settings.provider));
+    state.session.usage.calls++;run.calls++;
+    try{const response=await provider.complete({system,content,maxTokens});this.addUsage(state.session.usage,response.usage);return parseJsonResponse(response.text);}
+    catch(error){
+      if(error&&typeof error==='object'&&'usage' in error)this.addUsage(state.session.usage,error.usage as Usage);
+      if(error instanceof OutputLimitError){try{return parseJsonResponse(error.partialText);}catch{/* Keep the output-limit error. */}}
+      throw error;
+    }
+  }
+  /** One send-log line: what was sent, how it was checked, and a fingerprint of the exact text. */
+  private async recordSend(record:Omit<SendRecord,'at'|'characters'|'hits'|'sha256'>,instruction:string){
+    const line:SendRecord={at:new Date().toISOString(),...record,characters:instruction.length,hits:0,sha256:sha256(instruction)};
+    await appendFile(path.join(this.options.dataDir,'send-log.jsonl'),JSON.stringify(line)+'\n','utf8').catch(()=>{});
+  }
+  async sendLog():Promise<{records:SendRecord[]}>{
+    const text=await readFile(path.join(this.options.dataDir,'send-log.jsonl'),'utf8').catch(()=>'');
+    return {records:text.split('\n').filter(Boolean).slice(-50).flatMap(line=>{try{return [JSON.parse(line) as SendRecord];}catch{return [];}}).reverse()};
+  }
+  /** The masker of a session whose project sends masked content to a cloud AI. */
+  private masking(state:SessionState):Masker|undefined{
+    const privacy=(()=>{try{return this.projects.get(state.project.id).privacy;}catch{return state.project.privacy;}})();
+    if((state.sendScope??privacy?.mode)!=='masked'||!['chat','subscription'].includes(state.settings.provider)&&!state.targets?.some(t=>t!=='local'))return undefined;
+    state.masker??=new Masker(privacy?.terms??[]);
+    return state.masker.learn([...state.documents.flatMap(d=>[d.name,...d.sources.map(u=>u.text)]),...state.session.messages.map(m=>m.text),state.project.audience,state.project.guidance]);
+  }
+  private unmask<T>(state:SessionState,value:T):T{
+    if(!state.masker)return value;
+    const {value:restored,unknown}=state.masker.unmaskDeep(value);
+    if(unknown.length)throw new AppError(422,`返答に、渡していない伏せ字（${unknown.slice(0,3).join('、')}）があります。渡した伏せ字だけを、そのままの形で使ってください。`,'INVALID_CONTENT');
+    return restored;
+  }
+  /** Proof for a masked hand-off: no masked original remains in the instruction. */
+  private recordMasked(state:SessionState,masker:Masker,task:string,service:string){
+    const handoff=state.session.chatHandoff!,residual=masker.residual(handoff.instruction);
+    if(residual.length){delete state.session.chatHandoff;throw new AppError(422,`伏せ字にした語が指示に${residual.length}件残っているため、指示の作成を止めました。`,'MASK_LEAK_BLOCKED');}
+    const hash=sha256(handoff.instruction),checked=state.documents.reduce((n,d)=>n+d.sources.reduce((m,u)=>m+u.text.length,0),0);
+    handoff.privacy={level:'masked',checkedCharacters:checked,hits:0,sha256:hash,characters:handoff.instruction.length,masked:masker.size,items:masker.items()};
+    const record:SendRecord={at:new Date().toISOString(),task,service,level:'masked',characters:handoff.instruction.length,checkedCharacters:checked,hits:0,sha256:hash,masked:masker.size};
+    void appendFile(path.join(this.options.dataDir,'send-log.jsonl'),JSON.stringify(record)+'\n','utf8').catch(()=>{});
+  }
+  /** Recurring report, step 1: finds every number of the deck in the new period's
+   * documents by the item it belongs to. Runs on this PC; no AI is called. */
+  async refreshPlan(id:string,input:{variantId?:unknown},documents:ParsedDocument[]):Promise<RefreshPlan>{
+    return this.lock(id,async state=>{
+      if(state.session.phase!=='ready'||!state.session.variants.length)throw new AppError(409,'先にスライドを作成してください。');
+      if(state.session.chatHandoff)throw new AppError(409,'進行中のAIとの受け渡しを終えるか取り消してから更新してください。');
+      if(!state.documents.length)throw new AppError(409,'この資料は根拠資料なしで作られているため、数値がどの項目かを照合できません。資料を添付して作った資料で使ってください。','REFRESH_NO_SOURCES');
+      if(!documents.length||documents.length>DOCUMENT_LIMITS.files)throw new AppError(400,'新しい期の資料を1〜8件選んでください。');
+      documentContext(documents);
+      const variant=this.variant(state,input.variantId);
+      const plan:RefreshPlan={id:randomUUID(),variantId:variant.id,...planRefresh(variant.deck,state.documents,documents)};
+      state.refresh={plan,documents,base:JSON.stringify(variant.deck)};
+      return plan;
+    },false);
+  }
+  /** Step 2: builds the refreshed deck with the reviewed values and opens it as a new
+   * presentation whose evidence is the new documents. The previous one is unchanged. */
+  async refreshApply(id:string,input:{planId?:unknown;values?:unknown;texts?:unknown}):Promise<RestoredPresentation>{
+    return this.lock(id,async state=>{
+      const draft=state.refresh;
+      if(!draft||input.planId!==draft.plan.id)throw new AppError(409,'照合結果が古くなりました。新しい期の資料を選んで照合し直してください。','REFRESH_STALE');
+      const variant=state.session.variants.find(v=>v.id===draft.plan.variantId);
+      if(!variant||JSON.stringify(variant.deck)!==draft.base)throw new AppError(409,'照合した後に資料が変更されました。照合し直してください。','REFRESH_STALE');
+      const record=(value:unknown,label:string,max:number,known:Set<string>)=>{
+        if(value===undefined)return {} as Record<string,string>;
+        if(!value||typeof value!=='object'||Array.isArray(value))throw new AppError(400,`${label}の形式が正しくありません。`);
+        const entries=Object.entries(value as Record<string,unknown>);
+        if(entries.some(([key])=>!known.has(key)))throw new AppError(400,'照合結果にない項目が含まれています。照合し直してください。');
+        if(entries.some(([,v])=>typeof v!=='string'||v.length>max))throw new AppError(400,`${label}は${max}文字以内で入力してください。`);
+        return Object.fromEntries(entries) as Record<string,string>;
+      };
+      const values=record(input.values,'数値',40,new Set(draft.plan.entries.map(e=>e.id))),texts=record(input.texts,'文章',800,new Set(draft.plan.texts.map(t=>t.id)));
+      let result:ReturnType<typeof applyRefresh>;
+      try{result=applyRefresh(variant.deck,draft.plan,{values,texts},draft.documents,state.documents);}
+      catch(error){if(error instanceof RefreshInputError)throw new AppError(422,error.message,'REFRESH_INPUT');throw error;}
+      let deck:DeckSpec;
+      try{deck=validateDeck({...result.deck,id:randomUUID()});}
+      catch(error){if(error instanceof AppError)throw new AppError(422,`更新後の内容を確認できません（${error.message.replace(/^生成内容を確認できません: /,'')}）。値や文章を見直してください。`,'REFRESH_INPUT');throw error;}
+      if(result.deck.pageNumbers!==undefined)deck.pageNumbers=result.deck.pageNumbers;
+      const problems=fitProblems(deck);
+      if(problems.length)throw new AppError(422,`${deck.slides.findIndex(s=>s.id===problems[0].slideId)+1}枚目の文字が枠に収まりません。値や文章を短くしてから作成してください。`,'REFRESH_INPUT');
+      this.reserveSession();
+      const settings=this.options.settings.get();settings.mode=deck.mode;settings.slideCount=deck.slides.length;settings.themeId=deck.themeId;settings.typographyId=deck.typographyId??'auto';
+      const summary:RefreshSummary={at:new Date().toISOString(),from:variant.deck.title,documents:draft.documents.map(d=>d.name),previousDocuments:state.documents.map(d=>d.name),changes:result.changes,edited:result.edited,unresolved:result.unresolved};
+      const pages=new Set(result.changes.map(c=>c.slideId)).size;
+      const session:Session={id:randomUUID(),provider:settings.provider,projectId:state.session.projectId,...(settings.provider==='subscription'?{subscriptionService:settings.subscriptionService??'chatgpt',cloudConsentRequired:true}:{}),phase:'ready',
+        messages:[...state.session.messages,{role:'assistant',text:`前回の資料「${variant.deck.title}」のデザイン・構成・文章を引き継ぎ、新しい資料（${summary.documents.join('、')}）の数値で更新しました。${pages}枚・${result.changes.length}か所の数値を変更${result.edited?`、${result.edited}か所の文章を見直し`:''}${result.unresolved?`、${result.unresolved}か所は確認できなかったため前回の値のまま`:''}です。照合はこのPCで行い、AIは呼び出していません。`}],
+        ...(state.session.outline?{outline:{...structuredClone(state.session.outline),title:deck.title}}:{}),
+        variants:[{id:randomUUID(),label:'更新版',deck,origin:{kind:'refresh',parents:[variant.id]}}],usage:emptyUsage(),
+        warnings:draft.documents.flatMap(d=>d.warnings.map(w=>`${d.name}: ${w}`)),refresh:summary};
+      if(result.unresolved)session.warnings.push(`${result.unresolved}か所の数値は新しい資料で確認できなかったため、前回の値のままです。「出典と根拠を確認」で照合してください。`);
+      const next:SessionState={session,documents:draft.documents,settings,project:state.project,createdAt:Date.now(),busy:false,subscriptionBinding:settings.provider==='subscription'?this.options.subscriptionBinding?.(settings.subscriptionService??'chatgpt'):undefined,design:state.design};
+      this.verifySources(next,deck.slides);
+      this.states.set(session.id,next);
+      await this.persist(next);
+      delete state.refresh;
+      return {session,documents:draft.documents.map(documentSummary),mode:deck.mode};
+    },false);
+  }
+  async removeVariant(id:string,variantId:string){
+    return this.lock(id,async state=>{
+      if(state.session.variants.length<2)throw new AppError(409,'最後の案は削除できません。');
+      const index=state.session.variants.findIndex(v=>v.id===variantId);
+      if(index<0)throw new AppError(404,'スライド案が見つかりません。');
+      state.session.variants.splice(index,1);return state.session;
+    });
+  }
+  /** Which AI's content and design people picked. Only AI names are stored, never slide text. */
+  private async recordChoices(picks:{content:string;design:string}[]){
+    const line=JSON.stringify({at:new Date().toISOString(),picks:picks.map(p=>({content:p.content.slice(0,40),design:p.design.slice(0,40)}))});
+    await appendFile(path.join(this.options.dataDir,'choices.jsonl'),line+'\n','utf8').catch(()=>{});
+  }
+  async choiceStats():Promise<ChoiceStats>{
+    const text=await readFile(path.join(this.options.dataDir,'choices.jsonl'),'utf8').catch(()=>'');
+    const stats:ChoiceStats={decisions:0,content:{},design:{}};
+    for(const line of text.split('\n').slice(-500)){
+      try{const entry=JSON.parse(line);stats.decisions++;for(const p of entry.picks??[]){stats.content[p.content]=(stats.content[p.content]??0)+1;stats.design[p.design]=(stats.design[p.design]??0)+1;}}catch{/* skip a damaged line */}
+    }
+    return stats;
   }
 
   async changeTheme(id:string, input:{variantId?:unknown;themeId?:unknown;typographyId?:unknown}) {
@@ -530,6 +1020,9 @@ export class SessionEngine {
         const template=this.templateTheme(state);
         if(!template)throw new AppError(409,'このプロジェクトに会社テンプレートが登録されていません。プロジェクト設定から読み込んでください。','TEMPLATE_REQUIRED');
         deck={...variant.deck,themeId:TEMPLATE_THEME_ID,customTheme:template};
+      }else if(input.themeId===AI_THEME_ID){
+        if(!variant.deck.aiTheme)throw new AppError(409,'この案にはAIが決めた配色がありません。');
+        deck={...variant.deck,themeId:AI_THEME_ID};delete deck.customTheme;
       }else{deck={...variant.deck,themeId:validateTheme(input.themeId)};delete deck.customTheme;}
       if(input.typographyId!==undefined){if(input.typographyId==='auto')delete deck.typographyId;else deck.typographyId=validateTypography(input.typographyId);}
       assertTextFits(deck);
@@ -582,9 +1075,22 @@ export class SessionEngine {
       deck.themeId=outline.themeId??deck.themeId;delete deck.customTheme;return;
     }
     deck.themeId=wanted&&wanted!=='auto'?wanted:outline.themeId??deck.themeId;delete deck.customTheme;
+    // おまかせ in free design: the colours the AI chose while planning become this deck's theme.
+    if((!wanted||wanted==='auto')&&this.freeDesign(state)&&outline.palette){deck.aiTheme=paletteTheme(outline.palette,deck.typographyId??outline.typographyId);deck.themeId=AI_THEME_ID;}
   }
   /** Style hints for the model. A company template is applied by the app, so the
    * model only learns its palette/fonts and keeps choosing a built-in theme id. */
+  /** free (default): the AI designs every page with its own ability. Template layouts
+   * remain only for the demo and when the user chooses them in settings. */
+  private freeDesign(state:SessionState){return state.settings.provider!=='demo'&&(state.settings.designMode??'free')==='free';}
+  private designOptions(state:SessionState,outline?:Outline){
+    if(!this.freeDesign(state))return {};
+    const wanted=state.settings.themeId,template=wanted===TEMPLATE_THEME_ID?this.templateTheme(state):undefined;
+    const typographyId=state.settings.typographyId&&state.settings.typographyId!=='auto'?state.settings.typographyId:outline?.typographyId;
+    const themeId=wanted&&wanted!=='auto'&&wanted!==TEMPLATE_THEME_ID?wanted:outline?.themeId??state.draft?.themeId??this.preferredTheme;
+    const ai=(!wanted||wanted==='auto')&&outline?.palette?paletteTheme(outline.palette,typographyId):undefined;
+    return {design:'free' as const,outputMode:state.settings.mode,theme:ai?ai:deckTheme(template?{themeId:TEMPLATE_THEME_ID,customTheme:template,typographyId}:{themeId,typographyId})};
+  }
   private stylePreferences(state:SessionState){
     const template=state.settings.themeId===TEMPLATE_THEME_ID?(()=>{try{return this.projects.get(state.project.id).template;}catch{return undefined;}})():undefined;
     return {slideCount:state.settings.slideCount??'auto',themeId:template?'auto':state.settings.themeId??'auto',typographyId:state.settings.typographyId??'auto',preferredTheme:this.preferredTheme,maxSlides:MAX_SLIDES,preferredDesign:this.designGuidance(state),
@@ -637,20 +1143,20 @@ export class SessionEngine {
     if(typeof state.settings.slideCount==='number'&&outline.slides.length!==state.settings.slideCount)throw new AppError(422,`指定は表紙込み${state.settings.slideCount}枚ですが、構成案は${outline.slides.length}枚です。枚数を合わせるよう指示してください。`,'SLIDE_COUNT_MISMATCH');
   }
 
-  private async fitText(state:SessionState,deck:DeckSpec,memo?:FitDraft) {
+  private async fitText(state:SessionState,deck:DeckSpec,memo?:FitDraft,run?:AiRun) {
     if(state.settings.provider==='demo'){assertTextFits(deck);return deck;}
     let fitted=deck;
     while(true){
       const problems=fitProblems(fitted).slice(0,memo?.batchSize??READING_BATCH_SIZE);
       if(!problems.length)return fitted;
       try{
-        const response=await this.complete(state,'summarize',{slides:problems},memo?.singleFailures?14000:Math.min(14000,3000+problems.length*2500));
+        const response=await this.complete(state,'summarize',{slides:problems},memo?.singleFailures?14000:Math.min(14000,3000+problems.length*2500),run);
         const ids=problems.map(p=>p.slideId),next=applySummaries(fitted,response,ids);
         if(fitProblems(next).some(p=>ids.includes(p.slideId)))throw new AppError(422,'要約後も文章が枠に収まりません。構成で情報を分けるか、短くする指示を追加してください。','TEXT_FIT_REQUIRED');
         fitted=next;if(memo){memo.deck=fitted;memo.singleFailures=0;}
       }catch(error){
         if(error instanceof OutputLimitError&&memo){memo.singleFailures=problems.length===1?memo.singleFailures+1:0;memo.batchSize=Math.max(1,Math.floor(problems.length/2));}
-        if((memo?.singleFailures??0)<2&&this.tryRepair(state,'summarize',error,`本文は再生成せず、未調整の最大${memo?.batchSize??READING_BATCH_SIZE}枚だけを要約。表示枠・変更できる欄・数値の保持を確認します。`))continue;
+        if((memo?.singleFailures??0)<2&&this.tryRepair(state,'summarize',error,`本文は再生成せず、未調整の最大${memo?.batchSize??READING_BATCH_SIZE}枚だけを要約。表示枠・変更できる欄・数値の保持を確認します。`,run))continue;
         throw error;
       }
     }
@@ -715,11 +1221,14 @@ export class SessionEngine {
       delete state.repairOperation;
     }
   }
-  private tryRepair(state:SessionState,task:ModelTask,error:unknown,adjustment:string){
-    const reason=repairReason(error),operation=state.repairOperation;
-    if(!reason||!operation||operation.remaining<=0||state.session.usage.calls>=12||this.options.settings.get().autoRepair===false)return false;
-    operation.remaining--;operation.next={task,code:(error as AppError).code};
-    this.recordRepair(state,error,adjustment,true);
+  private tryRepair(state:SessionState,task:ModelTask,error:unknown,adjustment:string,run?:AiRun){
+    const reason=repairReason(error),operation=run?run.repair:state.repairOperation;
+    if(!reason||!operation||operation.remaining<=0||(run?run.calls:state.session.usage.calls)>=12||this.options.settings.get().autoRepair===false)return false;
+    // The app's own finding (which page and element, and what to change) goes with the retry, so the
+    // same slip is not repeated. Quoted fragments of the model's text are left out.
+    const code=(error as AppError).code,detail=['INVALID_CONTENT','INVALID_SOURCE','INVALID_QUOTE','TEXT_FIT_REQUIRED'].includes(code)?(error as AppError).message.replace(/^生成内容を確認できません: /,'').replace(/「[^」]*」/g,'（該当の文字）').slice(0,400):undefined;
+    operation.remaining--;operation.next={task,code,...(detail?{detail}:{})};
+    if(run)run.notes.push(reason.reason);else this.recordRepair(state,error,adjustment,true);
     return true;
   }
   private recordRepair(state:SessionState,error:unknown,adjustment:string,retry:boolean){
@@ -760,32 +1269,64 @@ export class SessionEngine {
       state.session.messages.push({ role: 'assistant', text: '構成案を用意しました。見出しと説明の順番を確認してください。変更は同じ入力欄から指示できます。' });
     }
   }
-  private async complete(state: SessionState, task: ModelTask, payload: unknown, maxTokens: number) {
-    if(state.settings.provider==='claude')throw new AppError(400,'有料APIは無効です。月額版との連携で新しく作成してください。','PAID_API_DISABLED');
-    if(state.settings.provider==='chat')throw new AppError(409,'月額版との連携は、画面の指示をコピーして返答を取り込んでください。','CHAT_HANDOFF_REQUIRED');
-    const current = this.options.settings.get();
-    if (current.provider !== state.settings.provider || (current.provider === 'local' && current.endpoint !== state.settings.endpoint)) throw new AppError(409, '処理先が変更されています。資料の送信先を確認して新しく作成してください。');
-    if(state.settings.provider==='subscription')this.checkSubscriptionBinding(state);
+  /** The settings of one AI chosen for this session. */
+  private targetSettings(state:SessionState,target:AiTarget):Settings{return settingsFor(state.settings,target);}
+  /** Material goes only where the user agreed for this session: the provider it was
+   * created with, or the AIs chosen at creation with the accounts connected then. */
+  private checkDestination(state:SessionState,settings:Settings,other=false){
+    const current=this.options.settings.get();
+    if(!state.targets&&!other){
+      if (current.provider !== state.settings.provider || (current.provider === 'local' && current.endpoint !== state.settings.endpoint)) throw new AppError(409, '処理先が変更されています。資料の送信先を確認して新しく作成してください。');
+      if(state.settings.provider==='subscription')this.checkSubscriptionBinding(state);
+      return;
+    }
+    if(settings.provider==='local'&&current.endpoint!==state.settings.endpoint)throw new AppError(409,'ローカルLLMの接続先が変更されています。送信先を確認して新しく作成してください。');
+    if(settings.provider==='subscription'){
+      const service=settings.subscriptionService??'chatgpt',binding=this.options.subscriptionBinding?.(service);
+      if(!binding)throw new AppError(409,`${chatServiceName(service)}のアカウントが接続されていません。設定から接続し、新しく作成してください。`,'SUBSCRIPTION_CONNECTION_REQUIRED');
+      if(state.bindings?.[service]!==binding)throw new AppError(409,`${chatServiceName(service)}の接続アカウントが変更されています。送信先を確認し、新しく作成してください。`,'SUBSCRIPTION_ACCOUNT_CHANGED');
+    }
+  }
+  private async complete(state: SessionState, task: ModelTask, payload: unknown, maxTokens: number, run?:AiRun) {
+    const settings=run?this.targetSettings(state,run.target):state.settings;
+    if(settings.provider==='claude')throw new AppError(400,'有料APIは無効です。月額版との連携で新しく作成してください。','PAID_API_DISABLED');
+    if(settings.provider==='chat')throw new AppError(409,'月額版との連携は、画面の指示をコピーして返答を取り込んでください。','CHAT_HANDOFF_REQUIRED');
+    this.checkDestination(state,settings,!!run);
     if(state.session.cloudConsentRequired)throw new AppError(400,`履歴の指示・資料・会話を${state.settings.subscriptionService==='claude'?'Claude':'ChatGPT'}へ送ることを確認してください。`,'CLOUD_CONSENT_REQUIRED');
-    if (state.session.usage.calls >= 12) throw new AppError(429, '1つの作業につきLLM呼び出しは12回までです。要点をまとめて新しく作成してください。','CALL_LIMIT');
-    const provider = (this.options.providerFactory ?? createProvider)(state.settings, this.options.settings.secret(state.settings.provider));
-    state.session.usage.calls++;
+    // Each AI of the session has its own budget of 12 calls.
+    if ((run?run.calls:state.session.usage.calls) >= 12) throw new AppError(429, '1つの作業につきLLM呼び出しは12回までです。要点をまとめて新しく作成してください。','CALL_LIMIT');
+    const provider = (this.options.providerFactory ?? createProvider)(settings, this.options.settings.secret(settings.provider));
+    state.session.usage.calls++;if(run)run.calls++;
     try {
       const request={...payload as any};
-      const correction=state.repairOperation?.next;
-      if(correction?.task===task){request.repair={reason:correction.code,instruction:repairInstruction(correction.code)};delete state.repairOperation!.next;}
+      const operation=run?run.repair:state.repairOperation,correction=operation?.next;
+      if(correction?.task===task){request.repair={reason:correction.code,instruction:repairInstruction(correction.code),...(correction.detail?{detail:correction.detail}:{})};delete operation!.next;}
       if(task==='generate'&&request.outline?.inputBrief){request.confirmedInstructions=request.outline.inputBrief;delete request.messages;}
       const selected=task==='generate'?request.targetSlides?.map((s:any)=>s.layoutId):task==='revise'?[request.targetSlide?.layoutId]:undefined;
-      const response = await provider.complete({ system: systemPrompt(task,selected?candidateLayoutIds(selected):undefined), content: JSON.stringify({ mode: state.settings.mode, projectContext:{audience:state.project.audience,designAndWritingGuidance:state.project.guidance}, preferences:{...this.stylePreferences(state),...(task==='plan'?{recentLayouts:this.recentLayouts.slice(-40),variationSeed:state.session.id}: {})}, documents: task==='summarize'?[]:documentContext(state.documents), request }), maxTokens });
+      const masker=settings.provider==='subscription'?this.masking(state):undefined,protect=<T,>(value:T)=>masker?masker.maskDeep(value):value;
+      const response = await provider.complete({ system: systemPrompt(task,selected?candidateLayoutIds(selected):undefined,this.designOptions(state,request.outline))+(masker?'\n\n## 伏せ字について\nこのメッセージの資料・指示・会話では、社名・指定された語・連絡先・数値を【社名1】【語1】【連絡先1】【数値1】のような伏せ字にしています。伏せ字は、そのままの形で文章・見出し・出典の引用に使い、分解・計算・推測をしません。グラフの値には、資料にある数値の伏せ字（【数値n】の形）を文字列のまま書きます。アプリがこのPCで元の語と数値に戻します。':''), content: JSON.stringify(protect({ mode: state.settings.mode, projectContext:{audience:state.project.audience,designAndWritingGuidance:state.project.guidance}, preferences:{...this.stylePreferences(state),...(task==='plan'&&!this.freeDesign(state)?{recentLayouts:this.recentLayouts.slice(-40),variationSeed:state.session.id}: {})}, documents: task==='summarize'?[]:documentContext(task==='generate'?this.batchDocuments(state,request.targetSlides):state.documents), request })), maxTokens });
       this.addUsage(state.session.usage, response.usage);
-      return parseJsonResponse(response.text);
+      return this.unmask(state,parseJsonResponse(response.text));
     } catch (error) {
       if (error && typeof error === 'object' && 'usage' in error) this.addUsage(state.session.usage, error.usage as Usage);
       // A limit signal can arrive at the JSON boundary. Only accept complete JSON;
       // never add braces, clip a condition, or expose unfinished content as a plan.
-      if(error instanceof OutputLimitError){try{return parseJsonResponse(error.partialText);}catch{/* Preserve the original output-limit error. */}}
+      if(error instanceof OutputLimitError){try{return this.unmask(state,parseJsonResponse(error.partialText));}catch{/* Preserve the original output-limit error. */}}
       throw error;
     }
+  }
+  /** The documents a generation batch needs: those its pages name in the outline
+   * (sourceIds). When any page names none, every document is sent as before. */
+  private batchDocuments(state:SessionState,targets:Outline['slides']|undefined){
+    const pages=(targets??[]).filter(s=>s.layoutId!=='cover');
+    if(!pages.length||state.documents.length<2)return state.documents;
+    const ids=new Set<string>();
+    for(const page of pages){
+      const named=(page.sourceIds??[]).map(id=>id.split(':')[0]).filter(id=>state.documents.some(d=>d.id===id));
+      if(!named.length)return state.documents;
+      named.forEach(id=>ids.add(id));
+    }
+    return state.documents.filter(d=>ids.has(d.id));
   }
   /** An existing task may never silently start sending material to another account. */
   private checkSubscriptionBinding(state:SessionState){
@@ -805,7 +1346,15 @@ export class SessionEngine {
         const document = state.documents.find((document) => document.id === source.documentId);
         const unit = document?.sources.find((unit) => unit.locator === source.locator);
         if (!document || !unit) throw new AppError(422, `「${slide.title}」の出典位置が資料に存在しません。内容を再生成してください。`, 'INVALID_SOURCE');
-        if (source.quote && !unit.text.replace(/\s+/g, '').includes(source.quote.replace(/\s+/g, ''))) throw new AppError(422, `「${slide.title}」の引用が原資料と一致しません。内容を再生成してください。`, 'INVALID_QUOTE');
+        if (source.quote && !looseText(unit.text).includes(looseText(source.quote))) {
+          // A quote whose numbers are not in the cited text is invented evidence and is refused.
+          // One that only differs in spacing, line breaks or punctuation of the PDF text is
+          // dropped (the location itself is verified), instead of costing a whole regeneration.
+          const values=sourceValues(unit.text);
+          if (numbersIn(source.quote).some((value) => !values.has(value))) throw new AppError(422, `「${slide.title}」の引用が原資料と一致しません。内容を再生成してください。`, 'INVALID_QUOTE');
+          delete source.quote;
+          state.session.warnings.push(`「${slide.title}」の引用文が原文の表記と一致しないため、引用文を外しました。出典の位置は確認済みです。`);
+        }
         Object.assign(source, { documentName: document.name });
       }
       if (state.documents.length && !slide.sources.length && slide.layoutId !== 'cover') state.session.warnings.push(`「${slide.title}」には資料への出典がありません。一般的な説明・仮説・根拠不足のどれに当たるか確認してください。`);

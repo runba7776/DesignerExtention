@@ -13,11 +13,11 @@ const hex = (color: string | undefined, fallback = '000000') => (color && /^#[0-
 const safeFont = (font: string | undefined) => (font ?? 'Yu Gothic').replace(/[&<>"]/g, '');
 const japanese = /[　-ヿ㐀-鿿＀-￯]/;
 
-function addText(slide: Slide, e: Pick<TextElement, 'x' | 'y' | 'w' | 'h' | 'text' | 'fontSize' | 'color' | 'bold' | 'align' | 'font' | 'fontFarEast' | 'noWrap'>, valign: 'top' | 'middle' = 'top', margin = 0) {
+function addText(slide: Slide, e: Pick<TextElement, 'x' | 'y' | 'w' | 'h' | 'text' | 'fontSize' | 'color' | 'bold' | 'align' | 'font' | 'fontFarEast' | 'noWrap' | 'italic' | 'verticalAlign' | 'lineHeight'>, valign: 'top' | 'middle' | 'bottom' = e.verticalAlign ?? 'top', margin = 0) {
   slide.addText(e.text, {
     x: inch(e.x), y: inch(e.y), w: inch(e.w), h: inch(e.h), margin,
-    fontFace: safeFont(japanese.test(e.text) ? e.fontFarEast ?? e.font : e.font), fontSize: e.fontSize, color: hex(e.color), bold: !!e.bold,
-    align: e.align ?? 'left', valign, wrap: !e.noWrap, fit: 'none', lineSpacingMultiple: 1.05, paraSpaceAfter: 0,
+    fontFace: safeFont(japanese.test(e.text) ? e.fontFarEast ?? e.font : e.font), fontSize: e.fontSize, color: hex(e.color), bold: !!e.bold, italic: !!e.italic,
+    align: e.align ?? 'left', valign, wrap: !e.noWrap, fit: 'none', ...(e.lineHeight ? { lineSpacing: e.lineHeight } : { lineSpacingMultiple: 1.05 }), paraSpaceAfter: 0,
   });
 }
 
@@ -33,6 +33,8 @@ function addChart(pptx: Pptx, slide: Slide, e: ChartElement, font: string, ink: 
     showLegend: e.series.length > 1 || share, legendPos: 'b', legendFontSize: e.labelSize ?? 14, legendFontFace: font, legendColor: ink,
     catAxisLabelFontSize: e.labelSize ?? 14, valAxisLabelFontSize: e.labelSize ?? 14, catAxisLabelColor: ink, valAxisLabelColor: ink, catAxisLabelFontFace: font, valAxisLabelFontFace: font,
     valGridLine: { color: hex(e.gridColor, 'E3E8EE'), size: 0.75 }, catGridLine: { style: 'none' },
+    // Thousands separators on the scale, and category names kept horizontal.
+    valAxisLabelFormatCode: fractional ? '#,##0.0' : '#,##0', catAxisLabelRotate: 0,
     ...(!share && !stacked && e.chartType !== 'line' && !values.some(value => value < 0) ? { valAxisMinVal: 0 } : {}),
     ...(e.unit && !share ? { showValAxisTitle: true, valAxisTitle: e.unit, valAxisTitleFontSize: 12, valAxisTitleColor: ink } : {}),
     showValue: !!e.showValues && !share, showPercent: !!e.showValues && share,
@@ -84,13 +86,18 @@ function addDiagram(pptx: Pptx, slide: Slide, e: SmartArtElement, font: string) 
 
 function addElement(pptx: Pptx, slide: Slide, e: SceneElement, doc: RenderDocument) {
   if (e.kind === 'text') { addText(slide, e); return; }
-  if (e.kind === 'line') { slide.addShape(pptx.ShapeType.line, { x: inch(e.x), y: inch(e.y), w: inch(Math.max(e.w, 0.01)), h: inch(Math.max(e.h, 0)), flipV: !!e.flipY, line: { color: hex(e.stroke), width: e.strokeWidth ?? 1 } }); return; }
+  if (e.kind === 'line') { slide.addShape(pptx.ShapeType.line, { x: inch(e.x), y: inch(e.y), w: inch(Math.max(e.w, 0.01)), h: inch(Math.max(e.h, 0)), flipV: !!e.flipY, line: { color: hex(e.stroke), width: e.strokeWidth ?? 1, ...(e.dash ? { dashType: 'dash' } : {}), ...(e.arrow ? { endArrowType: 'triangle' } : {}), ...(e.arrowStart ? { beginArrowType: 'triangle' } : {}) } }); return; }
   if (e.kind === 'chart') { addChart(pptx, slide, e, safeFont(doc.theme.font), hex(doc.theme.foreground)); return; }
   if (e.kind === 'smartart') { addDiagram(pptx, slide, e, safeFont(doc.theme.font)); return; }
-  const type = e.shape === 'roundRect' ? pptx.ShapeType.roundRect : e.shape === 'ellipse' ? pptx.ShapeType.ellipse : e.shape === 'triangle' ? pptx.ShapeType.triangle : e.shape === 'arrow' ? pptx.ShapeType.rightArrow : pptx.ShapeType.rect;
+  if (e.kind === 'image') {
+    const data = e.svg ? `image/svg+xml;base64,${btoa(unescape(encodeURIComponent(e.svg)))}` : e.png ? `image/png;base64,${e.png}` : '';
+    if (data) slide.addImage({ data, x: inch(e.x), y: inch(e.y), w: inch(e.w), h: inch(e.h) });
+    return;
+  }
+  const shapes = { rect: pptx.ShapeType.rect, roundRect: pptx.ShapeType.roundRect, ellipse: pptx.ShapeType.ellipse, triangle: pptx.ShapeType.triangle, arrow: pptx.ShapeType.rightArrow, leftArrow: pptx.ShapeType.leftArrow, upArrow: pptx.ShapeType.upArrow, downArrow: pptx.ShapeType.downArrow, chevron: pptx.ShapeType.chevron, pentagon: pptx.ShapeType.homePlate, hexagon: pptx.ShapeType.hexagon, diamond: pptx.ShapeType.diamond, parallelogram: pptx.ShapeType.parallelogram, trapezoid: pptx.ShapeType.trapezoid, octagon: pptx.ShapeType.octagon, donut: pptx.ShapeType.donut } as const;
   const transparent = (color?: string) => !color || color === 'none' || color === 'transparent';
-  slide.addShape(type, { x: inch(e.x), y: inch(e.y), w: inch(e.w), h: inch(e.h), ...(e.shape === 'roundRect' ? { rectRadius: 0.1 } : {}),
-    fill: transparent(e.fill) ? { type: 'none' } : { color: hex(e.fill) }, line: transparent(e.stroke) ? { type: 'none' } : { color: hex(e.stroke), width: e.strokeWidth ?? 1 } });
+  slide.addShape(shapes[e.shape] ?? pptx.ShapeType.rect, { x: inch(e.x), y: inch(e.y), w: inch(e.w), h: inch(e.h), ...(e.shape === 'roundRect' ? { rectRadius: inch((e.radius ?? 0.12) * Math.min(e.w, e.h)) } : {}), ...(e.rotation ? { rotate: e.rotation } : {}),
+    fill: transparent(e.fill) ? { type: 'none' } : { color: hex(e.fill), ...(e.opacity !== undefined && e.opacity < 1 ? { transparency: Math.round((1 - e.opacity) * 100) } : {}) }, line: transparent(e.stroke) ? { type: 'none' } : { color: hex(e.stroke), width: e.strokeWidth ?? 1 } });
 }
 
 /** Builds the PPTX for a deck. Decks that follow the company template leave the

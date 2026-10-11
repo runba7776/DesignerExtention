@@ -1,5 +1,5 @@
 /** Semantic groups are deliberately separate: variety must not invent a relationship. */
-export type LayoutGroup = 'cover'|'points'|'comparison'|'change'|'sequence'|'timeline'|'table'|'chart'|'metrics'|'hub'|'pyramid'|'funnel'|'concept'|'cycle'|'hierarchy'|'cause';
+export type LayoutGroup = 'free'|'cover'|'points'|'comparison'|'change'|'sequence'|'timeline'|'table'|'chart'|'metrics'|'hub'|'pyramid'|'funnel'|'concept'|'cycle'|'hierarchy'|'cause';
 export const researchSources = {
   cone: {title:'Cone / c-slide — 39のデザインパターン集',url:'https://cone-c-slide.com/see-sla/blog/design-pattern/'},
   microsoft: {title:'Microsoft PowerPoint — 公開テンプレート（カラー ブロック・プリズム・ノートほか）',url:'https://powerpoint.cloud.microsoft/search/templates/'},
@@ -17,8 +17,8 @@ export const researchSources = {
   valuechain: {title:'SlideModel — Value Chain Analysis',url:'https://slidemodel.com/templates/value-chain-analysis-powerpoint-template/'},
 };
 export type ResearchSource = keyof typeof researchSources;
-export const groupNames:Record<LayoutGroup,string>={cover:'表紙',points:'要点・まとめ',comparison:'比較',change:'変化の前後',sequence:'工程・順序',timeline:'時系列',table:'表',chart:'グラフ',metrics:'数値の強調',hub:'中心と関連',pyramid:'段階的な階層',funnel:'絞り込み',concept:'概念・数式',cycle:'循環',hierarchy:'親子関係',cause:'原因と結果'};
-export const groupCautions:Record<LayoutGroup,string>={cover:'本文のページには使用しない',points:'順序・因果・優劣を配置だけで付けない',comparison:'比較条件が違う対象は条件を明記する',change:'無関係な2対象の比較には使わない',sequence:'順序のない項目には使わない',timeline:'実際の時点をラベルに記載。距離は期間の長さを表さない',table:'値・単位・列と行の対応を変えない',chart:'軸・系列・数値・比較条件を変えない',metrics:'数値を創作しない。図の面積は数量を表さない',hub:'周辺要素の因果や順位を示すものではない',pyramid:'上位と下位が説明できない分類には使わない。幅は数量ではない',funnel:'絞り込みがない情報に使わない。幅は数量ではない',concept:'数式と成立条件を保持する',cycle:'最終段階から最初へ戻る関係が必要',hierarchy:'親子関係を変えない。全項目を同じ階層に平坦化しない',cause:'原因・要因と結果の関係が明示されている場合のみ。仮説は仮説と記載し、相関を因果に変えない'};
+export const groupNames:Record<LayoutGroup,string>={free:'AIによる自由デザイン',cover:'表紙',points:'要点・まとめ',comparison:'比較',change:'変化の前後',sequence:'工程・順序',timeline:'時系列',table:'表',chart:'グラフ',metrics:'数値の強調',hub:'中心と関連',pyramid:'段階的な階層',funnel:'絞り込み',concept:'概念・数式',cycle:'循環',hierarchy:'親子関係',cause:'原因と結果'};
+export const groupCautions:Record<LayoutGroup,string>={free:'数値の大きさを図形の大きさで表す場合は実際の値に比例させる',cover:'本文のページには使用しない',points:'順序・因果・優劣を配置だけで付けない',comparison:'比較条件が違う対象は条件を明記する',change:'無関係な2対象の比較には使わない',sequence:'順序のない項目には使わない',timeline:'実際の時点をラベルに記載。距離は期間の長さを表さない',table:'値・単位・列と行の対応を変えない',chart:'軸・系列・数値・比較条件を変えない',metrics:'数値を創作しない。図の面積は数量を表さない',hub:'周辺要素の因果や順位を示すものではない',pyramid:'上位と下位が説明できない分類には使わない。幅は数量ではない',funnel:'絞り込みがない情報に使わない。幅は数量ではない',concept:'数式と成立条件を保持する',cycle:'最終段階から最初へ戻る関係が必要',hierarchy:'親子関係を変えない。全項目を同じ階層に平坦化しない',cause:'原因・要因と結果の関係が明示されている場合のみ。仮説は仮説と記載し、相関を因果に変えない'};
 /** Legacy grammars also expose an explicit placement contract. */
 export const legacyGuidance:Record<string,{group:LayoutGroup;placement:string}>={
   cover:{group:'cover',placement:'題名を中央または左上の広い領域に、導入を下に置く'},

@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {mkdir,readFile,readdir,lstat,rename,writeFile,unlink,rmdir} from 'node:fs/promises';
 import path from 'node:path';
-import type {HistoryEntry,HistoryVersion,Session,RenderResult} from '../shared/contracts.js';
+import type {HistoryEntry,HistoryVersion,RefreshSummary,Session,RenderResult,VariantOrigin} from '../shared/contracts.js';
 import {MAX_PROMPT_CHARACTERS} from '../shared/contracts.js';
 import {documentContext,DOCUMENT_LIMITS,type ParsedDocument} from './document-model.js';
 import {AppError,requireText} from './errors.js';
@@ -19,10 +19,22 @@ function safeRender(value:any,count:number):RenderResult|undefined {
   if(value.pptxUrl!==base+'presentation.pptx'||!Array.isArray(value.thumbnails)||value.thumbnails.length<count||value.thumbnails.length>count+3||value.thumbnails.some((url:unknown)=>typeof url!=='string'||!url.startsWith(base)||!/^slide-\d+\.png$/.test(url.slice(base.length))))return;
   return {artifactId:value.artifactId,pptxUrl:value.pptxUrl,thumbnails:value.thumbnails,warnings:Array.isArray(value.warnings)?value.warnings.filter((w:unknown)=>typeof w==='string'):[],native:value.native===true};
 }
+const strings=(value:unknown,max:number,length:number)=>Array.isArray(value)?value.filter((v):v is string=>typeof v==='string'&&v.length<=length).slice(0,max):[];
+function safeOrigin(value:any):VariantOrigin|undefined{
+  if(!value||!['ai','restyle','combined','refresh'].includes(value.kind))return;
+  return {kind:value.kind,...(typeof value.ai==='string'&&value.ai.length<=40?{ai:value.ai}:{}),...(Array.isArray(value.parents)?{parents:strings(value.parents,6,100)}:{}),...(Array.isArray(value.notes)?{notes:strings(value.notes,40,400)}:{})};
+}
+function safeRefresh(value:any):RefreshSummary|undefined{
+  if(!value||typeof value.from!=='string'||typeof value.at!=='string'||!Array.isArray(value.changes))return;
+  const count=(n:unknown)=>Number.isSafeInteger(n)&&(n as number)>=0?n as number:0;
+  const changes=value.changes.slice(0,3000).filter((c:any)=>c&&typeof c.slideId==='string'&&Number.isSafeInteger(c.page)&&typeof c.where==='string'&&typeof c.before==='string'&&typeof c.after==='string'&&(c.kind==='text'||c.kind==='value'))
+    .map((c:any)=>({slideId:c.slideId.slice(0,100),page:c.page,where:c.where.slice(0,80),before:c.before.slice(0,40),after:c.after.slice(0,40),kind:c.kind}));
+  return {at:value.at.slice(0,40),from:value.from.slice(0,200),documents:strings(value.documents,8,200),previousDocuments:strings(value.previousDocuments,8,200),changes,edited:count(value.edited),unresolved:count(value.unresolved)};
+}
 function checked(value:any):HistoryRecord {
   if(!value||value.schemaVersion!==1||!validId(value.id)||!Number.isSafeInteger(value.revision)||value.revision<1||typeof value.createdAt!=='string'||typeof value.updatedAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||!Number.isFinite(Date.parse(value.updatedAt)))throw new AppError(422,'履歴の形式を読み取れません。','INVALID_HISTORY');
-  const raw=value.session;if(!raw||raw.phase!=='ready'||!Array.isArray(raw.variants)||!raw.variants.length||raw.variants.length>2||!Array.isArray(raw.messages))throw new AppError(422,'作成済み資料の履歴を読み取れません。','INVALID_HISTORY');
-  const outline=validateOutline(raw.outline),variants=raw.variants.map((v:any)=>{const deck=validateDeck(v.deck,outline);return {id:requireText(v.id,'案のID',100),label:requireText(v.label,'案の名前',100),deck,...(safeRender(v.render,deck.slides.length)?{render:safeRender(v.render,deck.slides.length)}:{})};});
+  const raw=value.session;if(!raw||raw.phase!=='ready'||!Array.isArray(raw.variants)||!raw.variants.length||raw.variants.length>3||!Array.isArray(raw.messages))throw new AppError(422,'作成済み資料の履歴を読み取れません。','INVALID_HISTORY');
+  const outline=validateOutline(raw.outline),variants=raw.variants.map((v:any)=>{const deck=validateDeck(v.deck,outline);const origin=safeOrigin(v.origin);return {id:requireText(v.id,'案のID',100),label:requireText(v.label,'案の名前',100),deck,...(origin?{origin}:{}),...(safeRender(v.render,deck.slides.length)?{render:safeRender(v.render,deck.slides.length)}:{})};});
   const messages=raw.messages.map((m:any)=>{if(!m||!['user','assistant'].includes(m.role))throw new AppError(422,'履歴の会話形式が正しくありません。');return {role:m.role as 'user'|'assistant',text:preservedText(m.text,'会話',MAX_PROMPT_CHARACTERS+300)};});
   if(messages.reduce((sum:number,m:{text:string})=>sum+m.text.length,0)>250_000)throw new AppError(413,'履歴の会話が大きすぎます。');
   if(!Array.isArray(value.documents)||value.documents.length>DOCUMENT_LIMITS.files)throw new AppError(422,'履歴の根拠資料を読み取れません。');
@@ -36,7 +48,7 @@ function checked(value:any):HistoryRecord {
   const provider=['subscription','chat','claude','local','demo'].includes(raw.provider)?raw.provider as Session['provider']:undefined;
   const projectId=raw.projectId??DEFAULT_PROJECT_ID;if(!validId(projectId))throw new AppError(422,'履歴のプロジェクト情報が正しくありません。','INVALID_HISTORY');
   const subscriptionService=provider==='subscription'&&['chatgpt','claude'].includes(raw.subscriptionService)?raw.subscriptionService as Session['subscriptionService']:undefined;
-  return {schemaVersion:1,id:value.id,revision:value.revision,createdAt:value.createdAt,updatedAt:value.updatedAt,documents,session:{id:requireText(raw.id,'作業ID',100),phase:'ready',outline,messages,variants,usage,projectId,...(provider?{provider}:{}),...(subscriptionService?{subscriptionService}:{}),warnings:Array.isArray(raw.warnings)?raw.warnings.filter((w:unknown)=>typeof w==='string'):[]}};
+  return {schemaVersion:1,id:value.id,revision:value.revision,createdAt:value.createdAt,updatedAt:value.updatedAt,documents,session:{id:requireText(raw.id,'作業ID',100),phase:'ready',outline,messages,variants,usage,projectId,...(provider?{provider}:{}),...(subscriptionService?{subscriptionService}:{}),...(safeRefresh(raw.refresh)?{refresh:safeRefresh(raw.refresh)}:{}),warnings:Array.isArray(raw.warnings)?raw.warnings.filter((w:unknown)=>typeof w==='string'):[]}};
 }
 function entry(record:HistoryRecord):HistoryEntry {const deck=record.session.variants[0].deck;return {id:record.id,title:deck.title,createdAt:record.createdAt,updatedAt:record.updatedAt,slides:deck.slides.length,variants:record.session.variants.length,mode:deck.mode,projectId:record.session.projectId??DEFAULT_PROJECT_ID,thumbnail:record.session.variants.find(v=>v.render?.thumbnails[0])?.render?.thumbnails[0]};}
 function version(record:HistoryRecord):HistoryVersion {const deck=record.session.variants[0].deck;return {revision:record.revision,savedAt:record.updatedAt,title:deck.title,slides:deck.slides.length};}

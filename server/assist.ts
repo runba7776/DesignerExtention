@@ -1,3 +1,4 @@
+import {designTexts} from '../shared/free-design.js';
 import {randomUUID} from 'node:crypto';
 import type {AssistResult,AssistState,AssistTask,DeckSpec,OpenSlideContent,OutputMode,RehearsalPlan,RehearsalSlide,RenderResult,Settings,SlideSpec,Theme,Usage} from '../shared/contracts.js';
 import {listLayouts} from '../shared/layouts.js';
@@ -168,7 +169,7 @@ export function acceptAssistResponse(input:ValidInput,raw:unknown):AssistResult{
     const missing=slide.chart.series.flatMap(s=>s.values).map(String).filter(value=>!allowed.has(canonicalNumber(value)));
     if(missing.length)bad(`元のスライドにない数値（${missing.slice(0,3).join('、')}）がグラフに含まれています。書かれた数値だけを使ってください。`);
   }
-  const visible=[slide.title,slide.headline,slide.body,...slide.items.flatMap(i=>[i.label,i.value,i.description]),...(slide.diagram?.items.flatMap(i=>[i.label,i.description])??[]),slide.chart?.caption].filter(Boolean).join('\n');
+  const visible=[slide.title,slide.headline,slide.body,...slide.items.flatMap(i=>[i.label,i.value,i.description]),...(slide.diagram?.items.flatMap(i=>[i.label,i.description])??[]),slide.chart?.caption,...designTexts(slide)].filter(Boolean).join('\n');
   const added=newNumbers(visible,allowed);
   if(added.length)bad(`元のスライドにない数値（${[...new Set(added)].slice(0,3).join('、')}）が含まれています。`);
   const deck=singleSlideDeck(slide,input);
@@ -241,7 +242,8 @@ export class AssistService {
   get(id:unknown){const item=typeof id==='string'?this.pending.get(id):undefined;if(!item)throw new AppError(404,'依頼が見つかりません。もう一度操作してください。');return item;}
 
   private expose(item:Pending,issues?:string[],code?:string){
-    const handoff=prepareChatHandoff({task:item.task,service:this.options.settings.get().chatService??'chatgpt',system:assistPrompt(item.task),content:{...item.content,...(issues?.length?{request:{...(item.content.request as object),repair:{reason:code,instruction:issues.join(' ')}}}:{})},...(issues?.length?{validationIssues:issues}:{})});
+    const current=this.options.settings.get(),service=current.chatService??'chatgpt';
+    const handoff=prepareChatHandoff({task:item.task,service,serviceUrl:current.chatProjects?.[service]?.url,system:assistPrompt(item.task),content:{...item.content,...(issues?.length?{request:{...(item.content.request as object),repair:{reason:code,instruction:issues.join(' ')}}}:{})},...(issues?.length?{validationIssues:issues}:{})});
     item.state={requestId:item.id,task:item.task,status:'handoff',handoff:{...handoff,requestId:item.id}};
   }
 

@@ -1,3 +1,4 @@
+import {designTexts} from './free-design';
 import type {SlideSourceReport,SlideSpec,SourceCheck} from './contracts';
 import {canonicalNumber,isCheckedNumber,numberTokens} from './numbers';
 
@@ -16,9 +17,9 @@ export function sourceValues(text:string){
 /** Numbers shown on the slide (not notes), with chart values as data. */
 function slideNumbers(slide:SlideSpec){
   const texts=[slide.title,slide.headline,slide.body,...slide.items.flatMap(item=>[item.label,item.value,item.description]),
-    ...(slide.diagram?.items.flatMap(item=>[item.label,item.description])??[]),...(slide.table?.headers??[]),...(slide.table?.rows.flat()??[]),slide.chart?.caption,slide.equation?.text];
+    ...(slide.diagram?.items.flatMap(item=>[item.label,item.description])??[]),...(slide.table?.headers??[]),...(slide.table?.rows.flat()??[]),slide.chart?.caption,slide.equation?.text,...designTexts(slide)];
   const tokens=texts.filter((value):value is string=>typeof value==='string').flatMap(numberTokens).filter(isCheckedNumber);
-  const chart=slide.chart?.series.flatMap(series=>series.values.map(value=>String(value))).filter(isCheckedNumber)??[];
+  const chart=[slide.chart,...(slide.design?.elements.flatMap(e=>e.t==='chart'?[e.chart]:[])??[])].flatMap(spec=>spec?.series.flatMap(series=>series.values.map(value=>String(value)))??[]).filter(isCheckedNumber);
   const seen=new Set<string>(),result:{display:string;value:string}[]=[];
   for(const token of [...tokens,...chart]){const value=canonicalNumber(token);if(!seen.has(value)){seen.add(value);result.push({display:token,value});}}
   return result;

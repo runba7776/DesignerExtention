@@ -180,3 +180,19 @@ export function readPresentationFile(maxBytes = 60 * 1024 * 1024): Promise<Uint8
     });
   });
 }
+
+/** Desktop app link for a chat page. Claude Desktop handles claude://claude.ai/…
+ * (the same paths as the web). Other services open in the browser. */
+export function appUrlFor(url: string) {
+  try { const parsed = new URL(url); return parsed.hostname === 'claude.ai' ? `claude://claude.ai${parsed.pathname}${parsed.search}` : undefined; } catch { return undefined; }
+}
+/** Opens a chat service outside the task pane: the user's default browser (with
+ * their own sign-in) or, when chosen, the desktop app. */
+export function openExternal(url: string, inApp = false) {
+  const app = inApp ? appUrlFor(url) : undefined;
+  if (app) { window.open(app, '_blank'); return 'app'; }
+  const ui = (window.Office?.context as { ui?: { openBrowserWindow?: (url: string) => void } } | undefined)?.ui;
+  if (inPowerPoint() && ui?.openBrowserWindow) { try { ui.openBrowserWindow(url); return 'browser'; } catch { /* Fall back to a normal link. */ } }
+  window.open(url, '_blank', 'noopener,noreferrer');
+  return 'browser';
+}

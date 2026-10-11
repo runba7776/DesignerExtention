@@ -34,7 +34,7 @@ export function registerTemplateLayouts(register:(v:LayoutDefinition)=>void,h:He
     const rowCount=Math.ceil(c.slide.items.length/2)||1,step=316/rowCount;c.slide.items.forEach((item,i)=>{const x=56+(i%2)*436,y=159+Math.floor(i/2)*step;c.text(String(i+1).padStart(2,'0'),{x,y,w:42,h:43},25,c.theme.accent,true);block(c,item,{x:x+57,y,w:352,h:step-16});});
   },{textBudget:'6項目なら項目名10文字、説明24文字。番号は参照用で順位ではない。'});
   add('offset_blocks','段違いの要点','points','奇数列は上寄せ、偶数列は下寄せにした3〜4列','短い独立した考えをリズムをつけて提示するとき',4,c=>{
-    const step=872/Math.max(1,c.slide.items.length);c.slide.items.forEach((item,i)=>{const x=56+i*step,y=i%2?234:162;c.shape({x,y,w:step-24,h:5},c.theme.accent);block(c,item,{x,y:y+23,w:step-24,h:211},true);});
+    const step=872/Math.max(1,c.slide.items.length);c.slide.items.forEach((item,i)=>{const x=56+i*step,y=i%2?234:162;block(c,item,{x,y:y+8,w:step-24,h:226},true);});
   });
   add('central_thesis','中央の結論と下の根拠','points','上半分に中央揃えの結論、下半分に横並びの根拠','一つの結論と複数の独立した根拠を伝えるとき',4,c=>{
     c.text(thesis(c),{x:96,y:166,w:768,h:108},32,c.theme.accent,true,'center');c.line(56,302,848);columns(c,{x:56,y:325,w:872,h:148});
@@ -88,7 +88,7 @@ export function registerTemplateLayouts(register:(v:LayoutDefinition)=>void,h:He
     const step=312/Math.max(1,c.slide.items.length);vertical(c,479,164,300,c.theme.accent);c.slide.items.forEach((item,i)=>{const y=162+i*step,x=i%2?523:56;c.line(i%2?480:438,y+20,41,c.theme.accent);block(c,item,{x,y,w:382,h:step-10},true);});
   },{textBudget:'時点12文字、説明28文字。'});
   add('roadmap_columns','時点別の計画列','timeline','列の上に時点、下に予定や達成事項を配置','時間順の計画と内容を読み比べるとき',4,c=>{
-    const step=872/Math.max(1,c.slide.items.length);c.slide.items.forEach((item,i)=>{const x=56+i*step;c.text(titleOf(item),{x,y:164,w:step-25,h:65},24,c.theme.accent,true);c.shape({x,y:244,w:step-24,h:7},c.theme.accent);c.text(item.description||'',{x,y:275,w:step-25,h:197},20);});
+    const step=872/Math.max(1,c.slide.items.length);c.slide.items.forEach((item,i)=>{const x=56+i*step;c.text(titleOf(item),{x,y:164,w:step-25,h:65},24,c.theme.accent,true);c.text(item.description||'',{x,y:275,w:step-25,h:197},20);});
   });
   // Tables retain the supplied rows/columns; no generated checkmarks, scores or colors based on guesses.
   add('table_column_panels','列ごとの比較パネル','table','表の各列を縦のまとまりにし、同じ行を同じ高さに配置','対象やプランを列で比べるとき',3,c=>{

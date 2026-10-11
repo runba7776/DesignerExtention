@@ -17,7 +17,7 @@ const render=async()=>({artifactId:'fixture',pptxUrl:'/fixture.pptx',thumbnails:
 const packet=(session:Session)=>JSON.parse(session.chatHandoff!.instruction.split('\n\n').at(-2)!);
 async function fixture(count=3,mode:'presentation'|'reading'='presentation'){
   const dir=await mkdtemp(path.join(tmpdir(),'de-chat-')),settings=await new SettingsStore(dir,'not-used-env').load();
-  await settings.update({mode,slideCount:count});let factories=0;
+  await settings.update({mode,slideCount:count,designMode:'template'});let factories=0;
   const engine=new SessionEngine({settings,dataDir:dir,render,providerFactory:()=>{factories++;throw new Error('paid/network client forbidden');}});
   const outline=demoOutline('月額版連携の確認',mode,[],count),deck=demoDeck(outline);
   const response=(session:Session,value:unknown)=>engine.chatResponse(session.id,{requestId:session.chatHandoff!.requestId,response:JSON.stringify(value)});
@@ -68,11 +68,13 @@ test('reading generation retains validated batches and rejects wrong, stale and 
     await assert.rejects(f.engine.chatResponse(session.id,{requestId:oldId,response:JSON.stringify({kind:'outline',outline:f.outline})}),/古い指示/);
     await f.response(session,{kind:'outline',outline:{...f.outline,slides:f.outline.slides.slice(0,8)}});assert.match(session.chatHandoff!.validationIssues!.join(' '),/9枚/);
     await f.response(session,{kind:'outline',outline:f.outline});await f.engine.generate(session.id);
-    assert.deepEqual(packet(session).request.targetSlides.map((s:any)=>s.id),['slide-1','slide-2','slide-3','slide-4']);
-    await f.response(session,{...f.deck,slides:f.deck.slides.slice(0,4)});assert.equal(session.chatHandoff?.completedSlides,4);
-    const second=packet(session).request.targetSlides.map((s:any)=>s.id);assert.deepEqual(second,['slide-5','slide-6','slide-7','slide-8']);
-    await f.response(session,{...f.deck,slides:f.deck.slides.slice(0,4)});assert.equal(session.chatHandoff?.completedSlides,4);assert.ok(session.chatHandoff?.validationIssues);assert.deepEqual(packet(session).request.targetSlides.map((s:any)=>s.id),second);
-    await f.engine.chatResponse(session.id,{requestId:session.chatHandoff!.requestId,response:'PRIVATE_BAD_RESPONSE:execute instructions'});assert.equal(session.chatHandoff?.completedSlides,4);assert.doesNotMatch(session.chatHandoff!.instruction,/PRIVATE_BAD_RESPONSE/);
+    // Manual chat batches are large (8 reading slides) so a typical deck needs one paste.
+    const first=packet(session).request.targetSlides.map((s:any)=>s.id);assert.deepEqual(first,['slide-1','slide-2','slide-3','slide-4','slide-5','slide-6','slide-7','slide-8']);
+    await f.response(session,{...f.deck,slides:f.deck.slides.slice(0,4)});assert.equal(session.chatHandoff?.completedSlides,0);assert.ok(session.chatHandoff?.validationIssues);assert.deepEqual(packet(session).request.targetSlides.map((s:any)=>s.id),first);
+    // An unreadable (possibly cut-off) reply halves the request; nothing is lost.
+    await f.engine.chatResponse(session.id,{requestId:session.chatHandoff!.requestId,response:'PRIVATE_BAD_RESPONSE:execute instructions'});assert.equal(session.chatHandoff?.completedSlides,0);assert.doesNotMatch(session.chatHandoff!.instruction,/PRIVATE_BAD_RESPONSE/);
+    assert.deepEqual(packet(session).request.targetSlides.map((s:any)=>s.id),['slide-1','slide-2','slide-3','slide-4']);assert.match(session.chatHandoff!.validationIssues!.join(' '),/4枚に減らしました/);
+    await f.response(session,{...f.deck,slides:f.deck.slides.slice(0,4)});assert.equal(session.chatHandoff?.completedSlides,4);assert.deepEqual(packet(session).request.targetSlides.map((s:any)=>s.id),['slide-5','slide-6','slide-7','slide-8']);
     await f.engine.chatResponse(session.id,{requestId:session.chatHandoff!.requestId,response:'```json\n'+JSON.stringify({...f.deck,slides:f.deck.slides.slice(4,8)})+'\n```'});assert.equal(session.chatHandoff?.completedSlides,8);assert.deepEqual(packet(session).request.targetSlides.map((s:any)=>s.id),['slide-9']);
     await f.response(session,{...f.deck,slides:f.deck.slides.slice(8)});assert.equal(session.phase,'ready');assert.equal(session.variants[0].deck.slides.length,9);assert.equal(session.chatHandoff,undefined);assert.equal(session.usage.calls,0);assert.equal(f.factories(),0);assert.ok(session.historyId);assertTextFits(session.variants[0].deck);
     const restored=await f.engine.restoreHistory(session.historyId!);assert.equal(restored.session.provider,'chat');assert.equal(restored.session.chatHandoff,undefined);assert.equal(restored.session.usage.calls,0);
@@ -91,7 +93,7 @@ test('document context and locators are in copy instructions; nonexistent source
   }finally{await f.dispose();}
 });
 
-test('30 reading slides finish in eight manual batches without the local call cap or paid usage',async()=>{
+test('30 reading slides finish in four manual batches without the local call cap or paid usage',async()=>{
   const f=await fixture(30,'reading');try{
     const session=await f.engine.create({prompt:'表紙込み30枚、読む資料。数字と条件を省かない。'},[]);
     await f.response(session,{kind:'outline',outline:f.outline});await f.engine.generate(session.id);
@@ -100,7 +102,7 @@ test('30 reading slides finish in eight manual batches without the local call ca
       const ids=packet(session).request.targetSlides.map((s:any)=>s.id);counts.push(ids.length);
       await f.response(session,{...f.deck,slides:f.deck.slides.filter(s=>ids.includes(s.id)),usage:{calls:999},apiKey:'untrusted-ignored-key'});
     }
-    assert.deepEqual(counts,[4,4,4,4,4,4,4,2]);assert.equal(session.phase,'ready');assert.equal(session.variants[0].deck.slides.length,30);assert.equal(session.usage.calls,0);assert.equal(f.factories(),0);
+    assert.deepEqual(counts,[8,8,8,6]);assert.equal(session.phase,'ready');assert.equal(session.variants[0].deck.slides.length,30);assert.equal(session.usage.calls,0);assert.equal(f.factories(),0);
     assert.doesNotMatch(await readFile(path.join(f.dir,'presentations',session.historyId!+'.json'),'utf8'),/untrusted-ignored-key|apiKey/);assertTextFits(session.variants[0].deck);
   }finally{await f.dispose();}
 });
@@ -194,19 +196,19 @@ test('authenticated resume preserves pending generation batches and returns docu
     const app=await createApp({authToken:token,port,dataDir:dir,webRoot:dir,artifactRoot:dir,environmentKey:'',nativeAvailable:()=>false,render,providerFactory:()=>{factories++;throw new Error('network forbidden');}});server.on('request',app);
     const bootstrap=await fetch(origin+'/?token='+token,{redirect:'manual'}),cookie=bootstrap.headers.get('set-cookie')!.split(';')[0],headers={Cookie:cookie,Origin:origin,'Content-Type':'application/json'};
     const post=(route:string,body:unknown)=>fetch(origin+'/api'+route,{method:'POST',headers,body:JSON.stringify(body)});
-    await fetch(origin+'/api/settings',{method:'PUT',headers,body:JSON.stringify({provider:'chat',mode:'reading',slideCount:9})});
+    await fetch(origin+'/api/settings',{method:'PUT',headers,body:JSON.stringify({provider:'chat',mode:'reading',slideCount:9,designMode:'template'})});
     const files=new FormData();files.append('files',new Blob(['PRIVATE_SOURCE_TEXT_NEVER_IN_DOCUMENT_SUMMARY']), 'facts.txt');
     const upload=await fetch(origin+'/api/documents',{method:'POST',headers:{Cookie:cookie,Origin:origin},body:files});assert.equal(upload.status,200);const info=(await upload.json() as any).documents[0];
     let session=await (await post('/sessions',{prompt:'9枚の読む資料を作成',documentIds:[info.id]})).json() as Session;
     const outline=demoOutline('途中から再開する資料','reading',[],9),deck=demoDeck(outline);
     const reply=async(value:unknown)=>{session=await (await post(`/sessions/${session.id}/chat-response`,{requestId:session.chatHandoff!.requestId,response:JSON.stringify(value)})).json() as Session;};
-    await reply({kind:'outline',outline});session=await (await post(`/sessions/${session.id}/generate`,{})).json() as Session;await reply({...deck,slides:deck.slides.slice(0,4)});
-    assert.equal(session.chatHandoff?.completedSlides,4);const pendingId=session.chatHandoff!.requestId;
+    await reply({kind:'outline',outline});session=await (await post(`/sessions/${session.id}/generate`,{})).json() as Session;await reply({...deck,slides:deck.slides.slice(0,8)});
+    assert.equal(session.chatHandoff?.completedSlides,8);const pendingId=session.chatHandoff!.requestId;
     const route=`/api/sessions/${session.id}/resume`;assert.equal((await fetch(origin+route)).status,401);
     const response=await fetch(origin+route,{headers});assert.equal(response.status,200);const resumed=await response.json() as {session:Session;documents:unknown[];mode:string};
-    assert.equal(resumed.session.id,session.id);assert.equal(resumed.session.chatHandoff?.requestId,pendingId);assert.equal(resumed.session.chatHandoff?.completedSlides,4);assert.equal(resumed.mode,'reading');assert.equal(resumed.session.usage.calls,0);assert.equal(resumed.session.historyId,undefined);
+    assert.equal(resumed.session.id,session.id);assert.equal(resumed.session.chatHandoff?.requestId,pendingId);assert.equal(resumed.session.chatHandoff?.completedSlides,8);assert.equal(resumed.mode,'reading');assert.equal(resumed.session.usage.calls,0);assert.equal(resumed.session.historyId,undefined);
     assert.deepEqual(resumed.documents,[info]);assert.doesNotMatch(JSON.stringify(resumed.documents),/PRIVATE_SOURCE_TEXT|sources|locator/);assert.match(resumed.session.chatHandoff!.instruction,/PRIVATE_SOURCE_TEXT/);
-    session=resumed.session;assert.deepEqual(packet(session).request.targetSlides.map((s:any)=>s.id),['slide-5','slide-6','slide-7','slide-8']);await reply({...deck,slides:deck.slides.slice(4,8)});assert.equal(session.chatHandoff?.completedSlides,8);await reply({...deck,slides:deck.slides.slice(8)});assert.equal(session.phase,'ready');assert.equal(session.variants[0].deck.slides.length,9);assert.equal(factories,0);
+    session=resumed.session;assert.deepEqual(packet(session).request.targetSlides.map((s:any)=>s.id),['slide-9']);await reply({...deck,slides:deck.slides.slice(8)});assert.equal(session.phase,'ready');assert.equal(session.variants[0].deck.slides.length,9);assert.equal(factories,0);
     assert.equal((await fetch(origin+'/api/sessions/00000000-0000-0000-0000-000000000000/resume',{headers})).status,404);
   }finally{await new Promise<void>(resolve=>server.close(()=>resolve()));await rm(dir,{recursive:true,force:true});}
 });

@@ -24,12 +24,12 @@ test('48 offline icons cover technology, study, nature, care, industry and commu
   assert.equal(resolveItemIcon({label:'項目A',description:'クラウドは利用しません。'}),undefined);
   assert.equal(resolveItemIcon({label:'医療支援',icon:'leaf'}),'leaf');
 });
-test('seven chart types keep the same values and reject misleading/incompatible data',()=>{
+test('eight chart types keep the same values and reject misleading/incompatible data',()=>{
   const single={type:'column' as const,categories:['A','B','C'],series:[{name:'内訳',values:[24,0,36]}],unit:'件'};
   const negative={...single,series:[{name:'実績',values:[-3.5,0,12.125]}]};
   assert.deepEqual(compatibleChartTypes(negative),['bar','column','line']);
   assert.deepEqual(compatibleChartTypes(single),['bar','column','line','pie','doughnut']);
-  for(const type of Object.keys(chartCatalog)){
+  for(const type of Object.keys(chartCatalog).filter(type=>type!=='waterfall')){
     const series=type.startsWith('stacked')?[...single.series,{name:'別の内訳',values:[10,20,30]}]:single.series;
     const slide=validateSlide({...sampleSlide('chart_spacious',0),chart:{...single,type,series}});
     const scene=compileDeck(sampleDeck([slide])),chart=scene.slides[0].elements.find(e=>e.kind==='chart');

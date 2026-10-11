@@ -2,6 +2,7 @@ import type {SubscriptionService} from '../shared/contracts.js';
 import {APP_VERSION} from '../shared/contracts.js';
 import {DOCUMENT_LIMITS,type ParsedDocument} from './document-model.js';
 import {AppError} from './errors.js';
+import {aiKit} from './prompts.js';
 import type {SessionEngine} from './engine.js';
 import type {SettingsStore} from './settings.js';
 import type {ProjectStore} from './projects.js';
@@ -71,8 +72,23 @@ export function apiRoutes(ctx:RouteContext):Route[]{
     {method:'POST',path:'/sessions/:id/revise',handler:({params,body})=>engine.revise(params.id,body??{})},
     {method:'POST',path:'/sessions/:id/retry-revision',handler:({params})=>engine.retryRevision(params.id)},
     {method:'POST',path:'/sessions/:id/chat-response',handler:({params,body})=>engine.chatResponse(params.id,body??{})},
+    {method:'POST',path:'/sessions/:id/chat-full',handler:({params})=>engine.useFullInstruction(params.id)},
+    {method:'GET',path:'/ai-kit',handler:()=>aiKit()},
     {method:'POST',path:'/sessions/:id/chat-cancel',handler:({params})=>engine.cancelChat(params.id)},
     {method:'POST',path:'/sessions/:id/variants',handler:({params})=>engine.variants(params.id)},
+    {method:'POST',path:'/sessions/:id/alternate',handler:({params,body})=>engine.alternate(params.id,body)},
+    {method:'POST',path:'/sessions/:id/combine',handler:({params,body})=>engine.combine(params.id,body)},
+    {method:'DELETE',path:'/sessions/:id/variants/:variantId',handler:({params})=>engine.removeVariant(params.id,params.variantId)},
+    {method:'GET',path:'/choices',handler:()=>engine.choiceStats()},
+    {method:'POST',path:'/sessions/:id/design-request',handler:({params,body})=>engine.requestDesign(params.id,body)},
+    {method:'GET',path:'/send-log',handler:()=>engine.sendLog()},
+    {method:'POST',path:'/sessions/:id/refresh',handler:({params,body})=>{
+      const ids=body?.documentIds;
+      if(!Array.isArray(ids)||!ids.length||ids.length>DOCUMENT_LIMITS.files||ids.some((id:unknown)=>typeof id!=='string')||new Set(ids).size!==ids.length)throw new AppError(400,'新しい期の資料を重複なしで1〜8件選んでください。');
+      const selected=ids.map((id:string)=>{const item=ctx.documents.get(id);if(!item)throw new AppError(404,'資料が見つかりません。もう一度読み込んでください。');return item.document;});
+      return engine.refreshPlan(params.id,{variantId:body?.variantId},selected);
+    }},
+    {method:'POST',path:'/sessions/:id/refresh/apply',handler:({params,body})=>engine.refreshApply(params.id,body??{})},
     {method:'POST',path:'/sessions/:id/theme',handler:({params,body})=>engine.changeTheme(params.id,body??{})},
     {method:'POST',path:'/sessions/:id/layout',handler:({params,body})=>engine.changeLayout(params.id,body??{})},
     {method:'POST',path:'/sessions/:id/chart',handler:({params,body})=>engine.changeChart(params.id,body??{})},

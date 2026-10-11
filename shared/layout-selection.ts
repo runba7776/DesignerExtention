@@ -1,5 +1,6 @@
 import type {DeckSpec,SlideSpec,SceneSlide,TextElement} from './contracts';
-import {compileDeck,listLayouts} from './layouts';
+import {citationMarker,compileDeck,listLayouts,measureText,wrapText} from './layouts';
+import {designMarkedText,designTextBox} from './free-design';
 
 const clean=(s:string)=>s.replace(/\s/g,'');
 function fields(slide:SlideSpec):string[]{return [slide.title,slide.headline,slide.body,...slide.items.flatMap(i=>[i.label,i.description,i.value]),...(slide.diagram?.items.flatMap(i=>[i.label,i.description,i.value])??[]),...(slide.table?.headers??[]),...(slide.table?.rows.flat()??[]),slide.equation?.text,slide.equation?.explanation,slide.chart?.caption].filter((s):s is string=>!!s);}
@@ -57,9 +58,26 @@ export function diversifyDeck(deck:DeckSpec,seed:string,recent:string[]=[]):Deck
 }
 
 /** Prefer a roomier compatible layout before paying for summarization. */
+/** An AI-designed text a little long for its box is set smaller (to 75%, never below
+ * 10pt) here, so a few extra characters never cost an AI call to shorten the wording.
+ * Boxes, positions and the words stay as the AI wrote them. */
+function shrinkDesignText(slide:SlideSpec):SlideSpec{
+  if(!slide.design)return slide;
+  const elements=slide.design.elements.map(e=>{
+    if(e.t!=='text'||e.exact)return e;
+    // Measured exactly as the renderer will draw it, including the room a box may grow.
+    const text=designMarkedText(e,citationMarker),fits=(size:number)=>!measureText(text,designTextBox({...e,size},slide.design!,text,wrapText),size).overflow;
+    if(fits(e.size))return e;
+    const floor=Math.max(10,Math.floor(e.size*.75));let size=e.size;
+    while(size>floor&&!fits(size))size--;
+    return fits(size)?{...e,size}:e;
+  });
+  return {...slide,design:{...slide.design,elements}};
+}
 export function improveTextFit(deck:DeckSpec):DeckSpec{
   return {...deck,slides:deck.slides.map(slide=>{
     if(!inspectSlide(deck,slide).textIssues?.length)return slide;
+    if(slide.design)return shrinkDesignText(slide);
     const candidate=fittingLayouts(deck,slide)[0];
     return candidate?{...slide,layoutId:candidate.id}:slide;
   })};

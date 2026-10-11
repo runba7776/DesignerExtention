@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {lstat,mkdir,readFile,rename,unlink,writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import type {ProjectProfile,TemplateTheme} from '../shared/contracts.js';
+import type {ProjectProfile,TemplateTheme,ProjectPrivacy} from '../shared/contracts.js';
 import {isTemplateColor,templateColorKeys} from '../shared/template-colors.js';
 import {AppError} from './errors.js';
 
@@ -23,9 +23,15 @@ export function validateTemplate(value:unknown):TemplateTheme{
   if(typeof data.importedAt!=='string'||!Number.isFinite(Date.parse(data.importedAt)))throw new AppError(400,'テンプレートの読み込み日時が正しくありません。','INVALID_TEMPLATE');
   return {name:text(data.name,'テンプレート名',80,true),source:text(data.source??'','読み込み元',120,false),colors,fonts:{major:fontName(data.fonts?.major,'見出し',false)!,minor:fontName(data.fonts?.minor,'本文',false)!,...(majorEa?{majorEa}:{}),...(minorEa?{minorEa}:{})},importedAt:data.importedAt};
 }
+function validatePrivacy(value:any):ProjectPrivacy{
+  if(!value||typeof value!=='object'||(value.mode!=='full'&&value.mode!=='masked'))throw new AppError(400,'外部AIに送る内容を一覧から選んでください。','INVALID_PROJECT');
+  const terms=Array.isArray(value.terms)?value.terms:[];
+  if(terms.length>200||terms.some((t:unknown)=>typeof t!=='string'||!t.trim()||t.length>60||/[\r\n]/.test(t)))throw new AppError(400,'伏せる語は1行に1つ、60文字以内で200語までにしてください。','INVALID_PROJECT');
+  return {mode:value.mode,terms:[...new Set(terms.map((t:string)=>t.trim()))] as string[]};
+}
 function checked(value:any):ProjectProfile{
   if(!value||!validId(value.id)||typeof value.createdAt!=='string'||typeof value.updatedAt!=='string'||!Number.isFinite(Date.parse(value.createdAt))||!Number.isFinite(Date.parse(value.updatedAt)))throw new AppError(422,'プロジェクト設定を読み取れません。','INVALID_PROJECT');
-  return {id:value.id,name:text(value.name,'プロジェクト名',80,true),audience:text(value.audience??'','対象読者',120,false),guidance:text(value.guidance??'','デザイン・作成方針',2000,false),createdAt:value.createdAt,updatedAt:value.updatedAt,...(value.template?{template:validateTemplate(value.template)}:{})};
+  return {id:value.id,name:text(value.name,'プロジェクト名',80,true),audience:text(value.audience??'','対象読者',120,false),guidance:text(value.guidance??'','デザイン・作成方針',2000,false),createdAt:value.createdAt,updatedAt:value.updatedAt,...(value.template?{template:validateTemplate(value.template)}:{}),...(value.privacy?{privacy:validatePrivacy(value.privacy)}:{})};
 }
 
 /** User-owned project guidance; source documents, presentation contents, and credentials are never stored here. */
@@ -53,14 +59,14 @@ export class ProjectStore{
   create(input:unknown){return this.serial(async()=>{
     if(!input||typeof input!=='object'||Array.isArray(input))throw new AppError(400,'プロジェクト設定の形式が正しくありません。');
     if(this.projects.length>=100)throw new AppError(413,'プロジェクトは100件まで作成できます。');
-    const now=new Date().toISOString(),value=input as Record<string,unknown>,project=checked({id:randomUUID(),name:value.name,audience:value.audience??'',guidance:value.guidance??'',createdAt:now,updatedAt:now});
+    const now=new Date().toISOString(),value=input as Record<string,unknown>,project=checked({id:randomUUID(),name:value.name,audience:value.audience??'',guidance:value.guidance??'',...(value.privacy?{privacy:value.privacy}:{}),createdAt:now,updatedAt:now});
     this.projects.push(project);await this.persist();return {...project};
   });}
   update(id:string,input:unknown){return this.serial(async()=>{
     if(!input||typeof input!=='object'||Array.isArray(input))throw new AppError(400,'プロジェクト設定の形式が正しくありません。');
     const index=this.projects.findIndex(project=>project.id===id);if(index<0)throw new AppError(404,'プロジェクトが見つかりません。');
     const value=input as Record<string,unknown>,prior=this.projects[index];
-    const project=checked({...prior,name:value.name??prior.name,audience:value.audience??prior.audience,guidance:value.guidance??prior.guidance,updatedAt:new Date().toISOString()});
+    const project=checked({...prior,name:value.name??prior.name,audience:value.audience??prior.audience,guidance:value.guidance??prior.guidance,...(value.privacy!==undefined?{privacy:value.privacy}:{}),updatedAt:new Date().toISOString()});
     this.projects[index]=project;await this.persist();return {...project};
   });}
   /** Sets (or with null, removes) the company template of a project. */
