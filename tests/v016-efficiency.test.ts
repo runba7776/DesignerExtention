@@ -27,14 +27,20 @@ test('the JSON inside a reply with a sentence around it is read; an unreadable r
   assert.throws(()=>parseJsonResponse('execute arbitrary code'),/形式/);
 });
 
-test('a designed text slightly too long for its box is set smaller locally instead of asking an AI to shorten it',()=>{
-  const deck=validateDeck({id:'d',title:'x',mode:'presentation',themeId:'business',slides:[page('slide-1'),{...page('slide-2'),design:{elements:[t(56,28,848,52,'slide-2の題名',28,'title'),t(56,120,300,48,'要点を三つの観点から整理し、次の四半期の判断材料にします。',20,'body')]}}]});
+test('a designed text too long for its box gets room it can take, or smaller type when hemmed in, instead of asking an AI',()=>{
+  const words='要点を三つの観点から整理し、次の四半期の判断材料にします。';
+  const deck=validateDeck({id:'d',title:'x',mode:'presentation',themeId:'business',slides:[page('slide-1'),{...page('slide-2'),design:{elements:[t(56,28,848,52,'slide-2の題名',28,'title'),t(56,120,300,48,words,20,'body')]}}]});
   assert.equal(fitProblems(deck).length,1);
-  const fitted=improveTextFit(deck),text=fitted.slides[1].design!.elements[1] as any;
-  assert.equal(fitProblems(fitted).length,0);assert.ok(text.size<20&&text.size>=15,String(text.size));
-  assert.equal(text.text,'要点を三つの観点から整理し、次の四半期の判断材料にします。');assert.deepEqual([text.x,text.y,text.w,text.h],[56,120,300,48]);
-  // Far too long for the box: left for the AI to shorten, never shrunk below 75%.
-  const long=validateDeck({...deck,slides:[deck.slides[0],{...page('slide-2'),design:{elements:[t(56,28,848,52,'slide-2の題名',28,'title'),t(56,120,200,30,'あ'.repeat(120),20,'body')]}}]});
+  // Free space beside it: the box grows (only as much as needed) and the size stays.
+  const roomy=improveTextFit(deck).slides[1].design!.elements[1] as any;
+  assert.equal(fitProblems(improveTextFit(deck)).length,0);assert.equal(roomy.size,20);assert.equal(roomy.text,words);
+  assert.deepEqual([roomy.x,roomy.y],[56,120]);assert.ok((roomy.w>300||roomy.h>48)&&roomy.w<880&&roomy.y+roomy.h<=496,JSON.stringify(roomy));
+  // Hemmed in by a chart on the right and a text below: the type becomes smaller instead.
+  const tight=validateDeck({...deck,slides:[deck.slides[0],{...page('slide-2'),design:{elements:[t(56,28,848,52,'slide-2の題名',28,'title'),t(56,120,300,48,words,20,'body'),t(56,172,300,40,'次の文',16,'body'),{t:'chart',x:360,y:110,w:500,h:300,chart:{type:'column',categories:['A'],series:[{name:'s',values:[1]}]}}]}}]});
+  const small=improveTextFit(tight),text=small.slides[1].design!.elements[1] as any;
+  assert.equal(fitProblems(small).length,0);assert.ok(text.size<20&&text.size>=15,String(text.size));assert.equal(text.text,words);
+  // Far too long for a box with no room around it: left for the AI, never shrunk below 75%.
+  const long=validateDeck({...deck,slides:[deck.slides[0],{...page('slide-2'),design:{elements:[t(56,28,848,52,'slide-2の題名',28,'title'),t(56,120,200,30,'あ'.repeat(120),20,'body'),t(56,160,200,30,'次の文',16,'body'),t(270,120,200,30,'右の文',16,'body')]}}]});
   assert.equal(fitProblems(improveTextFit(long)).length,1);
 });
 

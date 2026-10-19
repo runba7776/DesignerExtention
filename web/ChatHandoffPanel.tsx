@@ -20,7 +20,7 @@ export function looksLikeReply(text:string){
   try{const value=JSON.parse(cleaned);return !!value&&typeof value==='object'&&!Array.isArray(value);}catch{return false;}
 }
 
-export function ChatHandoffPanel({handoff,busy,onApply,onCancel,openIn='browser',onUseFull,onSetup,projectReady=false}:{handoff:ChatHandoff;busy:boolean;onApply:(requestId:string,response:string)=>Promise<void>;onCancel:()=>void;openIn?:'browser'|'app';onUseFull?:()=>void;onSetup?:()=>void;projectReady?:boolean}){
+export function ChatHandoffPanel({handoff,busy,onApply,onCancel,openIn='browser',onUseFull,onSetup,onFinishSmaller,projectReady=false}:{handoff:ChatHandoff;busy:boolean;onApply:(requestId:string,response:string)=>Promise<void>;onCancel:()=>void;openIn?:'browser'|'app';onUseFull?:()=>void;onSetup?:()=>void;onFinishSmaller?:()=>void;projectReady?:boolean}){
   const [response,setResponse]=useState(''),[notice,setNotice]=useState(''),[fileError,setFileError]=useState(''),[clipboardReply,setClipboardReply]=useState('');
   const instructionRef=useRef<HTMLTextAreaElement>(null),instructionDetails=useRef<HTMLDetailsElement>(null),fileRef=useRef<HTMLInputElement>(null),panelRef=useRef<HTMLElement>(null),previousId=useRef(handoff.requestId),awaitingReply=useRef(false);
   const service=chatServices[handoff.service]??chatServices.other;
@@ -99,6 +99,7 @@ export function ChatHandoffPanel({handoff,busy,onApply,onCancel,openIn='browser'
       <textarea id="chat-response" className="handoff-response" value={response} onChange={event=>{setResponse(event.target.value);setNotice('');}} disabled={busy} placeholder="または、AIから返ったJSONをここに貼り付けます（コードブロックごと可）。" spellCheck={false}/>{responseTooLarge&&<p className="error-inline" role="alert">返答は500,000文字・800KBまでです。全文は保持しています。今回の指定した範囲のJSONだけを取り込んでください。</p>}
       <div className="handoff-actions"><button className="button secondary small" disabled={busy} onClick={()=>fileRef.current?.click()}><Icon name="upload" size={13}/>返答ファイルを選ぶ</button><input ref={fileRef} type="file" accept=".json,.txt" className="sr-only" tabIndex={-1} onChange={event=>void readFile(event.target.files?.[0])}/><button className="button secondary small" disabled={busy||!response.trim()||responseTooLarge} onClick={()=>void onApply(handoff.requestId,response)}><Icon name="check" size={13}/>返答を取り込む</button></div><small>文章・図形・グラフのデータを検証してから反映します。AI側で生成した画像やPPTXの見た目をそのまま移す機能ではありません。</small></div></div>
     {notice&&<p className="handoff-notice" role="status">{notice}</p>}{fileError&&<p className="error-inline" role="alert">{fileError}</p>}
+    {onFinishSmaller&&<div className="finish-smaller"><button className="button secondary small" disabled={busy} onClick={onFinishSmaller}>AIに渡さず、文字を小さくして仕上げる</button><small>枠に収まらない文字だけを小さくして完成させます（最小で元の半分。文章は省略しません）。</small></div>}
     <button className="text-link handoff-cancel" disabled={busy} onClick={onCancel}>この連携を取り消す（完成済みの資料は残します）</button>
   </section>;
 }

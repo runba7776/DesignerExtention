@@ -457,3 +457,29 @@ html.taskpane .slide-action-buttons {grid-template-columns: 1fr;}
 .ai-scope select {width: 100%; font-size: 12px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--paper);}
 .ai-picker-note {font-size: 10px; color: var(--muted); line-height: 1.7;}
 .ai-picker-problem {font-size: 11px; color: #a3352a;}
+
+.finish-smaller {display: grid; gap: 4px; margin: 10px 0 4px;}
+.finish-smaller small {font-size: 10px; color: var(--muted); line-height: 1.7;}
+
+.proposals {background: #fff; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 24px; padding: 24px;}
+.proposals.folded {padding: 0;}
+.proposals.folded>summary {padding: 14px 18px; font-size: 12px; color: var(--accent); cursor: pointer;}
+.proposals.folded[open]>summary {border-bottom: 1px solid var(--line);}
+.proposals.folded .proposal-grid, .proposals.folded .proposal-candidates {margin: 16px 18px;}
+.proposal-grid {display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;}
+.proposal-card {display: flex; flex-direction: column; gap: 9px; border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #fbfbf8; min-width: 0;}
+.proposal-card.chosen {border: 2px solid var(--accent); background: #f2f8f5;}
+.proposal-title {display: flex; align-items: flex-start; gap: 8px;}
+.proposal-title h3 {font-size: 13px; font-weight: 600; line-height: 1.6;}
+.proposal-letter {flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; display: grid; place-items: center; margin-top: 1px;}
+.proposal-typicality {font-size: 10px; color: var(--muted);}
+.proposal-difference {font-size: 11px; line-height: 1.8;}
+.proposal-palette {display: flex; align-items: center; gap: 8px; flex-wrap: wrap;}
+.proposal-swatches {display: flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden;}
+.proposal-swatches i {width: 16px; height: 16px;}
+.proposal-palette small {font-size: 10px; color: var(--muted);}
+.proposal-style {font-size: 10px; line-height: 1.8; color: #7d867c;}
+.proposal-slides {font-size: 11px; line-height: 1.7; padding-left: 18px; margin: 0; color: var(--ink); flex: 1;}
+.proposal-slides li::marker {color: #899b8a; font-size: 10px;}
+.proposal-card .button {align-self: flex-end;}
+.proposal-candidates {font-size: 10px; color: var(--muted); line-height: 1.8; margin-top: 12px;}

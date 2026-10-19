@@ -1,6 +1,6 @@
 import type {AiPalette,Theme} from './contracts';
 import {contrast,mixColor} from './color';
-import {withTypography} from './typography';
+import {resolveFont,withTypography} from './typography';
 
 /** Theme id of a deck coloured with the palette its AI chose (DeckSpec.aiTheme). */
 export const AI_THEME_ID='ai';
@@ -15,9 +15,16 @@ function readable(color:string,background:string,minimum:number){
 }
 
 /** The AI's palette as a deck theme. Text is kept readable on the background (4.5:1
- * for text and supporting text, 3:1 for the accents used in large type and shapes);
- * fonts come from the chosen typography profile. */
+ * for text and supporting text, 3:1 for the accents used in large type and shapes).
+ * Fonts are the AI's own (mapped to fonts Windows/Office provide) unless the user
+ * chose a typography profile. */
 export function paletteTheme(palette:AiPalette,typographyId?:string):Theme{
+  const theme=paletteColors(palette,typographyId);
+  if(typographyId||!(palette.headingFont||palette.bodyFont))return theme;
+  const body=resolveFont(palette.bodyFont??palette.headingFont,'Yu Gothic Medium'),heading=resolveFont(palette.headingFont??palette.bodyFont,'Yu Gothic');
+  return {...theme,font:body,headingFont:heading,numberFont:heading};
+}
+function paletteColors(palette:AiPalette,typographyId?:string):Theme{
   const background=palette.background.toUpperCase(),foreground=readable(palette.text,background,4.5);
   const accent=readable(palette.accent,background,3),secondary=readable(palette.accent2,background,3);
   return withTypography({

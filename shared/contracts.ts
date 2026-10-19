@@ -34,6 +34,10 @@ export const FREE_GENERATION_BATCH_SIZE = 3;
 export const GENERATION_OUTPUT_TOKENS = 16_000;
 export const PLAN_OUTPUT_TOKENS = 16_000;
 export const PLAN_RETRY_OUTPUT_TOKENS = 20_000;
+/** Directions offered at the first outline when the AI designs the slides (see ProposalSet). */
+export const OUTLINE_PROPOSALS = 3;
+/** Smallest text the HTML method accepts (px = pt on the 960x540 slide); the prompts give larger targets. */
+export const MIN_TEXT_SIZE = {presentation: 12, reading: 10} as const;
 /** Colors and fonts read from a company PowerPoint theme. Slide text, images and
  * masters are not copied; only the reusable style is stored with a project. */
 export interface TemplateTheme { name:string; source:string; colors:{dk1:string;lt1:string;dk2:string;lt2:string;accent1:string;accent2:string;accent3:string;accent4:string;accent5:string;accent6:string}; fonts:{major:string;minor:string;majorEa?:string;minorEa?:string}; importedAt:string }
@@ -43,10 +47,12 @@ export interface ProjectPrivacy { mode:'full'|'masked'; terms:string[] }
 export interface ProjectProfile {id:string;name:string;audience:string;guidance:string;createdAt:string;updatedAt:string;template?:TemplateTheme;privacy?:ProjectPrivacy}
 /** A ChatGPT/Claude project the user prepared with the AI kit (kitVersion). */
 export interface ChatProjectLink { url:string; kitVersion:string }
-export interface Settings { provider: ProviderKind; model: string; endpoint?: string; mode: OutputMode; hasKey?: boolean; apiKey?: string; themeId?: string; typographyId?:string; slideCount?: number | 'auto'; autoRepair?:boolean; chatService?:ChatService; subscriptionService?:SubscriptionService; preferredDesignId?:string; activeProjectId?:string; chatProjects?:Partial<Record<ChatService,ChatProjectLink>>; chatOpenIn?:'browser'|'app'; designMode?:DesignMode; localModel?:string; targets?:AiTarget[] }
+export interface Settings { provider: ProviderKind; model: string; endpoint?: string; mode: OutputMode; hasKey?: boolean; apiKey?: string; themeId?: string; typographyId?:string; slideCount?: number | 'auto'; autoRepair?:boolean; editorialGuide?:boolean; outlineProposals?:boolean; chatService?:ChatService; subscriptionService?:SubscriptionService; preferredDesignId?:string; activeProjectId?:string; chatProjects?:Partial<Record<ChatService,ChatProjectLink>>; chatOpenIn?:'browser'|'app'; designMode?:DesignMode; localModel?:string; targets?:AiTarget[] }
 /** free: the AI designs each slide (positions, shapes, colours). template: the AI
  * picks one of the registered layouts and the app places everything. */
-export type DesignMode = 'free'|'template';
+/** free: the AI places elements by coordinates (JSON). html (trial): the AI writes each page as HTML/CSS and
+ * the app reads the browser's layout. template: the app's layout catalogue. */
+export type DesignMode = 'free'|'template'|'html';
 export interface AppStatus { provider: ProviderKind; model: string; hasKey: boolean; nativeAvailable: boolean; version: string; apiFree?:boolean; hosted?:boolean }
 export interface DocumentInfo { id: string; name: string; kind: string; units: number; characters: number; warnings: string[] }
 export interface SourceRef { documentId: string; documentName?: string; locator: string; quote?: string }
@@ -72,7 +78,7 @@ export interface SlideSpec {
 /** Colours are theme tokens (bg, ink, muted, accent, accent2, surface, rule, negative, onAccent) or #RRGGBB. */
 export type FreeShape = 'rect'|'roundRect'|'ellipse'|'triangle'|'arrow'|'leftArrow'|'upArrow'|'downArrow'|'chevron'|'pentagon'|'hexagon'|'diamond'|'parallelogram'|'trapezoid'|'octagon'|'donut';
 export type FreeElement =
-  | {t:'text'; x:number; y:number; w:number; h:number; text:string; size:number; color?:string; bold?:boolean; italic?:boolean; align?:'l'|'c'|'r'; va?:'t'|'m'|'b'; role?:'title'|'heading'|'body'|'number'|'caption'; refs?:number[]; lh?:number; exact?:boolean}
+  | {t:'text'; x:number; y:number; w:number; h:number; text:string; size:number; color?:string; bold?:boolean; italic?:boolean; align?:'l'|'c'|'r'; va?:'t'|'m'|'b'; role?:'title'|'heading'|'body'|'number'|'caption'; refs?:number[]; lh?:number; exact?:boolean; runs?:TextRun[]; font?:string; fontFarEast?:string}
   | {t:'box'; x:number; y:number; w:number; h:number; shape?:FreeShape; fill?:string; line?:string; lw?:number; op?:number; r?:number; rot?:number}
   | {t:'line'; x1:number; y1:number; x2:number; y2:number; color?:string; lw?:number; dash?:boolean; arrow?:'none'|'end'|'start'|'both'}
   | {t:'icon'; icon:IconId; x:number; y:number; size:number; color?:string}
@@ -81,14 +87,22 @@ export type FreeElement =
   /** Vector artwork converted from an AI-written HTML slide (never accepted from AI JSON). */
   | {t:'svg'; x:number; y:number; w:number; h:number; svg:string};
 export interface FreeDesign { background?:string; elements:FreeElement[] }
+/** Part of an exact text (s: start, l: length, in UTF-16 units) with its own colour or weight. */
+export interface TextRun { s:number; l:number; color?:string; bold?:boolean; italic?:boolean }
 /** themeId 'template' renders with customTheme, a copy of the project's company template. */
 /** themeId 'ai' renders with aiTheme, the palette the AI chose; it is kept when another theme is tried, so the deck can switch back. */
 export interface DeckSpec { id: string; title: string; mode: OutputMode; themeId: string; typographyId?:string; customTheme?:Theme; aiTheme?:Theme; referencesSlide?:boolean; pageNumbers?:boolean; slides: SlideSpec[] }
 export interface OutlineSlide { id: string; title: string; intent: string; layoutId: string; keyPoints: string[]; sourceIds?: string[] }
 /** Colours an AI chose for one deck while planning it. The app checks contrast and
  * turns them into the deck's own theme (DeckSpec.aiTheme). */
-export interface AiPalette { name?:string; background:string; text:string; muted:string; accent:string; accent2:string; surface?:string }
+export interface AiPalette { name?:string; background:string; text:string; muted:string; accent:string; accent2:string; surface?:string; headingFont?:string; bodyFont?:string }
 export interface Outline { title: string; mode: OutputMode; themeId?: string; typographyId?:string; palette?:AiPalette; audience?: string; inputBrief?:string; visualStyle?:string; assumptions: string[]; slides: OutlineSlide[] }
+/** One direction the AI offered before the user picked an outline. typicality is the AI's own
+ * estimate (0-1) of how many makers would choose this direction for the same request. */
+export interface OutlineProposal { direction:string; difference:string; typicality:number; outline:Outline }
+/** The directions offered (items), the wider list the AI compared them against (candidates),
+ * and the one the user picked (chosen, an index into items). */
+export interface ProposalSet { items:OutlineProposal[]; candidates:{direction:string;typicality:number}[]; chosen?:number }
 export interface ChatMessage { role: 'user' | 'assistant'; text: string }
 export interface Usage { calls: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; estimatedCostUsd?: number }
 export interface RenderResult { artifactId: string; pptxUrl: string; thumbnails: string[]; warnings: string[]; native: boolean }
@@ -115,7 +129,7 @@ export interface RefreshText { id:string; slideId:string; page:number; path:stri
 export interface RefreshPlan { id:string; variantId:string; title:string; documents:{id:string;name:string}[]; previousDocuments:string[]; entries:RefreshEntry[]; texts:RefreshText[]; counts:{changed:number;same:number;review:number;missing:number} }
 /** Kept with a refreshed deck: what changed from the previous report, for the marks in the preview. */
 export interface RefreshSummary { at:string; from:string; documents:string[]; previousDocuments:string[]; changes:{slideId:string;page:number;where:string;before:string;after:string;kind:'text'|'value'}[]; edited:number; unresolved:number }
-export interface Session { targets?:AiTarget[]; sendScope?:SendScope; refresh?:RefreshSummary; id: string; phase: 'clarifying' | 'outline' | 'ready'; messages: ChatMessage[]; outline?: Outline; variants: DeckVariant[]; usage: Usage; warnings: string[]; historyId?:string; savedAt?:string; historySaveError?:string; cloudConsentRequired?:boolean; repairReport?:RepairReport; provider?:ProviderKind; subscriptionService?:SubscriptionService; projectId?:string; chatHandoff?:ChatHandoff; recovery?:{task:'plan'|'generate'|'revise';message:string;retryAvailable:boolean;stage?:'content'|'text-fit';completedSlides?:number;totalSlides?:number;nextBatchSize?:number;slideId?:string} }
+export interface Session { targets?:AiTarget[]; sendScope?:SendScope; refresh?:RefreshSummary; id: string; phase: 'clarifying' | 'outline' | 'ready'; messages: ChatMessage[]; outline?: Outline; proposals?: ProposalSet;variants: DeckVariant[]; usage: Usage; warnings: string[]; historyId?:string; savedAt?:string; historySaveError?:string; cloudConsentRequired?:boolean; repairReport?:RepairReport; provider?:ProviderKind; subscriptionService?:SubscriptionService; projectId?:string; chatHandoff?:ChatHandoff; recovery?:{task:'plan'|'generate'|'revise';message:string;retryAvailable:boolean;stage?:'content'|'text-fit';completedSlides?:number;totalSlides?:number;nextBatchSize?:number;slideId?:string} }
 export interface HistoryEntry { id:string; title:string; createdAt:string; updatedAt:string; slides:number; variants:number; mode:OutputMode; projectId?:string; thumbnail?:string }
 export interface HistoryVersion { revision:number; savedAt:string; title:string; slides:number }
 /** Only reusable visual style is saved here; slide text and source documents are excluded. */
@@ -125,7 +139,7 @@ export interface Feedback { sessionId: string; variantId: string; slideId?: stri
 
 export interface Theme { background: string; foreground: string; muted: string; accent: string; secondary: string; pale: string; font: string; headingFont?:string; numberFont?:string; equationFont?:string; typographyId?:string; itemColors?:string[]; panelStyle?:'tint'|'outline'|'header'; name?:string; description?:string; coverStyle?:'editorial'|'split'|'band'|'block'; headingStyle?:'rule'|'accent'|'band'; tableStyle?:'minimal'|'striped'|'contrast' }
 export interface Rect { x: number; y: number; w: number; h: number }
-export interface TextElement extends Rect { kind: 'text'; text: string; fontSize: number; color: string; font?:string; fontFarEast?:string; role?:'heading'|'body'|'label'|'number'|'equation'; bold?: boolean; italic?:boolean; align?: 'left' | 'center' | 'right'; verticalAlign?:'top'|'middle'|'bottom'; noWrap?:boolean; lineHeight?:number; exact?:boolean; minFontSize?:number }
+export interface TextElement extends Rect { kind: 'text'; text: string; fontSize: number; color: string; font?:string; fontFarEast?:string; role?:'heading'|'body'|'label'|'number'|'equation'; bold?: boolean; italic?:boolean; align?: 'left' | 'center' | 'right'; verticalAlign?:'top'|'middle'|'bottom'; noWrap?:boolean; lineHeight?:number; exact?:boolean; minFontSize?:number; runs?:{start:number;length:number;color?:string;bold?:boolean;italic?:boolean}[] }
 /** A picture: SVG artwork (inserted as an editable-in-PowerPoint vector image) or PNG data. */
 export interface ImageElement extends Rect { kind: 'image'; svg?: string; png?: string }
 export interface ShapeElement extends Rect { kind: 'shape'; shape: FreeShape; fill: string; stroke?: string; strokeWidth?:number; opacity?:number; radius?:number; rotation?:number }

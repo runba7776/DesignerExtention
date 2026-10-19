@@ -1,4 +1,4 @@
-import type { AiPalette,ChartSpec,ChartType,DeckSpec,FreeDesign,FreeElement,IconId,Outline, SlideSpec, SourceRef, Theme } from '../shared/contracts.js';
+import type { AiPalette,ChartSpec,ChartType,DeckSpec,FreeDesign,FreeElement,IconId,Outline,OutlineProposal, SlideSpec, SourceRef, Theme } from '../shared/contracts.js';
 import {colorTokens,freeShapes,FREE_LAYOUT_ID,FOOTER_TOP,SLIDE_H,SLIDE_W} from '../shared/free-design.js';
 import {dummyText,type DesignPacket,type SlotContent} from '../shared/confidential.js';
 import { AppError } from './errors.js';
@@ -30,7 +30,7 @@ export function validateOutline(value: unknown): Outline {
   if (slides.length < 2) bad(`表紙を含め2〜${MAX_SLIDES}枚にしてください`);
   if (slides[0].layoutId !== 'cover') bad('1枚目は表紙です');
   if (slides.slice(1).some((slide) => slide.layoutId === 'cover')) bad('表紙は1枚目だけです');
-  return { title: text(data.title, '資料名', 100)!, mode: mode(data.mode), ...(data.themeId?{themeId:validateTheme(data.themeId)}:{}), ...(data.typographyId?{typographyId:validateTypography(data.typographyId)}:{}), ...(data.inputBrief?{inputBrief:text(data.inputBrief,'確認用の条件',6000)!}:{}),...(data.visualStyle?{visualStyle:text(data.visualStyle,'デザインの方針',600)!}:{}),...(palette(data.palette)?{palette:palette(data.palette)}:{}), audience: text(data.audience, '対象者', 150, true), assumptions: stringList(data.assumptions ?? [], '前提', 8, 250), slides };
+  return { title: text(data.title, '資料名', 100)!, mode: mode(data.mode), ...(data.themeId&&data.themeId!==AI_THEME_ID?{themeId:validateTheme(data.themeId)}:{}), ...(data.typographyId?{typographyId:validateTypography(data.typographyId)}:{}), ...(data.inputBrief?{inputBrief:text(data.inputBrief,'確認用の条件',6000)!}:{}),...(data.visualStyle?{visualStyle:text(data.visualStyle,'デザインの方針',600)!}:{}),...(palette(data.palette)?{palette:palette(data.palette)}:{}), audience: text(data.audience, '対象者', 150, true), assumptions: stringList(data.assumptions ?? [], '前提', 8, 250), slides };
 }
 
 /** The AI's palette for the deck. A malformed one is ignored (the theme is used
@@ -40,7 +40,8 @@ function palette(value:unknown):AiPalette|undefined{
   const p=value as Record<string,unknown>,hex=(v:unknown)=>typeof v==='string'&&/^#[0-9a-f]{6}$/i.test(v.trim())?v.trim().toUpperCase():undefined;
   const colors={background:hex(p.background),text:hex(p.text),muted:hex(p.muted),accent:hex(p.accent),accent2:hex(p.accent2)};
   if(Object.values(colors).some(c=>!c))return undefined;
-  return {...(typeof p.name==='string'&&p.name.trim()?{name:p.name.trim().slice(0,40)}:{}),...colors as Omit<AiPalette,'name'|'surface'>,...(hex(p.surface)?{surface:hex(p.surface)}:{})};
+  const font=(v:unknown)=>typeof v==='string'&&v.trim()&&!/[\u0000-\u001f<>]/.test(v)?v.trim().slice(0,60):undefined;
+  return {...(typeof p.name==='string'&&p.name.trim()?{name:p.name.trim().slice(0,40)}:{}),...colors as Omit<AiPalette,'name'|'surface'>,...(hex(p.surface)?{surface:hex(p.surface)}:{}),...(font(p.headingFont)?{headingFont:font(p.headingFont)}:{}),...(font(p.bodyFont)?{bodyFont:font(p.bodyFont)}:{})};
 }
 export function validateTheme(value:unknown):string {if(typeof value!=='string'||!Object.hasOwn(themes,value))bad('未登録のテーマ');return value;}
 export function validateTypography(value:unknown):string {if(typeof value!=='string'||!Object.hasOwn(typographyProfiles,value))bad('未登録の書体');return value;}
@@ -120,6 +121,8 @@ function chartSpec(value: unknown): ChartSpec {
 }
 
 const number=(value:unknown,field:string,min:number,max:number)=>{if(typeof value!=='number'||!Number.isFinite(value)||value<min||value>max)bad(`${field}は${min}〜${max}の数値`);return Math.round(value*10)/10;};
+/** Shares (corner radius, opacity) keep three decimals: a 6px corner on a 300px card is 0.02. */
+const share=(value:unknown,field:string,min:number,max:number)=>{if(typeof value!=='number'||!Number.isFinite(value)||value<min||value>max)bad(`${field}は${min}〜${max}の数値`);return Math.round(value*1000)/1000;};
 const designColor=(value:unknown,field:string)=>{if(value===undefined)return undefined;if(typeof value!=='string'||!((colorTokens as readonly string[]).includes(value)||value==='none'||/^#[0-9a-f]{6}$/i.test(value)))bad(`${field}の色は${colorTokens.join('・')}・none・#RRGGBBのいずれか`);return value;};
 const oneOf=<T extends string>(value:unknown,allowed:readonly T[],field:string):T|undefined=>{if(value===undefined)return undefined;if(!allowed.includes(value as T))bad(`${field}は${allowed.join('・')}のいずれか`);return value as T;};
 const colorWords:Record<string,string>={black:'ink',text:'ink',foreground:'ink',primary:'accent',secondary:'accent2',background:'bg',gray:'muted',grey:'muted',transparent:'none'};
@@ -179,23 +182,34 @@ function lenientDesign(data:Record<string,any>,cover:boolean,title?:string){
   return {...data,elements};
 }
 
+/** A font name chosen by the AI (or read from the browser): kept as a name only. */
+const elementFont=(value:unknown)=>typeof value==='string'&&value.trim()&&!/[\u0000-\u001f<>"]/.test(value)?value.trim().slice(0,60):undefined;
+/** SVG artwork read from a page's HTML: no scripts, external references or embedded documents. */
+export function sanitizeSvg(value:unknown,field:string){
+  if(typeof value!=='string'||value.length>150_000||!/^\s*<svg[\s>]/i.test(value))bad(`${field}のSVGが正しくありません`);
+  return (value as string).replace(/<\s*(script|foreignObject|iframe|image|a)\b[\s\S]*?<\/\s*\1\s*>/gi,'').replace(/<\s*\/?\s*(script|foreignObject|iframe|image|a)\b[^>]*>/gi,'')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'').replace(/\s(href|xlink:href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'').replace(/url\(\s*["']?(?!#)[^)]*\)/gi,'none').replace(/<!ENTITY[^>]*>|<!DOCTYPE[^>]*>/gi,'');
+}
 /** An AI-designed slide. Positions, shapes and colours are the AI's; the app only
  * rejects what would be unreadable or untrue: text outside the slide or in the
  * footer, overlapping text boxes, unknown icons, and charts whose data fail. */
 export function validateDesign(value:unknown,sourceCount:number,cover=false,title?:string):FreeDesign{
   const data=lenientDesign(object(value,'デザイン'),cover,title);
-  const elements=array(data.elements,'デザインの要素',90).map((entry,i):FreeElement=>{
+  // An HTML page read back by the browser can hold more parts than the JSON method's 90.
+  const elements=array(data.elements,'デザインの要素',200).map((entry,i):FreeElement=>{
     const e=object(entry,`要素${i+1}`),field=`要素${i+1}`;
     const rect=()=>{const x=number(e.x,`${field}のx`,0,SLIDE_W),y=number(e.y,`${field}のy`,0,SLIDE_H),w=number(e.w,`${field}のw`,1,SLIDE_W),h=number(e.h,`${field}のh`,1,SLIDE_H);if(x+w>SLIDE_W+1||y+h>SLIDE_H+1)bad(`${field}がスライドの外にはみ出しています（幅${SLIDE_W}・高さ${SLIDE_H}の範囲に収めてください）`);return {x,y,w,h};};
     if(e.t==='text'){
-      const r=rect();if(r.y+r.h>FOOTER_TOP+1)bad(`${field}の文字が下端の出典欄（y=${FOOTER_TOP}以降）に入っています。y+hを${FOOTER_TOP}以下にしてください`);
+      // Browser-measured text: its box includes line spacing below the glyphs (the browser already checked the glyphs).
+      const r=rect(),spacing=e.exact===true&&typeof e.size==='number'?e.size*.35+3:0;if(r.y+r.h>FOOTER_TOP+1+spacing)bad(`${field}の文字が下端の出典欄（y=${FOOTER_TOP}以降）に入っています。y+hを${FOOTER_TOP}以下にしてください`);
       // A citation number with no matching source is dropped: the text stays, only its marker is lost.
       const refs=e.refs===undefined?undefined:array(e.refs,`${field}の出典番号`,5).filter(n=>Number.isInteger(n)&&n>=1&&n<=sourceCount) as number[];
-      return {t:'text',...r,text:text(e.text,`${field}の文字`,400)!,size:number(e.size,`${field}の文字の大きさ`,9,110),...(e.color!==undefined?{color:designColor(e.color,field)}:{}),...(e.bold!==undefined?{bold:e.bold===true}:{}),...(e.italic===true?{italic:true}:{}),...(e.align!==undefined?{align:oneOf(e.align,['l','c','r'] as const,`${field}のalign`)}:{}),...(e.va!==undefined?{va:oneOf(e.va,['t','m','b'] as const,`${field}のva`)}:{}),...(e.role!==undefined?{role:oneOf(e.role,['title','heading','body','number','caption'] as const,`${field}のrole`)}:{}),...(refs?.length?{refs:[...new Set(refs)]}:{})};
+      const runs=e.exact===true&&Array.isArray(e.runs)?(e.runs as unknown[]).slice(0,40).flatMap(run=>{const p=run&&typeof run==='object'?run as Record<string,unknown>:{};if(!Number.isInteger(p.s)||!Number.isInteger(p.l)||(p.s as number)<0||(p.l as number)<1)return [];return [{s:p.s as number,l:p.l as number,...(p.color!==undefined?{color:designColor(p.color,field)}:{}),...(typeof p.bold==='boolean'?{bold:p.bold}:{}),...(typeof p.italic==='boolean'?{italic:p.italic}:{})}];}):[];
+      return {t:'text',...r,text:text(e.text,`${field}の文字`,800)!,size:number(e.size,`${field}の文字の大きさ`,9,110),...(e.color!==undefined?{color:designColor(e.color,field)}:{}),...(e.bold!==undefined?{bold:e.bold===true}:{}),...(e.italic===true?{italic:true}:{}),...(e.align!==undefined?{align:oneOf(e.align,['l','c','r'] as const,`${field}のalign`)}:{}),...(e.va!==undefined?{va:oneOf(e.va,['t','m','b'] as const,`${field}のva`)}:{}),...(e.role!==undefined?{role:oneOf(e.role,['title','heading','body','number','caption'] as const,`${field}のrole`)}:{}),...(refs?.length?{refs:[...new Set(refs)]}:{}),...(elementFont(e.font)?{font:elementFont(e.font)}:{}),...(elementFont(e.fontFarEast)?{fontFarEast:elementFont(e.fontFarEast)}:{}),...(e.exact===true?{exact:true}:{}),...(e.exact===true&&typeof e.lh==='number'?{lh:number(e.lh,`${field}の行の高さ`,4,240)}:{}),...(runs.length?{runs}:{})};
     }
     if(e.t==='box'){
       const r=rect();
-      return {t:'box',...r,...(e.shape!==undefined?{shape:oneOf(e.shape,freeShapes,`${field}のshape`)}:{}),...(e.fill!==undefined?{fill:designColor(e.fill,field)}:{}),...(e.line!==undefined?{line:designColor(e.line,field)}:{}),...(e.lw!==undefined?{lw:number(e.lw,`${field}の線の太さ`,0,12)}:{}),...(e.op!==undefined?{op:number(e.op,`${field}の不透明度`,0,1)}:{}),...(e.r!==undefined?{r:number(e.r,`${field}の角丸`,0,.5)}:{}),...(e.rot!==undefined?{rot:number(e.rot,`${field}の回転`,-360,360)}:{})};
+      return {t:'box',...r,...(e.shape!==undefined?{shape:oneOf(e.shape,freeShapes,`${field}のshape`)}:{}),...(e.fill!==undefined?{fill:designColor(e.fill,field)}:{}),...(e.line!==undefined?{line:designColor(e.line,field)}:{}),...(e.lw!==undefined?{lw:number(e.lw,`${field}の線の太さ`,0,12)}:{}),...(e.op!==undefined?{op:share(e.op,`${field}の不透明度`,0,1)}:{}),...(e.r!==undefined?{r:share(e.r,`${field}の角丸`,0,.5)}:{}),...(e.rot!==undefined?{rot:number(e.rot,`${field}の回転`,-360,360)}:{})};
     }
     if(e.t==='line')return {t:'line',x1:number(e.x1,`${field}のx1`,0,SLIDE_W),y1:number(e.y1,`${field}のy1`,0,SLIDE_H),x2:number(e.x2,`${field}のx2`,0,SLIDE_W),y2:number(e.y2,`${field}のy2`,0,SLIDE_H),...(e.color!==undefined?{color:designColor(e.color,field)}:{}),...(e.lw!==undefined?{lw:number(e.lw,`${field}の線の太さ`,.25,12)}:{}),...(e.dash===true?{dash:true}:{}),...(e.arrow!==undefined?{arrow:oneOf(e.arrow,['none','end','start','both'] as const,`${field}のarrow`)}:{})};
     if(e.t==='icon'){
@@ -210,6 +224,7 @@ export function validateDesign(value:unknown,sourceCount:number,cover=false,titl
       if(!headers.length||!rows.length||rows.some(row=>row.length!==headers.length))bad(`${field}の表の列数が一致しません`);
       return {t:'table',...r,headers,rows,...(e.size!==undefined?{size:number(e.size,`${field}の文字の大きさ`,10,28)}:{})};
     }
+    if(e.t==='svg'){const r=rect();return {t:'svg',...r,svg:sanitizeSvg(e.svg,field)};}
     bad(`${field}のtはtext・box・line・icon・chart・tableのいずれか`);
   });
   if(!elements.length)bad('デザインの要素がありません');
@@ -220,6 +235,9 @@ export function validateDesign(value:unknown,sourceCount:number,cover=false,titl
   // Text boxes may sit on shapes, but two texts on top of each other are unreadable.
   for(let i=0;i<texts.length;i++)for(let j=i+1;j<texts.length;j++){
     const a=texts[i],b=texts[j],w=Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x),h=Math.min(a.y+a.h,b.y+b.h)-Math.max(a.y,b.y);
+    // Browser-measured texts were compared glyph by glyph when the page was read; a large decorative
+    // numeral behind other text (3x its size or more) may be layered on purpose.
+    if((a.exact&&b.exact)||Math.max(a.size,b.size)>=3*Math.min(a.size,b.size))continue;
     if(w>0&&h>0&&w*h>.25*Math.min(a.w*a.h,b.w*b.h))bad(`文字の枠が重なっています（「${a.text.slice(0,12)}」と「${b.text.slice(0,12)}」）。位置か大きさを調整してください`);
   }
   return {...(data.background!==undefined?{background:designColor(data.background,'背景')}:{}),elements};
@@ -287,9 +305,36 @@ export function validateCustomTheme(value:unknown):Theme{
     panelStyle:pick(data.panelStyle,['tint','outline','header'] as const,'tint'),coverStyle:pick(data.coverStyle,['editorial','split','band','block'] as const,'band'),headingStyle:pick(data.headingStyle,['rule','accent','band'] as const,'rule'),tableStyle:pick(data.tableStyle,['minimal','striped','contrast'] as const,'striped')};
 }
 
-export function validatePlanResponse(value: unknown): { question?: string; outline?: Outline } {
+/** proposals: when the AI was asked for several directions, the check each outline must pass
+ * (mode, slide count). Without it only questions or one outline are accepted. */
+export function validatePlanResponse(value: unknown, proposals?: (outline: Outline) => void): { question?: string; outline?: Outline; proposals?: ReturnType<typeof validateProposals> } {
   const data = object(value, '構成の応答');
   if (data.kind === 'questions') return { question: text(data.message, '確認事項', 2500)! };
   if (data.kind === 'outline') return { outline: validateOutline(data.outline) };
-  bad('kindはquestionsまたはoutlineです');
+  if (data.kind === 'proposals' && proposals) return { proposals: validateProposals(data, proposals) };
+  bad(proposals ? 'kindはquestions・outline・proposalsのどれかです' : 'kindはquestionsまたはoutlineです');
+}
+
+/** A direction whose outline fails a check is left out with its reason; the response is
+ * refused only when no direction is usable. */
+function validateProposals(data: Record<string, any>, check: (outline: Outline) => void) {
+  const items: OutlineProposal[] = [], problems: AppError[] = [];
+  for (const entry of array(data.proposals, '構成案の候補', 5)) {
+    try {
+      const proposal = object(entry, '構成案の候補');
+      const outline = validateOutline(proposal.outline); check(outline);
+      items.push({ direction: text(proposal.direction, '方向の名前', 40)!, difference: text(proposal.difference, 'ほかの案との違い', 200, true) ?? '', typicality: likelihood(proposal.typicality), outline });
+    } catch (error) { if (!(error instanceof AppError)) throw error; problems.push(error); }
+  }
+  if (!items.length) throw problems[0] ?? bad('構成案の候補がありません');
+  // The wider list the AI compared is shown for reference only; a malformed entry is skipped.
+  const candidates = (Array.isArray(data.candidates) ? data.candidates.slice(0, 8) : []).flatMap((entry: unknown) => {
+    try { const c = object(entry, '比べた方向'); return [{ direction: text(c.direction, '比べた方向', 40)!, typicality: likelihood(c.typicality) }]; } catch { return []; }
+  });
+  return { items, candidates, problems };
+}
+/** The AI's estimate of how often a direction is chosen, 0-1 (a percentage is accepted). */
+function likelihood(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) bad('ありがちさは0〜1の数値');
+  return Math.round((value > 1 ? value / 100 : value) * 100) / 100;
 }

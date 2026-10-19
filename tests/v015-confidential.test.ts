@@ -17,10 +17,11 @@ const t=(x:number,y:number,w:number,h:number,text:string,size:number,role?:strin
 const slides=(titles:string[])=>titles.map((title,i)=>validateSlide(i===0?{id:'slide-1',title,layoutId:'cover',notes:'',sources:[],design:{elements:[t(64,160,800,120,title,40)]}}
   :{id:`slide-${i+1}`,title,layoutId:'free',notes:'話す内容：ロボット事業が牽引',sources:[{documentId:'doc-1',locator:'p.1'}],design:{elements:[t(56,28,848,52,title,28,'title'),t(56,120,400,40,'営業利益4,812億円',24,'number',),t(56,180,600,60,'主力のロボット事業が牽引した',16,'body'),{t:'chart',x:500,y:120,w:400,h:300,chart:{type:'column',categories:['前期','当期'],series:[{name:'営業利益',values:[4100,4812]}],unit:'億円'}}]}},`slide-${i+1}`));
 /** What a design AI would return for a packet: every slot placed once, nothing else written. */
+/** tiny: a box too small for its slot and hemmed in (a page number beside it, the next slot below), so not even smaller type helps. */
 function designFor(packet:DesignPacket,options:{skip?:string;extraText?:string;tiny?:string}={}){
   return {slides:packet.slides.map(slide=>{
     let y=24;const elements:any[]=[];
-    for(const slot of slide.slots){if(slot.id===options.skip)continue;const size=slot.role==='title'?28:16,lines=Math.ceil(slot.chars*size/800)||1,h=slot.id===options.tiny?10:lines*size*1.35+8;elements.push({t:'text',slot:slot.id,x:56,y,w:820,h,size,role:slot.role});y+=h+8;}
+    for(const slot of slide.slots){if(slot.id===options.skip)continue;const size=slot.role==='title'?28:16,lines=Math.ceil(slot.chars*size/800)||1,h=slot.id===options.tiny?4:lines*size*1.35+8;elements.push({t:'text',slot:slot.id,x:56,y,w:slot.id===options.tiny?30:820,h,size,role:slot.role});if(slot.id===options.tiny)elements.push({t:'text',x:92,y,w:30,h:10,text:'01',size:9});y+=h+8;}
     slide.charts.forEach(c=>{elements.push({t:'chart',slot:c.id,x:500,y:200,w:400,h:250});});
     if(options.extraText)elements.push({t:'text',x:56,y:460,w:300,h:30,text:options.extraText,size:14});
     return {id:slide.id,design:{background:'surface',elements}};

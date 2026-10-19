@@ -16,6 +16,33 @@ export function withTypography(theme:Theme,id?:string):Theme {
   const profile=typographyProfiles[(id && Object.hasOwn(typographyProfiles,id)?id:theme.typographyId??'balanced') as TypographyId];
   return {...theme,font:profile.body,headingFont:profile.heading,numberFont:profile.number,equationFont:'Cambria Math',typographyId:id??theme.typographyId??'balanced'};
 }
+/** Fonts Windows (Japanese) and Office provide. */
+const standardFonts=['Yu Gothic','Yu Gothic Medium','Yu Gothic Light','Yu Gothic UI','Yu Gothic UI Semibold','Yu Mincho','Yu Mincho Demibold','Yu Mincho Light','Meiryo','Meiryo UI','BIZ UDPGothic','BIZ UDGothic','BIZ UDPMincho','BIZ UDPMincho Medium','BIZ UDMincho','BIZ UDMincho Medium','UD Digi Kyokasho NP','UD Digi Kyokasho NK','UD Digi Kyokasho N','UD Digi Kyokasho NP-R','UD Digi Kyokasho NP-B','UD Digi Kyokasho NK-R','UD Digi Kyokasho NK-B','MS Gothic','MS PGothic','MS UI Gothic','MS Mincho','MS PMincho','Arial','Arial Black','Segoe UI','Segoe UI Semibold','Bahnschrift','Calibri','Cambria','Candara','Century','Century Gothic','Constantia','Corbel','Franklin Gothic Medium','Georgia','Tahoma','Times New Roman','Trebuchet MS','Verdana'];
+const fontKey=(name:string)=>name.normalize('NFKC').toLowerCase().replace(/[\s_-]/g,'');
+const byKey=new Map(standardFonts.map(name=>[fontKey(name),name]));
+/** A font name the AI chose, kept free: Japanese names of standard fonts become the
+ * names Windows uses (游ゴシック → Yu Gothic); any other name is kept as written. The
+ * PowerPoint step uses it when this PC has it, otherwise the nearest installed font of
+ * the same style (明朝 for a serif). */
+export function resolveFont(name:string|undefined,fallback:string){
+  if(!name||!name.trim())return fallback;
+  const key=fontKey(name),exact=byKey.get(key);
+  if(exact)return exact;
+  const has=(...words:string[])=>words.some(w=>key.includes(fontKey(w)));
+  if(has('UDデジタル教科書体'))return 'UD Digi Kyokasho NP';
+  if(has('BIZUDP明朝'))return 'BIZ UDPMincho';
+  if(has('BIZUD明朝'))return 'BIZ UDMincho';
+  if(has('BIZUDPゴシック'))return 'BIZ UDPGothic';
+  if(has('BIZUDゴシック'))return 'BIZ UDGothic';
+  if(has('メイリオ'))return has('ui')?'Meiryo UI':'Meiryo';
+  if(has('游明朝'))return 'Yu Mincho';
+  if(has('游ゴシック'))return has('ui')?'Yu Gothic UI':has('medium','ミディアム')?'Yu Gothic Medium':has('light','ライト')?'Yu Gothic Light':'Yu Gothic';
+  if(has('MSP明朝'))return 'MS PMincho';
+  if(has('MS明朝'))return 'MS Mincho';
+  if(has('MSPゴシック'))return 'MS PGothic';
+  if(has('MSゴシック'))return 'MS Gothic';
+  return name.trim().slice(0,60);
+}
 export function fontFor(theme:Theme,role:TextElement['role']) {
   if(role==='heading')return {font:theme.headingFont??theme.font,fontFarEast:theme.headingFont??theme.font};
   if(role==='number')return {font:theme.numberFont??theme.font,fontFarEast:theme.font};

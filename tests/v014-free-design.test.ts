@@ -97,7 +97,7 @@ test('designed slides compile to editable shapes with readable text, arrows on t
   assert.equal(arrow.arrowStart,true,'a leftward arrow keeps its head on the left');assert.notEqual(arrow.arrow,true);
   assert.ok(second.elements.some(e=>e.kind==='chart'));
   assert.ok(!second.elements.some(e=>e.kind==='text'&&e.y===34&&e.w===848),'no template title is added');
-  assert.match(second.notes,/2部署・30人で試し/);
+  assert.doesNotMatch(second.notes,/2部署・30人で試し|内容:/,'the page shows all its text; the notes are not filled with a copy');
   assert.deepEqual(lineElement({t:'line',x1:100,y1:300,x2:100,y2:200,arrow:'end'},'#000000'),{kind:'line',x:100,y:200,w:0,h:100,stroke:'#000000',strokeWidth:1.5,arrowStart:true});
 });
 
@@ -105,7 +105,7 @@ test('overflowing designed text can be shortened in place without changing numbe
   const slide=validateSlide(freeSlide('slide-2','長い説明',[{t:'text',x:56,y:100,w:200,h:30,text:'作業時間を12時間から9時間に短縮し、残りの時間を顧客対応と品質の確認に充てました',size:18,role:'body'}]),'slide-2');
   const deck=deckOf([validateSlide(freeSlide('slide-1','表紙'),'slide-1'),slide]);
   const problems=fitProblems(deck);assert.equal(problems.length,1);
-  assert.ok(Object.hasOwn(textFields(slide),'design.elements.1.text'));assert.ok(!Object.hasOwn(textFields(slide),'design.elements.0.text'),'the title is not summarized away');
+  assert.ok(Object.hasOwn(textFields(slide),'design.elements.1.text'));assert.ok(Object.hasOwn(textFields(slide),'design.elements.0.text'),'a title that does not fit can be shortened too');
   const next=applySummaries(deck,{replacements:[{slideId:'slide-2',path:'design.elements.1.text',text:'12時間を9時間に短縮'}]},['slide-2']);
   assert.equal((next.slides[1].design!.elements[1] as any).text,'12時間を9時間に短縮');assert.deepEqual(fitProblems(next),[]);
   assert.throws(()=>applySummaries(deck,{replacements:[{slideId:'slide-2',path:'design.elements.1.text',text:'15時間を9時間に'}]},['slide-2']),/数値/);
@@ -145,6 +145,9 @@ test('browser-measured text and SVG artwork pass through unchanged as text and p
   assert.equal(texts.length,2);assert.equal(texts[1].text,'一行目\n二行目');assert.equal(texts[1].lineHeight,24);assert.equal(texts[1].noWrap,true);
   assert.deepEqual(scene.textIssues??[],[]);
   const image=scene.elements.find(e=>e.kind==='image');assert.ok(image&&image.kind==='image'&&image.svg?.includes('<circle'));
-  // SVG is never accepted from the AI's JSON, only from the app's own HTML conversion.
-  assert.throws(()=>validateSlide(freeSlide('slide-2','題名',[{t:'svg',x:0,y:0,w:10,h:10,svg:'<svg/>'}]),'slide-2'),/text・box・line・icon・chart・table/);
+  // SVG artwork (from the HTML method's conversion) is kept only without scripts, events or outside references.
+  assert.throws(()=>validateSlide(freeSlide('slide-2','題名',[{t:'svg',x:0,y:0,w:10,h:10,svg:'not svg'}]),'slide-2'),/SVG/);
+  const cleaned=validateSlide(freeSlide('slide-2','題名',[{t:'svg',x:0,y:100,w:10,h:10,svg:'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script><image href="http://example.com/a.png"/><circle onclick="x()" r="1" fill="url(http://example.com/p)"/><use xlink:href="http://example.com/s#a"/></svg>'}]),'slide-2');
+  const svg=(cleaned.design!.elements.find(e=>e.t==='svg') as any).svg as string;
+  assert.doesNotMatch(svg,/script|<image|onclick|example\.com/);assert.match(svg,/<circle/);
 });

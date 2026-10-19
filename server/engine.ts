@@ -9,8 +9,9 @@ import { createProvider, emptyUsage, OutputLimitError,parseJsonResponse, type Pr
 import { SettingsStore } from './settings.js';
 import { aiKitVersion, systemPrompt, type ModelTask } from './prompts.js';
 import { validateDeck, validateDesignReply, validateOutline, validatePlanResponse, validateSlide, validateTheme, validateTypography } from './validation.js';
+import type {HtmlLayout,HtmlPageLayout} from './html-layout.js';
 import { demoDeck, demoOutline, DEMO_WARNING } from './demo.js';
-import { FREE_CHAT_BATCH_SIZE, FREE_GENERATION_BATCH_SIZE, CHAT_GENERATION_BATCH_SIZE, CHAT_READING_BATCH_SIZE, GENERATION_BATCH_SIZE, READING_BATCH_SIZE, GENERATION_OUTPUT_TOKENS, MAX_SLIDES, MAX_PROMPT_CHARACTERS, PLAN_OUTPUT_TOKENS,PLAN_RETRY_OUTPUT_TOKENS } from '../shared/contracts.js';
+import { FREE_CHAT_BATCH_SIZE, FREE_GENERATION_BATCH_SIZE, CHAT_GENERATION_BATCH_SIZE, CHAT_READING_BATCH_SIZE, GENERATION_BATCH_SIZE, READING_BATCH_SIZE, GENERATION_OUTPUT_TOKENS, MAX_SLIDES, MAX_PROMPT_CHARACTERS, PLAN_OUTPUT_TOKENS,PLAN_RETRY_OUTPUT_TOKENS,OUTLINE_PROPOSALS,MIN_TEXT_SIZE } from '../shared/contracts.js';
 import {completeSlidePrefix} from './partial-generation.js';
 import {repairReason,repairInstruction} from './repair-policy.js';
 import { themes } from '../shared/themes.js';
@@ -39,9 +40,12 @@ import {applyRefresh,planRefresh,RefreshInputError} from '../shared/refresh.js';
 import type {RefreshPlan,RefreshSummary} from '../shared/contracts.js';
 import {DOCUMENT_LIMITS} from './document-model.js';
 
-interface FitDraft {deck:DeckSpec;batchSize:number;singleFailures:number}
+/** force: the user chose to finish with smaller text (no AI). */
+interface FitDraft {deck:DeckSpec;batchSize:number;singleFailures:number;force?:boolean}
 /** ceiling: after a reply was cut or broken, the batch size that failed is not tried again. */
-interface GenerationDraft {key:string;slides:SlideSpec[];themeId:string;batchSize:number;ceiling?:number;singleFailures:number;compact:boolean;fit?:FitDraft}
+interface GenerationDraft {key:string;slides:SlideSpec[];themeId:string;batchSize:number;ceiling?:number;singleFailures:number;compact:boolean;fit?:FitDraft;
+  /** Valid pages that came after a rejected page; they join the deck once the gap before them is filled. */
+  pending?:Record<string,SlideSpec>}
 interface RevisionDraft {variantId:string;slideId:string;instruction:string;title:string;base:string;failures:number;compact:boolean;result?:SlideSpec;fit?:FitDraft}
 interface RepairOperation {remaining:number;startedCalls:number;next?:{task:ModelTask;code:string;detail?:string}}
 /** full: the user chose the self-contained instruction for this request. */
@@ -57,9 +61,18 @@ interface AiRun {target:AiTarget;label:string;repair:RepairOperation;calls:numbe
  * monthly accounts connected at that moment; extras: other drafts written alongside. */
 interface SessionState { targets?:AiTarget[]; sendScope?:SendScope; bindings?:Partial<Record<SubscriptionService,string>>; extras?:{started:boolean;ready:DeckVariant[];failed:string[]}; refresh?:RefreshDraft; masker?:Masker; oneShot?:boolean; session: Session; documents: ParsedDocument[]; settings: Settings; project:ProjectProfile; createdAt: number; busy: boolean; subscriptionBinding?:string; historyRevision?:number; design?:DesignEntry; pendingPlan?:{messages:Session['messages'];failures:number}; draft?:GenerationDraft;revision?:RevisionDraft;repairOperation?:RepairOperation;chat?:ChatDraft }
 const MAX_VARIANTS=3;
+/** AI calls: per operation (creating a deck, one revision) and per presentation. */
+const OPERATION_CALL_LIMIT=12,SESSION_CALL_LIMIT=40;
 const chatServiceNames:Record<string,string>={chatgpt:'ChatGPT',claude:'Claude',gemini:'Gemini',copilot:'Microsoft Copilot',other:'その他のAI'};
 const chatServiceName=(service:string)=>chatServiceNames[service]??'AI';
 const targetLabel=(target:AiTarget)=>target==='local'?'ローカルLLM':chatServiceName(target);
+/** Whether two versions of a page say the same: the same words (spacing aside), numbers, charts and tables. */
+function sameContent(a:SlideSpec,b:SlideSpec){
+  const squash=(text:string)=>text.replace(/\s+/g,'');
+  const key=(s:SlideSpec)=>{const c=slideContent(s),title=s.design?.elements.find(e=>e.t==='text'&&e.role==='title');
+    return JSON.stringify({title:title&&title.t==='text'?squash(title.text):squash(s.title),texts:c.texts.map(t=>squash(t.text)).sort(),charts:c.charts.map(x=>[x.categories,x.series.map(v=>[v.name,v.values])]),tables:c.tables});};
+  return key(a)===key(b);
+}
 /** The settings of one AI chosen for a session. */
 function settingsFor(base:Settings,target:AiTarget):Settings{
   if(target==='local')return {...base,provider:'local',model:base.localModel??(base.provider==='local'?base.model:'')};
@@ -76,6 +89,8 @@ function fillDesign(raw:unknown,packet:DesignPacket,contents:Record<string,SlotC
   }
   return slides;
 }
+/** A built-in theme id; anything else an AI writes ("ai", a made-up name) is ignored, not an error. */
+function knownTheme(value:unknown):value is string{return typeof value==='string'&&Object.hasOwn(themes,value);}
 /** What a later batch needs to keep the deck consistent without re-reading earlier pages. */
 function continued(slide:SlideSpec){
   if(!slide.design)return {title:slide.title,headline:slide.headline,layoutId:slide.layoutId};
@@ -88,6 +103,8 @@ export interface EngineOptions {
   render: (deck: DeckSpec, variantId: string) => Promise<RenderResult>;
   open?: (artifactId: string) => Promise<void>;
   providerFactory?: (settings: Settings, key?: string) => Provider;
+  /** HTML method (trial): draws AI-written HTML pages in a browser and reads their layout. */
+  htmlLayout?: HtmlLayout;
   subscriptionBinding?: (service: SubscriptionService) => string | undefined;
   artifactRoot?:string;
 }
@@ -144,7 +161,8 @@ export class SessionEngine {
     try{if(settings.preferredDesignId){const explicit=await this.designs.load(settings.preferredDesignId);if(explicit.projectId===projectId)return explicit;warnings.push('指定されたお気に入りは別のプロジェクトにあるため、このプロジェクトのデザインを使います。');}return (await this.designs.list(projectId)).entries.find(entry=>entry.mode===settings.mode);}
     catch{warnings.push('お気に入りデザインを読み取れませんでした。通常のデザイン候補で作成します。');return undefined;}
   }
-  private designGuidance(state:SessionState){const design=state.design;return design?{themeId:design.themeId,typographyId:design.typographyId,...(this.freeDesign(state)?{}:{layoutIds:design.layoutIds}),explicit:Boolean(state.settings.preferredDesignId)}:undefined;}
+  /** In free design a saved design is sent only when the user chose it; votes alone do not steer the AI. */
+  private designGuidance(state:SessionState){const design=state.design;if(this.freeDesign(state)&&!state.settings.preferredDesignId)return undefined;return design?{themeId:design.themeId,typographyId:design.typographyId,...(this.freeDesign(state)?{}:{layoutIds:design.layoutIds}),explicit:Boolean(state.settings.preferredDesignId)}:undefined;}
   async removeHistory(id:string){
     const affected=[...this.states.values()].filter(s=>s.session.historyId===id);
     if(affected.some(s=>s.busy))throw new AppError(409,'この資料は処理中です。完了してから削除してください。');
@@ -270,13 +288,13 @@ export class SessionEngine {
     },false,true);
   }
 
-  async generate(id: string, inputOutline?: unknown) {
+  async generate(id: string, inputOutline?: unknown, force=false) {
     return this.lock(id, async (state) => {
       const outline = inputOutline ? validateOutline(inputOutline) : state.session.outline;
       if (!outline || state.session.phase === 'clarifying') throw new AppError(409, '先に構成案を確認してください。');
       if (outline.mode !== state.settings.mode) throw new AppError(422, '構成案のモードが作成時の設定と異なります。新しく作成してください。');
       this.checkSlideCount(state,outline);
-      if(state.session.recovery?.task==='generate'&&!state.session.recovery.retryAvailable)throw new AppError(429,'再開の上限に達しました。追加の呼び出しは行っていません。構成から情報を分けるか、優先条件を整理してください。');
+      if(state.session.recovery?.task==='generate'&&!state.session.recovery.retryAvailable&&!force)throw new AppError(429,'再開の上限に達しました。追加の呼び出しは行っていません。構成から情報を分けるか、優先条件を整理してください。');
       state.session.outline=outline;
       if(state.settings.provider==='chat'){this.prepareChatGeneration(state,outline);return state.session;}
       let value:unknown,extras:Promise<void>=Promise.resolve();
@@ -302,8 +320,9 @@ export class SessionEngine {
       if(state.settings.preferredDesignId&&state.design)deck=applySavedDesign(deck,state.design,false,this.templateTheme(state)).deck;
       const draft=state.draft;
       if(draft&&!draft.fit)draft.fit={deck:improveTextFit(deck),batchSize:READING_BATCH_SIZE,singleFailures:0};
+      if(force&&draft?.fit)draft.fit.force=true;
       try{deck=await this.fitText(state,draft?.fit?.deck??improveTextFit(deck),draft?.fit);}
-      catch(error){if(!draft?.fit||(!repairReason(error)&&!(error instanceof AppError&&error.code==='CALL_LIMIT')))throw error;await extras;return this.generationRecovery(state,outline,'text-fit',!!repairReason(error)&&draft.fit.singleFailures<2);}
+      catch(error){if(!draft?.fit||(!repairReason(error)&&!(error instanceof AppError&&error.code==='CALL_LIMIT')))throw error;await extras;return this.generationRecovery(state,outline,'text-fit',error instanceof AppError&&error.code==='CALL_LIMIT'?state.session.usage.calls<SESSION_CALL_LIMIT:!!repairReason(error)&&draft.fit.singleFailures<2);}
       deck = diversifyDeck(deck,state.session.id,this.recentLayouts);
       if(state.settings.preferredDesignId&&state.design)deck=applySavedDesign(deck,state.design,true,this.templateTheme(state)).deck;
       assertTextFits(deck);
@@ -336,26 +355,33 @@ export class SessionEngine {
    * passes. Returns why it stopped, or undefined when all pages are written. The session's
    * own provider writes unless run names another AI chosen for this session. */
   private async writePages(state:SessionState,outline:Outline,draft:GenerationDraft,run?:AiRun):Promise<{canRetry:boolean}|undefined>{
-    const free=this.freeDesign(state),baseBatch=this.baseBatch(state,outline);
+    const free=this.freeDesign(state),html=this.htmlFor(state,run),baseBatch=this.baseBatch(state,outline);
+    if(state.settings.designMode==='html'&&!html&&!state.session.warnings.some(w=>w.startsWith('HTML方式')))state.session.warnings.push('HTML方式（試験）は、月額版の自動作成でインストール版を使うときだけ使えます。この資料は座標の方式で作成しました。');
     /** One returned page, checked on its own: a later page's problem never discards an earlier valid page. */
-    const accept=(raw:any,expected:string)=>{
+    const accept=(raw:any,expected:string,keep:(slide:SlideSpec)=>void=slide=>draft.slides.push(slide))=>{
       if(!raw||raw.id!==expected)throw new AppError(422,`${expected}がありません。生成したページの識別子・順序を構成と一致させてください。`,'INVALID_CONTENT');
       const warnings=[...state.session.warnings];
       try{
+        if(typeof raw.htmlProblem==='string')throw new AppError(422,raw.htmlProblem,'INVALID_CONTENT');
         const slide=validateSlide(raw,expected);
         if((slide.id==='slide-1')!==(slide.layoutId==='cover'))throw new AppError(422,'表紙と本文の役割が構成と一致しません。','INVALID_CONTENT');
-        this.verifySources(state,[slide]);draft.slides.push(slide);
+        this.verifySources(state,[slide]);keep(slide);
       }catch(error){state.session.warnings=warnings;if(error instanceof AppError)error.message=`${expected}：${error.message.replace(/^生成内容を確認できません: /,'')}`;throw error;}
     };
+    const pending=draft.pending??={};
     while(draft.slides.length<outline.slides.length) {
-      const start=draft.slides.length,targetSlides=outline.slides.slice(start,start+draft.batchSize);
+      while(draft.slides.length<outline.slides.length&&pending[outline.slides[draft.slides.length].id]){const id=outline.slides[draft.slides.length].id;draft.slides.push(pending[id]);delete pending[id];}
+      if(draft.slides.length>=outline.slides.length)break;
+      const start=draft.slides.length,targetSlides:Outline["slides"]=[];
+      for(const slide of outline.slides.slice(start)){if(pending[slide.id]||targetSlides.length>=draft.batchSize)break;targetSlides.push(slide);}
       let response:any;
       try{
         // AI-designed pages carry every element's position, so each page needs a larger answer
         // budget. The budget is a ceiling, not usage; a cut reply costs a whole extra call.
-        response=await this.complete(state,'generate',{outline,targetSlides,messages:state.session.messages,compactOutput:draft.compact,continuedFrom:draft.slides.map(continued)},draft.compact?GENERATION_OUTPUT_TOKENS:Math.min(GENERATION_OUTPUT_TOKENS,free?3000+targetSlides.length*4000:4000+targetSlides.length*2500),run);
+        response=await this.complete(state,'generate',{outline,targetSlides,messages:state.session.messages,compactOutput:draft.compact,continuedFrom:draft.slides.map(continued)},draft.compact?GENERATION_OUTPUT_TOKENS:Math.min(GENERATION_OUTPUT_TOKENS,free?3000+targetSlides.length*(html?5500:4000):4000+targetSlides.length*2500),run);
         if(!response||response.mode!==outline.mode||!Array.isArray(response.slides))throw new AppError(422,'指定したページ数・モードで応答されませんでした。','INVALID_CONTENT');
-        if(start===0&&response.themeId)draft.themeId=validateTheme(response.themeId);
+        if(start===0&&knownTheme(response.themeId))draft.themeId=response.themeId;
+        if(html)await this.layoutPages(state,outline,response.slides.slice(0,targetSlides.length),run);
         targetSlides.forEach((target,i)=>accept(response.slides[i],target.id));
         draft.singleFailures=0;
         // After a failure the batch was made smaller; each success restores it step by step,
@@ -364,20 +390,27 @@ export class SessionEngine {
         if(draft.batchSize<cap)draft.batchSize=Math.min(cap,draft.batchSize*2);
       }
       catch(error){
-        if(error instanceof AppError&&error.code==='CALL_LIMIT')return {canRetry:false};
+        // An operation's 12 calls are used up: the next operation may continue, until the presentation's 40.
+        if(error instanceof AppError&&error.code==='CALL_LIMIT')return {canRetry:!run&&state.session.usage.calls<SESSION_CALL_LIMIT};
         if(!repairReason(error)||(this.options.settings.get().autoRepair===false&&!(error instanceof OutputLimitError)))throw error;
         // A reply cut off or broken partway still holds finished pages; keep those that pass.
         const partial=error instanceof OutputLimitError?error.partialText:error instanceof AppError&&error.code==='INVALID_MODEL_JSON'?(error as AppError&{partialText?:string}).partialText:undefined;
         const prefix=partial?completeSlidePrefix(partial):undefined;
         if(prefix?.mode===outline.mode){
-          for(let i=draft.slides.length-start;i<Math.min(prefix.slides.length,targetSlides.length);i++){
+          const from=draft.slides.length-start,pages=prefix.slides.slice(from,targetSlides.length).map((s:unknown)=>this.unmask(state,s));
+          if(html)await this.layoutPages(state,outline,pages,run);
+          for(let i=from;i<Math.min(prefix.slides.length,targetSlides.length);i++){
             try{
-              if(start===0&&i===0&&prefix.themeId)draft.themeId=validateTheme(prefix.themeId);
-              accept(this.unmask(state,prefix.slides[i]),targetSlides[i].id);
+              if(start===0&&i===0&&knownTheme(prefix.themeId))draft.themeId=prefix.themeId;
+              accept(pages[i-from],targetSlides[i].id);
             }catch{break;}
           }
         }
-        const gained=draft.slides.length-start;
+        // The pages after the rejected one in the same reply are checked and kept for later.
+        if(response&&Array.isArray(response.slides))for(let i=draft.slides.length-start+1;i<targetSlides.length;i++){
+          try{accept(response.slides[i],targetSlides[i].id,slide=>{pending[targetSlides[i].id]=slide;});}catch{/* asked again with the rejected page */}
+        }
+        const gained=draft.slides.length-start+targetSlides.filter(s=>pending[s.id]).length;
         draft.singleFailures=targetSlides.length===1&&!gained?draft.singleFailures+1:0;
         draft.batchSize=Math.max(1,Math.floor(targetSlides.length/2));draft.compact=true;
         if(error instanceof OutputLimitError||(error instanceof AppError&&error.code==='INVALID_MODEL_JSON'))draft.ceiling=Math.max(1,Math.min(draft.ceiling??baseBatch,targetSlides.length-1));
@@ -418,7 +451,7 @@ export class SessionEngine {
   private generationRecovery(state:SessionState,outline:Outline,stage:'content'|'text-fit',canRetry:boolean){
     const draft=state.draft!,complete=draft.slides.length;
     const hasRemaining=stage==='text-fit'||complete<outline.slides.length;
-    const retryAvailable=canRetry&&(!hasRemaining||state.session.usage.calls<12);
+    const retryAvailable=canRetry&&(!hasRemaining||state.session.usage.calls<SESSION_CALL_LIMIT);
     state.session.phase='outline';
     state.session.recovery={task:'generate',stage,completedSlides:complete,totalSlides:outline.slides.length,nextBatchSize:stage==='text-fit'?draft.fit!.batchSize:draft.batchSize,retryAvailable,
       message:retryAvailable?(stage==='text-fit'?`本文${complete}枚は保持しています。文字量の調整を完了できませんでした。調整済みの文章を再利用し、未調整のページだけ小分けに処理します。`:`検証できた${complete} / ${outline.slides.length}枚を保持しています。途中のページや検証が通らないページは使いません。残りは最大${draft.batchSize}枚ずつ作成します。`):`検証できた本文${complete}枚と指示・資料を保持しています。同じ1枚での不備が繰り返されたか、呼び出し回数の上限に達したため再開を止めました。構成から情報を分けるか、優先する条件を整理してください。`};
@@ -436,7 +469,7 @@ export class SessionEngine {
       return this.performRevision(state,{slideId:pending.slideId,variantId:pending.variantId,instruction:pending.instruction},true);
     },true,true);
   }
-  private async performRevision(state:SessionState,input:{slideId?:unknown;instruction?:unknown;variantId?:unknown},resume=false){
+  private async performRevision(state:SessionState,input:{slideId?:unknown;instruction?:unknown;variantId?:unknown},resume=false,force=false){
       if (state.session.phase !== 'ready') throw new AppError(409, 'スライドを作成してから修正してください。');
       const variant = this.variant(state, input.variantId);
       const slide = variant.deck.slides.find((slide) => slide.id === input.slideId);
@@ -452,7 +485,7 @@ export class SessionEngine {
       let pending=state.revision;
       if(resume&&pending?.base!==base)throw new AppError(409,'修正対象の資料が変更されました。現在のスライドへ指示を送り直してください。');
       if(!pending||pending.base!==base||pending.slideId!==slide.id||pending.variantId!==variant.id||pending.instruction!==instruction){pending={base,variantId:variant.id,slideId:slide.id,instruction,title:slide.title,failures:0,compact:false};state.revision=pending;}
-      if(pending.failures>=3)throw new AppError(429,'同じ修正の不備が繰り返されました。優先する条件を整理して再送してください。');
+      if(pending.failures>=3&&!force)throw new AppError(429,'同じ修正の不備が繰り返されました。優先する条件を整理して再送してください。');
       while(!pending.result){
         const warnings=[...state.session.warnings];
         try{
@@ -470,6 +503,7 @@ export class SessionEngine {
         }
       }
       if(!pending.fit)pending.fit={deck:improveTextFit({...variant.deck,slides:variant.deck.slides.map(s=>s.id===slide.id?pending.result!:s)}),batchSize:READING_BATCH_SIZE,singleFailures:0};
+      if(force)pending.fit.force=true;
       let fitted:DeckSpec;
       try{fitted=await this.fitText(state,pending.fit.deck,pending.fit);}
       catch(error){if(!repairReason(error)&&!(error instanceof AppError&&error.code==='CALL_LIMIT'))throw error;pending.failures++;return this.revisionRecovery(state,pending,'text-fit');}
@@ -487,7 +521,7 @@ export class SessionEngine {
       return state.session;
   }
   private revisionRecovery(state:SessionState,pending:RevisionDraft,stage:'content'|'text-fit'){
-    state.session.recovery={task:'revise',stage,slideId:pending.slideId,retryAvailable:pending.failures<3&&(pending.fit?.singleFailures??0)<2&&state.session.usage.calls<12,
+    state.session.recovery={task:'revise',stage,slideId:pending.slideId,retryAvailable:pending.failures<3&&(pending.fit?.singleFailures??0)<2&&state.session.usage.calls<SESSION_CALL_LIMIT,
       message:stage==='text-fit'?'修正する本文は保持していますが、文字量の調整を完了できませんでした。修正前のスライドを保持しています。保存した指示から調整だけを再開できます。':'修正指示を保持しています。検証が通る修正を作れなかったため、修正前のスライドはそのままです。優先条件を整理して再送することもできます。'};
     return state.session;
   }
@@ -570,7 +604,7 @@ export class SessionEngine {
           const slides=value.slides.map((s:unknown,i:number)=>validateSlide(s,targetIds[i]));
           if(slides.some((s:SlideSpec)=>(s.id==='slide-1')!==(s.layoutId==='cover')))throw new AppError(422,'表紙と本文の役割を変更できません。','INVALID_CONTENT');
           this.verifySources(state,slides);
-          const themeId=value.themeId?validateTheme(value.themeId):draft.themeId;
+          const themeId=knownTheme(value.themeId)?value.themeId:draft.themeId;
           draft.slides.push(...slides);if(draft.slides.length===slides.length)draft.themeId=themeId;
           if(draft.slides.length<outline.slides.length){this.prepareChatGeneration(state,outline);return state.session;}
           let deck=validateDeck({id:randomUUID(),title:outline.title,mode:outline.mode,themeId:draft.themeId,slides:draft.slides},outline);
@@ -1076,25 +1110,56 @@ export class SessionEngine {
     }
     deck.themeId=wanted&&wanted!=='auto'?wanted:outline.themeId??deck.themeId;delete deck.customTheme;
     // おまかせ in free design: the colours the AI chose while planning become this deck's theme.
-    if((!wanted||wanted==='auto')&&this.freeDesign(state)&&outline.palette){deck.aiTheme=paletteTheme(outline.palette,deck.typographyId??outline.typographyId);deck.themeId=AI_THEME_ID;}
+    if((!wanted||wanted==='auto')&&this.freeDesign(state)){
+      if(outline.palette){deck.aiTheme=paletteTheme(outline.palette,deck.typographyId??outline.typographyId);deck.themeId=AI_THEME_ID;}
+      else state.session.warnings.push(`AIが配色を返さなかったため、「${themes[deck.themeId]?.name??deck.themeId}」の配色で作成しました。テーマはあとから変更できます。`);
+    }
   }
   /** Style hints for the model. A company template is applied by the app, so the
    * model only learns its palette/fonts and keeps choosing a built-in theme id. */
   /** free (default): the AI designs every page with its own ability. Template layouts
    * remain only for the demo and when the user chooses them in settings. */
-  private freeDesign(state:SessionState){return state.settings.provider!=='demo'&&(state.settings.designMode??'free')==='free';}
-  private designOptions(state:SessionState,outline?:Outline){
+  private freeDesign(state:SessionState){return state.settings.provider!=='demo'&&(state.settings.designMode??'free')!=='template';}
+  /** HTML method (trial): an AI of a monthly plan writes the pages as HTML and the installed app's
+   * browser reads them. Elsewhere (browser version, local LLM, manual chat, content kept on this PC)
+   * the JSON method is used. */
+  private htmlFor(state:SessionState,run?:AiRun){
+    const settings=run?this.targetSettings(state,run.target):state.settings;
+    return this.freeDesign(state)&&state.settings.designMode==='html'&&!!this.options.htmlLayout&&settings.provider==='subscription'&&state.sendScope!=='design';
+  }
+  /** HTML method: each returned page's HTML is drawn in a browser and read back as the page's design. */
+  private async layoutPages(state:SessionState,outline:Outline,slides:unknown[],run?:AiRun){
+    const theme=this.designOptions(state,outline,run).theme!;
+    const pages=slides.filter((raw):raw is Record<string,any>=>!!raw&&typeof raw==='object'&&(raw as any).design===undefined);
+    for(const raw of pages)if(typeof raw.html!=='string')raw.htmlProblem='htmlがありません。各ページのhtmlに<section class="slide">…</section>を書いてください。';
+    const work=pages.filter(raw=>typeof raw.html==='string');
+    if(!work.length)return;
+    let results:HtmlPageLayout[];
+    try{results=await this.options.htmlLayout!(work.map(raw=>({id:String(raw.id),html:String(raw.html).slice(0,200_000)})),theme,{minTextSize:state.settings.mode==='reading'?MIN_TEXT_SIZE.reading:MIN_TEXT_SIZE.presentation});}
+    catch(error){throw new AppError(503,error instanceof Error?error.message:'HTMLを図形に変換できませんでした。','HTML_LAYOUT_UNAVAILABLE');}
+    work.forEach((raw,i)=>{
+      const result=results[i];delete raw.html;
+      if(!result||'error' in result){raw.htmlProblem=result?.error??'HTMLを読み取れませんでした。';return;}
+      raw.design={...(result.background?{background:result.background}:{}),elements:result.elements};
+      if(result.problems.length)raw.htmlProblem=result.problems.slice(0,3).join(' ');
+      else if(result.fitted)state.session.warnings.push(`「${typeof raw.title==='string'?raw.title.slice(0,40):raw.id}」は文字が下端に少しはみ出したため、文字を${Math.round(result.fitted*100)}%に縮めて収めました（AIは呼び出していません）。`);
+    });
+  }
+  private designOptions(state:SessionState,outline?:Outline,run?:AiRun){
     if(!this.freeDesign(state))return {};
+    const format=this.htmlFor(state,run)?'html' as const:'json' as const;
     const wanted=state.settings.themeId,template=wanted===TEMPLATE_THEME_ID?this.templateTheme(state):undefined;
     const typographyId=state.settings.typographyId&&state.settings.typographyId!=='auto'?state.settings.typographyId:outline?.typographyId;
     const themeId=wanted&&wanted!=='auto'&&wanted!==TEMPLATE_THEME_ID?wanted:outline?.themeId??state.draft?.themeId??this.preferredTheme;
     const ai=(!wanted||wanted==='auto')&&outline?.palette?paletteTheme(outline.palette,typographyId):undefined;
-    return {design:'free' as const,outputMode:state.settings.mode,theme:ai?ai:deckTheme(template?{themeId:TEMPLATE_THEME_ID,customTheme:template,typographyId}:{themeId,typographyId})};
+    return {design:'free' as const,format,editorial:state.settings.editorialGuide!==false,outputMode:state.settings.mode,theme:ai?ai:deckTheme(template?{themeId:TEMPLATE_THEME_ID,customTheme:template,typographyId}:{themeId,typographyId})};
   }
   private stylePreferences(state:SessionState){
     const template=state.settings.themeId===TEMPLATE_THEME_ID?(()=>{try{return this.projects.get(state.project.id).template;}catch{return undefined;}})():undefined;
-    return {slideCount:state.settings.slideCount??'auto',themeId:template?'auto':state.settings.themeId??'auto',typographyId:state.settings.typographyId??'auto',preferredTheme:this.preferredTheme,maxSlides:MAX_SLIDES,preferredDesign:this.designGuidance(state),
-      ...(template?{companyTemplate:{name:template.name,colors:template.colors,fonts:template.fonts,note:'配色・書体は会社テンプレートをアプリが適用します。themeIdは候補から雰囲気が近いものを選んでください。色の意味付けは項目の順序と名前で示します。'}}:{})};
+    // Free design sends no theme of the app's choosing; the AI picks its own colours and fonts.
+    const free=this.freeDesign(state);
+    return {slideCount:state.settings.slideCount??'auto',themeId:template?'auto':state.settings.themeId??'auto',typographyId:state.settings.typographyId??'auto',...(free?{}:{preferredTheme:this.preferredTheme}),maxSlides:MAX_SLIDES,preferredDesign:this.designGuidance(state),
+      ...(template?{companyTemplate:{name:template.name,colors:template.colors,fonts:template.fonts,note:free?'配色・書体は会社テンプレートをアプリが適用します。':'配色・書体は会社テンプレートをアプリが適用します。themeIdは候補から雰囲気が近いものを選んでください。色の意味付けは項目の順序と名前で示します。'}}:{})};
   }
 
   /** Citations with the extracted original text and an exact number check. */
@@ -1143,16 +1208,42 @@ export class SessionEngine {
     if(typeof state.settings.slideCount==='number'&&outline.slides.length!==state.settings.slideCount)throw new AppError(422,`指定は表紙込み${state.settings.slideCount}枚ですが、構成案は${outline.slides.length}枚です。枚数を合わせるよう指示してください。`,'SLIDE_COUNT_MISMATCH');
   }
 
+  /** Text that does not fit is resolved in this order: room and smaller type on this PC;
+   * for an AI-designed page, the AI lays that page out again with the same words; for a
+   * template page, the AI shortens the wording. When the user chose to finish anyway,
+   * type may become as small as half, still without cutting a word or calling an AI. */
   private async fitText(state:SessionState,deck:DeckSpec,memo?:FitDraft,run?:AiRun) {
     if(state.settings.provider==='demo'){assertTextFits(deck);return deck;}
-    let fitted=deck;
+    let fitted=improveTextFit(deck,!!memo?.force);
+    if(memo?.force){
+      const left=fitProblems(fitted);
+      if(left.length)throw new AppError(422,`${left.map(p=>fitted.slides.findIndex(s=>s.id===p.slideId)+1).join('・')}枚目は、文字を半分の大きさにしても枠に収まりません。そのページを修正（鉛筆ボタン）で直すか、構成で情報を分けてください。`,'TEXT_FIT_FORCED');
+      const pages=deck.slides.flatMap((s,i)=>JSON.stringify(s.design)!==JSON.stringify(fitted.slides[i].design)?[i+1]:[]);
+      if(pages.length)state.session.warnings.push(`${pages.join('・')}枚目は、文字を小さくして枠に収めました（最小で元の半分）。PowerPointで読みやすさを確認してください。`);
+      memo.deck=fitted;return fitted;
+    }
+    if(memo)memo.deck=fitted;
     while(true){
-      const problems=fitProblems(fitted).slice(0,memo?.batchSize??READING_BATCH_SIZE);
-      if(!problems.length)return fitted;
+      const all=fitProblems(fitted);
+      if(!all.length)return fitted;
+      const designed=all.find(p=>fitted.slides.find(s=>s.id===p.slideId)?.design);
+      if(designed){
+        const slide=fitted.slides.find(s=>s.id===designed.slideId)!;
+        try{fitted=await this.relayout(state,fitted,slide,designed.issues.map(i=>i.text),run);if(memo){memo.deck=fitted;memo.singleFailures=0;}}
+        catch(error){
+          if(memo&&repairReason(error))memo.singleFailures++;
+          if((memo?.singleFailures??0)<2&&this.tryRepair(state,'revise',error,`${slide.id}だけ、文章と数値を変えずに配置を直すよう再依頼します。`,run))continue;
+          throw error;
+        }
+        continue;
+      }
+      const problems=all.slice(0,memo?.batchSize??READING_BATCH_SIZE);
       try{
         const response=await this.complete(state,'summarize',{slides:problems},memo?.singleFailures?14000:Math.min(14000,3000+problems.length*2500),run);
-        const ids=problems.map(p=>p.slideId),next=applySummaries(fitted,response,ids);
-        if(fitProblems(next).some(p=>ids.includes(p.slideId)))throw new AppError(422,'要約後も文章が枠に収まりません。構成で情報を分けるか、短くする指示を追加してください。','TEXT_FIT_REQUIRED');
+        const ids=problems.map(p=>p.slideId),next=improveTextFit(applySummaries(fitted,response,ids));
+        // Progress is kept even when not every text is short enough yet.
+        const issues=(list:typeof all)=>list.filter(p=>ids.includes(p.slideId)).reduce((n,p)=>n+p.issues.length,0);
+        if(issues(fitProblems(next))>=issues(problems))throw new AppError(422,'要約後も文章が枠に収まりません。構成で情報を分けるか、短くする指示を追加してください。','TEXT_FIT_REQUIRED');
         fitted=next;if(memo){memo.deck=fitted;memo.singleFailures=0;}
       }catch(error){
         if(error instanceof OutputLimitError&&memo){memo.singleFailures=problems.length===1?memo.singleFailures+1:0;memo.batchSize=Math.max(1,Math.floor(problems.length/2));}
@@ -1162,6 +1253,38 @@ export class SessionEngine {
     }
   }
 
+  /** An AI-designed page whose text does not fit is laid out again by the AI with the
+   * same words, numbers, charts and tables; a reply that changes any of them is refused. */
+  private async relayout(state:SessionState,deck:DeckSpec,slide:SlideSpec,texts:string[],run?:AiRun):Promise<DeckSpec>{
+    const instruction=`この1枚では、次の文字が枠に収まりません：${texts.map(t=>`「${t.slice(0,40)}」`).join('、')}。文章・数値・グラフと表の内容は一字も変えずに、枠を広げる・文字を小さくする・配置を変えるなどして、すべての文字が枠に収まるデザインに直してください。`;
+    const raw:any=await this.complete(state,'revise',{outline:state.session.outline,targetSlide:slide,instruction,compactOutput:true},GENERATION_OUTPUT_TOKENS,run);
+    if(raw?.id!==slide.id)throw new AppError(422,'配置を直したページの識別子が一致しません。','INVALID_CONTENT');
+    const result=validateSlide(raw,slide.id);
+    if(!sameContent(slide,result))throw new AppError(422,`${slide.id}：配置の直しで文章や数値が変わりました。文章と数値は一字も変えず、枠と文字の大きさ・配置だけを直してください。`,'INVALID_CONTENT');
+    // The words were not to change, so the page keeps its own title, notes and sources.
+    const kept:SlideSpec={...result,title:slide.title,notes:slide.notes,sources:slide.sources,layoutId:slide.layoutId};
+    for(const e of kept.design?.elements??[])if(e.t==='text'&&e.refs){const refs=e.refs.filter(n=>n<=slide.sources.length);if(refs.length)e.refs=refs;else delete e.refs;}
+    const next=improveTextFit({...deck,slides:deck.slides.map(s=>s.id===slide.id?kept:s)});
+    if(fitProblems(next).some(p=>p.slideId===slide.id))throw new AppError(422,`${slide.id}：配置を直しても文字が枠に収まりません。枠を広げるか、文字を小さくしてください。`,'TEXT_FIT_REQUIRED');
+    return next;
+  }
+  /** The last step when text fitting stopped: text is set smaller (down to half) where it
+   * does not fit, so the finished pages are kept. Nothing is cut and no AI is called. */
+  async finishSmaller(id:string){
+    const state=this.state(id),recovery=state.session.recovery;
+    if(recovery?.task==='generate'&&recovery.stage==='text-fit')return this.generate(id,undefined,true);
+    if(recovery?.task==='revise'&&recovery.stage==='text-fit'&&state.revision)return this.lock(id,async s=>{const p=s.revision!;return this.performRevision(s,{slideId:p.slideId,variantId:p.variantId,instruction:p.instruction},true,true);},true,true);
+    if(state.chat?.task==='summarize'&&state.chat.summaryDeck)return this.lock(id,async s=>{
+      const pending=s.chat!,deck=improveTextFit(pending.summaryDeck!,true),left=fitProblems(deck);
+      if(left.length)throw new AppError(422,`${left.map(p=>deck.slides.findIndex(x=>x.id===p.slideId)+1).join('・')}枚目は、文字を半分の大きさにしても枠に収まりません。そのページを修正で直すか、構成で情報を分けてください。`,'TEXT_FIT_FORCED');
+      s.session.warnings.push('文字が収まらなかったページは、AIに要約を頼まず、文字を小さくして仕上げました。PowerPointで読みやすさを確認してください。');
+      await this.finishChatDeck(s,deck,pending);return s.session;
+    });
+    throw new AppError(409,'文字の調整で止まった作成・修正がありません。');
+  }
+  private operationCalls(state:SessionState){return state.session.usage.calls-(state.repairOperation?.startedCalls??0);}
+  /** Whether another AI call is allowed: 12 per operation (or per AI of the session), 40 per presentation. */
+  private callsLeft(state:SessionState,run?:AiRun){return (run?run.calls:this.operationCalls(state))<OPERATION_CALL_LIMIT&&state.session.usage.calls<SESSION_CALL_LIMIT;}
   async render(id: string, variantId: unknown) {
     return this.lock(id, async (state) => {
       const variant = this.variant(state, variantId);
@@ -1223,7 +1346,7 @@ export class SessionEngine {
   }
   private tryRepair(state:SessionState,task:ModelTask,error:unknown,adjustment:string,run?:AiRun){
     const reason=repairReason(error),operation=run?run.repair:state.repairOperation;
-    if(!reason||!operation||operation.remaining<=0||(run?run.calls:state.session.usage.calls)>=12||this.options.settings.get().autoRepair===false)return false;
+    if(!reason||!operation||operation.remaining<=0||!this.callsLeft(state,run)||this.options.settings.get().autoRepair===false)return false;
     // The app's own finding (which page and element, and what to change) goes with the retry, so the
     // same slip is not repeated. Quoted fragments of the model's text are left out.
     const code=(error as AppError).code,detail=['INVALID_CONTENT','INVALID_SOURCE','INVALID_QUOTE','TEXT_FIT_REQUIRED'].includes(code)?(error as AppError).message.replace(/^生成内容を確認できません: /,'').replace(/「[^」]*」/g,'（該当の文字）').slice(0,400):undefined;
@@ -1242,10 +1365,12 @@ export class SessionEngine {
     let failures=retry?(state.pendingPlan?.failures??0):0,compact=retry;
     let response:ReturnType<typeof validatePlanResponse>;
     while(true){
+      // After a failed attempt the retry asks for one outline only, which is shorter.
+      const proposals=!compact&&this.wantsProposals(state,needsInputBrief);
+      const previous=proposals&&state.session.proposals?{previousProposals:state.session.proposals.items.map(({direction,difference,typicality})=>({direction,difference,typicality}))}:{};
       try{
-        response=validatePlanResponse(await this.complete(state,'plan',{messages,currentOutline:state.session.outline,needsInputBrief,compactOutline:true,outputRetry:compact},compact?PLAN_RETRY_OUTPUT_TOKENS:PLAN_OUTPUT_TOKENS));
-        if(response.outline&&response.outline.mode!==state.settings.mode)throw new AppError(422,'構成案の表示モードが指定と異なります。','INVALID_CONTENT');
-        if(response.outline)this.checkSlideCount(state,response.outline);
+        response=validatePlanResponse(await this.complete(state,'plan',{messages,currentOutline:state.session.outline,...(proposals?{proposals:OUTLINE_PROPOSALS,...previous}:{}),needsInputBrief,compactOutline:true,outputRetry:compact},compact?PLAN_RETRY_OUTPUT_TOKENS:PLAN_OUTPUT_TOKENS),proposals?outline=>this.checkOutline(state,outline):undefined);
+        if(response.outline)this.checkOutline(state,response.outline);
         break;
       }catch(error){
         if(!repairReason(error)||(this.options.settings.get().autoRepair===false&&!(error instanceof OutputLimitError)))throw error;
@@ -1253,21 +1378,55 @@ export class SessionEngine {
         if(this.tryRepair(state,'plan',error,'指定の枚数と条件を保持し、回答枠20,000トークンで見出し・役割・短い要点だけの構成を再作成します。'))continue;
         state.pendingPlan={messages:structuredClone(messages),failures};
         state.session.messages=messages;state.session.phase='clarifying';
-        state.session.recovery={task:'plan',retryAvailable:failures<2&&state.session.usage.calls<12,message:failures<2?'構成案を完了できませんでした。指示・資料・利用量を保持しています。回答枠を広げて、見出しと要点だけの構成を再試行できます。':'構成案の不備が繰り返されました。指示と資料は保持しています。プロンプト欄で優先する条件を整理してから送信してください。'};
+        state.session.recovery={task:'plan',retryAvailable:failures<2&&state.session.usage.calls<SESSION_CALL_LIMIT,message:failures<2?'構成案を完了できませんでした。指示・資料・利用量を保持しています。回答枠を広げて、見出しと要点だけの構成を再試行できます。':'構成案の不備が繰り返されました。指示と資料は保持しています。プロンプト欄で優先する条件を整理してから送信してください。'};
         return;
       }
     }
     delete state.pendingPlan;delete state.session.recovery;delete state.draft;delete state.revision;
     state.session.messages = messages;
+    const offered=response.proposals;
+    if(offered?.problems.length)state.session.warnings.push(`AIが出した構成案のうち${offered.problems.length}案は、条件（枚数・表示モードなど）に合わないため外しました。`);
     if (response.question) {
       state.session.phase = 'clarifying';
       state.session.messages.push({ role: 'assistant', text: response.question });
+    } else if(offered&&offered.items.length>1){
+      // The user picks one direction (chooseProposal) before the outline is reviewed.
+      state.session.proposals={items:offered.items,candidates:offered.candidates};
+      state.session.phase='clarifying';
+      state.session.messages.push({role:'assistant',text:`方向の違う構成案を${offered.items.length}つ用意しました。進める案を1つ選んでください。別の方向がよい場合は、同じ入力欄から指示できます。`});
     } else {
-      state.session.outline = response.outline;
-      if(needsInputBrief&&!response.outline?.inputBrief)state.session.warnings.push('長文の確認用条件が返されませんでした。原文を省略せずに生成へ送ります。入力量が多い場合は条件を整理するよう指示してください。');
+      const outline=response.outline??offered!.items[0].outline;
+      if(offered)state.session.warnings.push('条件に合う構成案が1つだけだったため、その案で進めます。');
+      state.session.outline = outline;
+      if(needsInputBrief&&!outline.inputBrief)state.session.warnings.push('長文の確認用条件が返されませんでした。原文を省略せずに生成へ送ります。入力量が多い場合は条件を整理するよう指示してください。');
       state.session.phase = 'outline';
       state.session.messages.push({ role: 'assistant', text: '構成案を用意しました。見出しと説明の順番を確認してください。変更は同じ入力欄から指示できます。' });
     }
+  }
+  /** The first outline of an AI-designed deck made through a monthly plan comes as several
+   * directions, each with the AI's own estimate of how typical it is, and the user picks one.
+   * Later changes to the chosen outline, long instructions (inputBrief) and template designs
+   * keep the single outline. */
+  private wantsProposals(state:SessionState,needsInputBrief:boolean){
+    return state.settings.outlineProposals!==false&&this.freeDesign(state)&&state.settings.provider==='subscription'&&!state.session.outline&&!needsInputBrief;
+  }
+  private checkOutline(state:SessionState,outline:Outline){
+    if(outline.mode!==state.settings.mode)throw new AppError(422,'構成案の表示モードが指定と異なります。','INVALID_CONTENT');
+    this.checkSlideCount(state,outline);
+  }
+  /** Makes one of the offered directions the outline. Allowed until slides are made. */
+  async chooseProposal(id:string,index:unknown){
+    return this.lock(id,async state=>{
+      const offered=state.session.proposals;
+      if(!offered||typeof index!=='number'||!Number.isInteger(index)||index<0||index>=offered.items.length)throw new AppError(400,'構成案を一覧から選んでください。');
+      if(state.session.variants.length)throw new AppError(409,'スライドを作成した後は、構成案を選び直せません。新しく作成してください。');
+      const proposal=offered.items[index];
+      state.session.outline=structuredClone(proposal.outline);offered.chosen=index;
+      delete state.session.recovery;delete state.draft;delete state.pendingPlan;
+      state.session.phase='outline';
+      state.session.messages.push({role:'assistant',text:`「${proposal.direction}」の案で進めます。見出しと説明の順番を確認してください。変更は同じ入力欄から指示できます。`});
+      return state.session;
+    },false);
   }
   /** The settings of one AI chosen for this session. */
   private targetSettings(state:SessionState,target:AiTarget):Settings{return settingsFor(state.settings,target);}
@@ -1293,8 +1452,8 @@ export class SessionEngine {
     if(settings.provider==='chat')throw new AppError(409,'月額版との連携は、画面の指示をコピーして返答を取り込んでください。','CHAT_HANDOFF_REQUIRED');
     this.checkDestination(state,settings,!!run);
     if(state.session.cloudConsentRequired)throw new AppError(400,`履歴の指示・資料・会話を${state.settings.subscriptionService==='claude'?'Claude':'ChatGPT'}へ送ることを確認してください。`,'CLOUD_CONSENT_REQUIRED');
-    // Each AI of the session has its own budget of 12 calls.
-    if ((run?run.calls:state.session.usage.calls) >= 12) throw new AppError(429, '1つの作業につきLLM呼び出しは12回までです。要点をまとめて新しく作成してください。','CALL_LIMIT');
+    // 12 calls per operation (each AI of the session has its own), 40 per presentation.
+    if (!this.callsLeft(state,run)) throw new AppError(429, state.session.usage.calls>=SESSION_CALL_LIMIT?`1つの資料でのAI呼び出しは${SESSION_CALL_LIMIT}回までです。履歴に保存して、新しく作成してください。`:`1回の操作でのAI呼び出しは${OPERATION_CALL_LIMIT}回までです。要点をまとめて指示し直してください。`,'CALL_LIMIT');
     const provider = (this.options.providerFactory ?? createProvider)(settings, this.options.settings.secret(settings.provider));
     state.session.usage.calls++;if(run)run.calls++;
     try {
@@ -1304,7 +1463,7 @@ export class SessionEngine {
       if(task==='generate'&&request.outline?.inputBrief){request.confirmedInstructions=request.outline.inputBrief;delete request.messages;}
       const selected=task==='generate'?request.targetSlides?.map((s:any)=>s.layoutId):task==='revise'?[request.targetSlide?.layoutId]:undefined;
       const masker=settings.provider==='subscription'?this.masking(state):undefined,protect=<T,>(value:T)=>masker?masker.maskDeep(value):value;
-      const response = await provider.complete({ system: systemPrompt(task,selected?candidateLayoutIds(selected):undefined,this.designOptions(state,request.outline))+(masker?'\n\n## 伏せ字について\nこのメッセージの資料・指示・会話では、社名・指定された語・連絡先・数値を【社名1】【語1】【連絡先1】【数値1】のような伏せ字にしています。伏せ字は、そのままの形で文章・見出し・出典の引用に使い、分解・計算・推測をしません。グラフの値には、資料にある数値の伏せ字（【数値n】の形）を文字列のまま書きます。アプリがこのPCで元の語と数値に戻します。':''), content: JSON.stringify(protect({ mode: state.settings.mode, projectContext:{audience:state.project.audience,designAndWritingGuidance:state.project.guidance}, preferences:{...this.stylePreferences(state),...(task==='plan'&&!this.freeDesign(state)?{recentLayouts:this.recentLayouts.slice(-40),variationSeed:state.session.id}: {})}, documents: task==='summarize'?[]:documentContext(task==='generate'?this.batchDocuments(state,request.targetSlides):state.documents), request })), maxTokens });
+      const response = await provider.complete({ system: systemPrompt(task,selected?candidateLayoutIds(selected):undefined,{...this.designOptions(state,request.outline,run),...(task==='plan'&&request.proposals?{proposals:request.proposals}:{})})+(masker?'\n\n## 伏せ字について\nこのメッセージの資料・指示・会話では、社名・指定された語・連絡先・数値を【社名1】【語1】【連絡先1】【数値1】のような伏せ字にしています。伏せ字は、そのままの形で文章・見出し・出典の引用に使い、分解・計算・推測をしません。グラフの値には、資料にある数値の伏せ字（【数値n】の形）を文字列のまま書きます。アプリがこのPCで元の語と数値に戻します。':''), content: JSON.stringify(protect({ mode: state.settings.mode, projectContext:{audience:state.project.audience,designAndWritingGuidance:state.project.guidance}, preferences:{...this.stylePreferences(state),...(task==='plan'&&!this.freeDesign(state)?{recentLayouts:this.recentLayouts.slice(-40),variationSeed:state.session.id}: {})}, documents: task==='summarize'?[]:documentContext(task==='generate'?this.batchDocuments(state,request.targetSlides):state.documents), request })), maxTokens });
       this.addUsage(state.session.usage, response.usage);
       return this.unmask(state,parseJsonResponse(response.text));
     } catch (error) {

@@ -83,7 +83,9 @@ test('clearing an explicit preference keeps the favorite, and deleting a selecte
   const f=await fixture();try{
     const session=await demoReady(f),design=await f.engine.saveDesign(session.id,{});await f.settings.update({provider:'chat',preferredDesignId:design.id});
     await f.settings.update({preferredDesignId:''});assert.equal(f.settings.get().preferredDesignId,undefined);assert.equal((await f.engine.listDesigns()).entries.length,1);
-    const automatic=await f.engine.create({prompt:'投票に基づく候補'},[]);assert.equal(packet(automatic).preferences.preferredDesign.explicit,false);
+    // In AI-led (free) design a favorite the user did not choose is not sent; with layout templates the most voted one is a hint.
+    const automatic=await f.engine.create({prompt:'投票に基づく候補'},[]);assert.equal(packet(automatic).preferences.preferredDesign,undefined);
+    await f.settings.update({designMode:'template'});const voted=await f.engine.create({prompt:'投票に基づく候補'},[]);assert.equal(packet(voted).preferences.preferredDesign.explicit,false);await f.settings.update({designMode:'free'});
     await f.settings.update({preferredDesignId:design.id});await f.engine.removeDesign(design.id);assert.equal(f.settings.get().preferredDesignId,undefined);assert.equal((await new SettingsStore(f.dir,'').load()).get().preferredDesignId,undefined);assert.equal((await f.engine.listDesigns()).entries.length,0);
     const plain=await f.engine.create({prompt:'通常の候補'},[]);assert.equal(packet(plain).preferences.preferredDesign,undefined);assert.equal(f.factories(),0);
   }finally{await f.dispose();}

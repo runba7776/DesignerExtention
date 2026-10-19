@@ -88,11 +88,12 @@ test('automatic source correction retains already valid batches and only accepts
     const engine=new SessionEngine({settings:f.settings,dataDir:f.dir,render,providerFactory:()=>({complete:async r=>{
       calls.push(r);const req=JSON.parse(r.content).request;if(!req.targetSlides)return reply({kind:'outline',outline:f.outline});
       generated++;starts.push(req.targetSlides[0].id);const slides=req.targetSlides.map((s:any)=>structuredClone(f.deck.slides.find(d=>d.id===s.id)!));
+      for(const slide of slides)slide.sources=[{documentId:document.id,locator:document.sources[0].locator,quote:'売上12億円。'}];
       if(generated===2)slides[0].sources=[{documentId:document.id,locator:'PRIVATE_FAKE_LOCATOR'}];
-      else for(const slide of slides)slide.sources=[{documentId:document.id,locator:document.sources[0].locator,quote:'売上12億円。'}];
       return reply({...f.deck,slides});
     }})});
-    const session=await engine.create({prompt:'同じ期間の数字を説明'},[document]);await engine.generate(session.id);assert.equal(session.phase,'ready');assert.equal(session.repairReport?.retries,1);assert.equal(session.repairReport?.steps[0].reason,'資料にない出典位置');assert.deepEqual(starts,['slide-1','slide-5','slide-5','slide-7']);assert.ok(calls.every(r=>!r.content.includes('PRIVATE_FAKE_LOCATOR')));assert.equal(session.variants[0].deck.slides.length,9);assert.ok(session.variants[0].deck.slides.every(s=>s.sources[0].locator===document.sources[0].locator));
+    const session=await engine.create({prompt:'同じ期間の数字を説明'},[document]);await engine.generate(session.id);assert.equal(session.phase,'ready');assert.equal(session.repairReport?.retries,1);assert.equal(session.repairReport?.steps[0].reason,'資料にない出典位置');// The valid pages after the rejected slide-5 in the same reply are kept: only slide-5 is asked again.
+    assert.deepEqual(starts,['slide-1','slide-5','slide-5','slide-9']);assert.ok(calls.every(r=>!r.content.includes('PRIVATE_FAKE_LOCATOR')));assert.equal(session.variants[0].deck.slides.length,9);assert.ok(session.variants[0].deck.slides.every(s=>s.sources[0].locator===document.sources[0].locator));
   }finally{await f.dispose();}
 });
 
@@ -140,8 +141,9 @@ test('automatic repair can be disabled for an active session, and saved instruct
 
 test('automatic retries respect total usage cap, provider changes and consent guards',async()=>{
   const f=await fixture();try{
-    let revisions=0;const {engine,session}=await ready(f,async()=>{revisions++;throw limit();});session.usage.calls=11;
-    await engine.revise(session.id,{slideId:'slide-2',instruction:'費用上限の検証'});assert.equal(revisions,1);assert.equal(session.usage.calls,12);assert.equal(session.recovery?.retryAvailable,false);assert.equal(session.repairReport,undefined);
+    // 40 calls per presentation: the last one is used, then nothing more is sent.
+    let revisions=0;const {engine,session}=await ready(f,async()=>{revisions++;throw limit();});session.usage.calls=39;
+    await engine.revise(session.id,{slideId:'slide-2',instruction:'費用上限の検証'});assert.equal(revisions,1);assert.equal(session.usage.calls,40);assert.equal(session.recovery?.retryAvailable,false);assert.equal(session.repairReport,undefined);
     await f.settings.update({provider:'chat'});const before=revisions;await assert.rejects(engine.revise(session.id,{slideId:'slide-2',instruction:'処理先を確認'}),/処理先が変更/);assert.equal(revisions,before);
     await f.settings.update({provider:'local',designMode:'template',model:'mock'});const restored=await engine.restoreHistory(session.historyId!);restored.session.cloudConsentRequired=true;await assert.rejects(engine.revise(restored.session.id,{slideId:'slide-2',instruction:'送信同意が必要'}),/送ることを確認/);assert.equal(revisions,before);
   }finally{await f.dispose();}

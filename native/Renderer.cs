@@ -243,6 +243,23 @@ namespace DesignerExtension.Native
             string align = Text(e, "align", "left");
             range.ParagraphFormat.Alignment = align == "center" ? 2 : align == "right" ? 3 : 1;
             range.ParagraphFormat.SpaceAfter = Number(e, "paragraphSpacing", 0);
+            // Parts of the text with their own colour or weight (from an HTML page).
+            foreach (object item in ArrayOf(e, "runs"))
+            {
+                var run = item as Dictionary<string, object>;
+                if (run == null) continue;
+                int start = (int)Number(run, "start"), length = (int)Number(run, "length");
+                if (length <= 0) continue;
+                try
+                {
+                    dynamic part = range.Characters(start + 1, length);
+                    if (run.ContainsKey("color")) part.Font.Fill.ForeColor.RGB = Color(Text(run, "color", null), Foreground);
+                    if (run.ContainsKey("bold")) part.Font.Bold = Boolean(run, "bold") ? -1 : 0;
+                    if (run.ContainsKey("italic")) part.Font.Italic = Boolean(run, "italic") ? -1 : 0;
+                    Release((object)part);
+                }
+                catch { }
+            }
             // Fixed line pitch (points between baselines) for text laid out by a browser.
             if (e.ContainsKey("lineHeight")) { range.ParagraphFormat.LineRuleWithin = 0; range.ParagraphFormat.SpaceWithin = Number(e, "lineHeight", 0); }
             // Browser-measured text keeps its lines; only report if PowerPoint sets it wider.
@@ -258,7 +275,11 @@ namespace DesignerExtension.Native
             if (InstalledFonts.Contains(requested)) resolved=requested;
             else
             {
-                resolved=InstalledFonts.Contains(fallback)?fallback:InstalledFonts.Contains("Yu Gothic")?"Yu Gothic":InstalledFonts.Contains("Meiryo")?"Meiryo":"Arial";
+                // A missing serif (明朝・Serif) falls back to an installed 明朝, anything else to the deck font.
+                resolved=null;
+                if (System.Text.RegularExpressions.Regex.IsMatch(requested, "Mincho|明朝|Serif|セリフ|Times|Georgia|Garamond", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                    foreach (string serif in new[] { "Yu Mincho", "BIZ UDPMincho", "MS PMincho" }) if (InstalledFonts.Contains(serif)) { resolved = serif; break; }
+                if (resolved == null) resolved=InstalledFonts.Contains(fallback)?fallback:InstalledFonts.Contains("Yu Gothic")?"Yu Gothic":InstalledFonts.Contains("Meiryo")?"Meiryo":"Arial";
                 Warnings.Add("書体「"+requested+"」がこのPCにないため「"+resolved+"」で描画しました。");
             }
             ResolvedFonts[requested]=resolved;
@@ -381,11 +402,11 @@ namespace DesignerExtension.Native
                 Stage = "スライド " + slideNumber + " のグラフデータ配列の準備";
                 var values = new object[categories.Length + 1, series.Length + 1];
                 values[0, 0] = "項目";
-                for (int row = 0; row < categories.Length; row++) values[row + 1, 0] = ExcelText(Convert.ToString(categories[row]));
+                for (int row = 0; row < categories.Length; row++) values[row + 1, 0] = CellText(Convert.ToString(categories[row]));
                 for (int col = 0; col < series.Length; col++)
                 {
                     var s = AsObject(series[col]);
-                    values[0, col + 1] = ExcelText(Text(s, "name", "系列 " + (col + 1)));
+                    values[0, col + 1] = CellText(Text(s, "name", "系列 " + (col + 1)));
                     object[] numbers = ArrayOf(s, "values");
                     if (numbers.Length != categories.Length) throw new InvalidDataException("グラフのラベルと値の件数が一致しません。");
                     for (int row = 0; row < numbers.Length; row++)
@@ -406,6 +427,22 @@ namespace DesignerExtension.Native
                 try { dataRange.Value2 = values; } finally { Release((object)dataRange); }
                 Stage = "スライド " + slideNumber + " のグラフ範囲の指定";
                 chart.SetSourceData("'" + ((string)sheet.Name).Replace("'", "''") + "'!" + range, 2);
+                // Excel reads labels that look like numbers or dates ("3", "2024") as one more series. Only for
+                // such labels, bind each series to its name, values and the label column explicitly; the usual
+                // path is left exactly as Excel built it.
+                bool numberLikeLabels = false;
+                foreach (object category in categories) if (CellText(Convert.ToString(category)) != Convert.ToString(category)) numberLikeLabels = true;
+                if (numberLikeLabels)
+                {
+                    Stage = "スライド " + slideNumber + " のグラフ系列の指定";
+                    string sheetRef = "='" + ((string)sheet.Name).Replace("'", "''") + "'!";
+                    dynamic collection = chart.SeriesCollection();
+                    // Drop only the series Excel made from the label column, then point the remaining
+                    // series (each already bound to its name and values) at the label column.
+                    while ((int)collection.Count > series.Length) collection.Item(1).Delete();
+                    string last = (categories.Length + 1).ToString(CultureInfo.InvariantCulture);
+                    for (int col = 1; col <= series.Length; col++) { dynamic existing = collection.Item(col); existing.XValues = sheetRef + "$A$2:$A$" + last; }
+                }
                 // Cell references and saved caches are synchronized after Excel has
                 // committed; avoid separately rebinding live embedded series here.
                 Stage = "スライド " + slideNumber + " のグラフ書式設定";
@@ -611,12 +648,6 @@ namespace DesignerExtension.Native
             if (!found && text.Length > 0) { dynamic box = slide.NotesPage.Shapes.AddTextbox(1, 36, 320, 640, 260); box.TextFrame.TextRange.Text = text; Release(box); }
         }
 
-        private static string ExcelText(string text)
-        {
-            // Data labels must stay data even when supplied by a spreadsheet or LLM.
-            if (text.Length > 0 && "=+-@\t\r".IndexOf(text[0]) >= 0) return "'" + text;
-            return text;
-        }
         private static int LabelInk(int officeColor) {
             // Office stores RGB in BGR order; choose white/dark by relative luminance.
             double[] channels = { (officeColor & 255) / 255.0, ((officeColor >> 8) & 255) / 255.0, ((officeColor >> 16) & 255) / 255.0 };
@@ -627,6 +658,14 @@ namespace DesignerExtension.Native
         private static string Short(string text) { return text.Length > 28 ? text.Substring(0, 28) + "…" : text; }
         private static Dictionary<string, object> AsObject(object value) { return value as Dictionary<string, object> ?? new Dictionary<string, object>(); }
         private static Dictionary<string, object> ObjectOf(Dictionary<string, object> d, string key) { object v; return d.TryGetValue(key, out v) ? AsObject(v) : new Dictionary<string, object>(); }
+        /// <summary>A chart label or series name as a text cell. Formula-like text, and text that Excel
+        /// would turn into a number or date ("3", "2024", "1/2"), gets Excel's text marker (a leading
+        /// apostrophe, which is not part of the value).</summary>
+        private static string CellText(string text)
+        {
+            if (text.Length > 0 && ("=+-@\t\r".IndexOf(text[0]) >= 0 || System.Text.RegularExpressions.Regex.IsMatch(text, @"^\s*[+\-−]?[\d,.]+\s*%?\s*$|^\s*\d{1,4}\s*[/\-.]\s*\d{1,2}(\s*[/\-.]\s*\d{1,4})?\s*$"))) return "'" + text;
+            return text;
+        }
         private static object[] ArrayOf(Dictionary<string, object> d, string key)
         {
             object v; if (!d.TryGetValue(key, out v) || v == null) return new object[0];

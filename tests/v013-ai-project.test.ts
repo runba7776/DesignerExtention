@@ -21,14 +21,14 @@ async function fixture(count=4){
   return {dir,settings,engine,outline,deck,response,dispose:()=>rm(dir,{recursive:true,force:true})};
 }
 
-test('AI kit: reference lists only (icons, charts, themes, fonts), no layouts, and a stable version',()=>{
+test('AI kit: the icon list only (no themes, fonts, chart advice or layouts) and a stable version',()=>{
   const kit=aiKit();
   assert.match(kit.version,/^[0-9a-f]{8}$/);assert.equal(aiKitVersion(),kit.version);
   assert.match(kit.instructions,new RegExp(`${kit.fileName}.*版 ${kit.version}`));assert.ok(kit.instructions.length<1500,'fits a project instruction field');
   assert.match(kit.instructions,/デザイン（構図・図形・色・文字の大きさ・配置）はあなたに任せます/);
   for(const layout of listLayouts())assert.ok(!kit.catalog.includes(`"id":"${layout.id}"`),`no layout ${layout.id}`);
   assert.doesNotMatch(kit.catalog,/textBudget|maxItems|"placement"|panelStyle/);
-  assert.match(kit.catalog,/"coins"/);assert.match(kit.catalog,/waterfall/);assert.match(kit.catalog,/BIZ UDPGothic|accessible/);
+  assert.match(kit.catalog,/"coins"/);assert.doesNotMatch(kit.catalog,/waterfall|BIZ UDPGothic|accessible|"paper"|項目名が長い/);
 });
 
 test('project prompts are shorter for AI-designed slides; template prompts are always complete',()=>{

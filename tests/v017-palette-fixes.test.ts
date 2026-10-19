@@ -45,7 +45,7 @@ test('with おまかせ the deck is coloured with the palette the AI chose; it c
         {id:'slide-2',title:'本文',layoutId:'free',notes:'',sources:[],design:{elements:[t(56,28,848,52,'本文',28,'title',{color:'accent'})]}}]}),usage};
     }})});
     const session=await engine.create({prompt:'2枚で'},[]);
-    assert.match(systems[0],/outline\.paletteに書きます/);
+    assert.match(systems[0],/outline\.paletteに必ず書きます/);
     await engine.generate(session.id);
     assert.match(systems[1],/accent=#E4002B/,'the pages are designed with the AI colours as names');
     const deck=session.variants[0].deck;assert.equal(deck.themeId,AI_THEME_ID);assert.equal(deck.aiTheme!.background,'#14161C');

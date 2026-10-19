@@ -2,6 +2,7 @@ import type {ChartSpec,FreeDesign,FreeElement,LineElement,Rect,SlideSpec,TableSp
 import type {LayoutContext} from './layouts';
 import {contrast,luminance,mixColor,negativeColor,panelFill,readableColor,ruleColor} from './color';
 import {iconElements} from './icons';
+import {fontFor,resolveFont} from './typography';
 
 /** Slides the AI designs itself. The AI decides every position, shape and colour;
  * the app only resolves theme colours, keeps text readable on what is under it,
@@ -77,8 +78,13 @@ export function drawDesign(c:LayoutContext,design:FreeDesign,helpers:Helpers){
     else if(e.t==='table')helpers.table(c,{headers:e.headers,rows:e.rows},{x:e.x,y:e.y,w:e.w,h:e.h},e.size);
     else if(e.t==='svg')c.scene.elements.push({kind:'image',x:e.x,y:e.y,w:e.w,h:e.h,svg:e.svg});
     else if(e.t==='text'&&e.exact){
-      // Text measured by a browser: lines and positions are already final.
-      c.scene.elements.push({kind:'text',x:e.x,y:e.y,w:e.w,h:e.h,text:e.text,fontSize:e.size,color:resolveColor(theme,e.color,theme.foreground),bold:!!e.bold,...(e.italic?{italic:true}:{}),align:e.align==='c'?'center':e.align==='r'?'right':'left',noWrap:true,exact:true,...(e.lh?{lineHeight:e.lh}:{}),role:roles[e.role??'body'],font:e.role==='number'?theme.numberFont??theme.font:e.role==='title'||e.role==='heading'?theme.headingFont??theme.font:theme.font,fontFarEast:e.role==='title'||e.role==='heading'?theme.headingFont??theme.font:theme.font});
+      // Text measured by a browser: lines and positions are already final. It uses the
+      // deck's font for its role (the browser drew it with the same font) and a readable colour.
+      const ground=under(e.x+e.w/2,e.y+Math.min(e.h,e.size*1.4)/2);
+      let color=resolveColor(theme,e.color,theme.foreground);
+      if(color==='none'||contrast(color,ground)<(e.size>=24?3:4.5))color=readableColor(color==='none'?theme.foreground:color,ground);
+      const length=e.text.length,runs=(e.runs??[]).filter(run=>run.s+run.l<=length).map(run=>({start:run.s,length:run.l,...(run.color?{color:resolveColor(theme,run.color,color)}:{}),...(run.bold!==undefined?{bold:run.bold}:{}),...(run.italic!==undefined?{italic:run.italic}:{})}));
+      c.scene.elements.push({kind:'text',x:e.x,y:e.y,w:e.w,h:e.h,text:e.text,fontSize:e.size,color,...fontFor(theme,roles[e.role??'body']),...(e.font?{font:e.font,fontFarEast:e.fontFarEast??e.font}:{}),...(runs.length?{runs}:{}),bold:!!e.bold,...(e.italic?{italic:true}:{}),align:e.align==='c'?'center':e.align==='r'?'right':'left',noWrap:true,exact:true,...(e.lh?{lineHeight:e.lh}:{}),role:roles[e.role??'body'],font:e.role==='number'?theme.numberFont??theme.font:e.role==='title'||e.role==='heading'?theme.headingFont??theme.font:theme.font,fontFarEast:e.role==='title'||e.role==='heading'?theme.headingFont??theme.font:theme.font});
     }
     else if(e.t==='text'){
       const ground=under(e.x+e.w/2,e.y+Math.min(e.h,e.size*1.4)/2);
@@ -89,7 +95,9 @@ export function drawDesign(c:LayoutContext,design:FreeDesign,helpers:Helpers){
       const count=c.scene.elements.length;
       c.text(text,box,e.size,color,e.bold??(e.role==='title'||e.role==='heading'||e.role==='number'),e.align==='c'?'center':e.align==='r'?'right':'left',roles[e.role??'body']);
       const added=c.scene.elements[count];
-      if(added?.kind==='text'){if(e.va&&e.va!=='t')added.verticalAlign=e.va==='m'?'middle':'bottom';if(e.italic)added.italic=true;}
+      if(added?.kind==='text'){if(e.va&&e.va!=='t')added.verticalAlign=e.va==='m'?'middle':'bottom';if(e.italic)added.italic=true;
+        // A font the AI chose for this text; one the PC may not have becomes the nearest standard font.
+        if(e.font){added.font=resolveFont(e.font,added.font??theme.font);added.fontFarEast=resolveFont(e.fontFarEast??e.font,added.fontFarEast??theme.font);}}
     }
   }
 }

@@ -117,7 +117,7 @@ test('text-fit interruption keeps completed summary batches and never regenerate
   }finally{await rm(dir,{recursive:true,force:true});}
 });
 
-test('adaptive generation respects the twelve-call cost cap and retains progress',async()=>{
+test('adaptive generation respects the call caps (12 per operation, 40 per presentation) and retains progress',async()=>{
   const dir=await mkdtemp(path.join(tmpdir(),'de-generation-cap-'));
   try{
     const settings=await settingsFor(dir,30),outline=demoOutline('30枚','reading',[],30),deck=demoDeck(outline);let calls=0,failures=0;
@@ -127,8 +127,12 @@ test('adaptive generation respects the twelve-call cost cap and retains progress
       return {text:JSON.stringify({...deck,slides:req.targetSlides.map((s:any)=>deck.slides.find(d=>d.id===s.id))}),usage};
     }})});
     const session=await engine.create({prompt:'30枚'},[]);await engine.generate(session.id);await engine.generate(session.id);await engine.generate(session.id);
-    assert.equal(calls,12);assert.equal(session.usage.calls,12);assert.equal(session.recovery?.retryAvailable,false);assert.equal(session.recovery?.completedSlides,9);assert.equal(session.outline?.slides.length,30);assert.equal(session.variants.length,0);
-    await assert.rejects(engine.generate(session.id));assert.equal(calls,12);
+    // Two failed operations, then one operation stops at its own 12 calls with progress kept.
+    assert.equal(calls,15);assert.equal(session.recovery?.completedSlides,12);assert.equal(session.recovery?.retryAvailable,true);assert.equal(session.variants.length,0);
+    // Near the presentation's 40 calls, one more page is written and then nothing more is sent.
+    session.usage.calls=39;await engine.generate(session.id);
+    assert.equal(calls,16);assert.equal(session.recovery?.completedSlides,13);assert.equal(session.recovery?.retryAvailable,false);assert.equal(session.outline?.slides.length,30);
+    await assert.rejects(engine.generate(session.id));assert.equal(calls,16);
   }finally{await rm(dir,{recursive:true,force:true});}
 });
 

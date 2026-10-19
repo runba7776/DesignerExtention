@@ -11,7 +11,7 @@ import {chartColors,chartGridColor,isShareChart,isStackedChart} from './charts';
 import {withTypography,fontFor} from './typography';
 import {itemColor,panelFill,negativeColor,ruleColor,mixColor,contrast,readableColor} from './color';
 import {chartNumber} from './charts';
-import {drawDesign,designTexts,footerInk,FREE_LAYOUT_ID} from './free-design';
+import {drawDesign,footerInk,FREE_LAYOUT_ID} from './free-design';
 import { legacyGuidance, groupCautions, type LayoutGroup, type ResearchSource } from './layout-guidance';
 import {TEMPLATE_THEME_ID} from './themes';
 import {AI_THEME_ID} from './ai-theme';
@@ -53,13 +53,15 @@ export function textUnits(text:string){return Array.from(text).reduce((sum,char)
 // line never breaks inside 営業利益 or 前年同期比.
 const tokenPattern=/[+−△▲-]?\d+(?:[,.]\d+)*(?:(?:兆|億|万|千)\d+(?:[,.]\d+)*)*(?:兆|億|万|千)?(?:円|ドル|点|%|％|倍|人|社|件|年|月|日|時間|分|秒)?|[A-Za-z]+(?:[-_][A-Za-z0-9]+)*|[\p{Script=Han}\p{Script=Katakana}ー々〆ヶ]+|\p{Script=Hiragana}+|./gu;
 const lineStartForbidden=/^[、。，．・：；！？!?,.)）」』〉》】〕％%⁰¹²³⁴⁵⁶⁷⁸⁹˒]/u, lineEndForbidden=/[（「『〈《【〔(]$/u, joiner=/^[〜～]$/u;
+/** A short calculation (101×50, 1+100=101) is kept on one line. */
+const operator=/^[×÷＋+＝=≠−]$/u,inExpression=(previous:string,token:string)=>(operator.test(token)&&/\d$/u.test(previous))||(/^\d/u.test(token)&&/[×÷＋+＝=≠−]$/u.test(previous));
 /** Indivisible parts of a phrase: a word, a number with its unit, or a run of
  * kana (して, から) kept whole; 第1四半期 stays one part. */
 function wordAtoms(phrase:string){
   const atoms:string[]=[];
   for(const atom of phrase.match(/[+−△▲-]?\d+(?:[,.]\d+)*(?:(?:兆|億|万|千)\d+(?:[,.]\d+)*)*(?:兆|億|万|千)?(?:円|ドル|点|%|％|倍|人|社|件|年|月|日|時間|分|秒)?|[A-Za-z]+(?:[-_][A-Za-z0-9]+)*|[\p{Script=Han}\p{Script=Katakana}ー々〆ヶ]+|\p{Script=Hiragana}+|./gu)??[]){
     const previous=atoms[atoms.length-1];
-    if(previous!==undefined&&(lineStartForbidden.test(atom)||lineEndForbidden.test(previous)||(/^\d/u.test(atom)&&/[第約]$/u.test(previous))||(/^\p{Script=Han}/u.test(atom)&&/^第\d+$/u.test(previous))))atoms[atoms.length-1]=previous+atom;else atoms.push(atom);
+    if(previous!==undefined&&(lineStartForbidden.test(atom)||lineEndForbidden.test(previous)||inExpression(previous,atom)||(/^\d/u.test(atom)&&/[第約]$/u.test(previous))||(/^\p{Script=Han}/u.test(atom)&&/\d$/u.test(previous))))atoms[atoms.length-1]=previous+atom;else atoms.push(atom);
   }
   return atoms;
 }
@@ -67,14 +69,33 @@ function textTokens(text:string){
   const tokens:string[]=[];let join=false;
   for(const token of text.match(tokenPattern)??[]){
     const previous=tokens[tokens.length-1];
-    const attach=previous!==undefined&&(join||joiner.test(token)||lineStartForbidden.test(token)||lineEndForbidden.test(previous)
+    const attach=previous!==undefined&&(join||joiner.test(token)||lineStartForbidden.test(token)||lineEndForbidden.test(previous)||inExpression(previous,token)
       // Particles and okurigana stay with the word before them; 第1 + 四半期 is one word.
       ||(/^\p{Script=Hiragana}/u.test(token)&&!/[\s、。，．！？!?]$/u.test(previous))
-      ||(/^\d/u.test(token)&&/[第約]$/u.test(previous))||(/^\p{Script=Han}/u.test(token)&&/^第\d+$/u.test(previous)));
+      // A counter stays with its number: 2個, 3本, 第1四半期.
+      ||(/^\d/u.test(token)&&/[第約]$/u.test(previous))||(/^\p{Script=Han}/u.test(token)&&/\d$/u.test(previous)));
     if(attach)tokens[tokens.length-1]=previous+token;else tokens.push(token);
     join=joiner.test(token);
   }
   return tokens;
+}
+const smallKana=/^[ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶー]/u;
+/** Pieces of a phrase that may end a line when the phrase itself does not fit: a line
+ * may break inside a run of kana, never between a word and its okurigana/particle
+ * (確｜かめる, 素数｜は), inside a word or number, or before a small kana. */
+function phrasePieces(phrase:string,limit:number){
+  const pieces:string[]=[];
+  for(const atom of wordAtoms(phrase)){
+    const previous=pieces[pieces.length-1];
+    if(/^\p{Script=Hiragana}/u.test(atom)){
+      Array.from(atom).forEach((char,i)=>{
+        const last=pieces.length-1;
+        if((i===0&&previous!==undefined&&/[\p{Script=Han}\p{Script=Katakana}ー々〆ヶ\d]$/u.test(previous))||(last>=0&&(smallKana.test(char)||lineStartForbidden.test(char))))pieces[last]+=char;else pieces.push(char);
+      });
+    }else if(textUnits(atom)>limit&&!/^[+−△▲-]?\d/u.test(atom))pieces.push(...Array.from(atom));
+    else pieces.push(atom);
+  }
+  return pieces;
 }
 export function wrapText(text: string, width: number, fontSize: number): string[] {
   const limit = Math.max(1, width / fontSize);
@@ -83,7 +104,7 @@ export function wrapText(text: string, width: number, fontSize: number): string[
     const first=lines.length;
     let line = '', units = 0;
     // A number with magnitude/currency/unit, or an English word, is indivisible.
-    const tokens=textTokens(paragraph);
+    const tokens=textTokens(paragraph),fill=textUnits(paragraph)<=limit*3?.5:.85;
     const place=(token:string)=>{
       const weight=textUnits(token);
       if (units + weight > limit && line && !lineStartForbidden.test(token)) { lines.push(line); line = ''; units = 0; }
@@ -91,11 +112,12 @@ export function wrapText(text: string, width: number, fontSize: number): string[
     };
     for (const phrase of tokens) {
       const weight=textUnits(phrase);
-      // Prefer moving a whole phrase to the next line. When that would leave this
-      // line mostly empty, break after a particle or okurigana instead; a kanji or
-      // katakana word and a number with its unit are never split.
-      if (units+weight<=limit || (line && units>=limit*.85 && weight<=limit)) { place(phrase); continue; }
-      for (const atom of wordAtoms(phrase)) for (const token of textUnits(atom)>limit&&!/^[+−△▲-]?\d/u.test(atom)?Array.from(atom):[atom]) place(token);
+      // A phrase that does not fit moves whole to the next line: in short text (up to
+      // three lines, 文節改行) when this line is at least half full, in long running
+      // text when it is nearly full. Otherwise it is split inside a run of kana; a word
+      // keeps its okurigana/particle, and a number keeps its unit or counter.
+      if (units+weight<=limit || (line && units>=limit*fill && weight<=limit)) { place(phrase); continue; }
+      for (const piece of phrasePieces(phrase,limit)) place(piece);
     }
     lines.push(line);
     // Avoid a lone trailing character. Rebalance only the last two automatic
@@ -406,7 +428,8 @@ export function compileDeck(deck: DeckSpec): RenderDocument {
     if(deck.pageNumbers!==false)c.text(`${i+1} / ${deck.slides.length}`,{x:837,y:505,w:67,h:22},10,footerColor,false,'right');
     if(slide.sources.length)c.scene.notes+='\n\n出典:\n'+slide.sources.map((s,index)=>`${sourceLine(s,index,true)}${s.quote?'\n「'+s.quote+'」':''}`).join('\n');
     // Retain structured content in notes when a chosen layout has no dedicated field.
-    c.scene.notes+='\n\n内容:\n'+[slide.headline,slide.body,...slide.items.map(it=>[it.label,it.value,it.description].filter(Boolean).join(' — ')),slide.equation?.text,slide.equation?.explanation,...designTexts(slide).filter(text=>text!==slide.title)].filter(Boolean).join('\n');
+    // An AI-designed page draws all of its text, so its notes are not filled with a copy.
+    if(!slide.design)c.scene.notes+='\n\n内容:\n'+[slide.headline,slide.body,...slide.items.map(it=>[it.label,it.value,it.description].filter(Boolean).join(' — ')),slide.equation?.text,slide.equation?.explanation].filter(Boolean).join('\n');
     const unknown:SceneElement[]=c.scene.elements.filter(el=>el.x<0||el.y<0||el.x+el.w>961||el.y+el.h>541);
     if(unknown.length)throw new Error(`「${slide.title}」の配置がスライドの範囲外です。`);
     c.scene.warnings=[...new Set(c.scene.warnings)];
