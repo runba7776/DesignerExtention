@@ -1,15 +1,29 @@
 import React from 'react';
 import type { Rect, RenderDocument, SceneElement, SmartArtElement, TextElement } from '../shared/contracts';
 import {wrapText} from '../shared/layouts';
+import {BLANK} from '../shared/free-design';
 import {ChartPreview} from './ChartPreview';
+
+type Part={text:string;color?:string;bold?:boolean};
+/** One drawn line in parts: the coloured or bold parts of a measured text (start: where the line begins in
+ * the text), and the blanks still to fill (［実施日］) in their colour. */
+function lineParts(element:TextElement,line:string,start?:number):Part[]{
+  const styles:{color?:string;bold?:boolean}[]=Array.from({length:line.length},()=>({}));
+  if(start!==undefined)for(const run of element.runs??[])for(let i=Math.max(run.start,start);i<Math.min(run.start+run.length,start+line.length);i++)styles[i-start]={...styles[i-start],...(run.color?{color:run.color}:{}),...(run.bold!==undefined?{bold:run.bold}:{})};
+  if(element.blankColor)for(const m of line.matchAll(BLANK))for(let i=m.index!;i<m.index!+m[0].length;i++)styles[i]={...styles[i],color:element.blankColor};
+  const parts:Part[]=[];
+  for(let i=0;i<line.length;i++){const style=styles[i],last=parts[parts.length-1];if(last&&last.color===style.color&&last.bold===style.bold)last.text+=line[i];else parts.push({text:line[i],...style});}
+  return parts;
+}
 
 function Text({element}: {element: TextElement}) {
   const lines = element.noWrap?element.text.split('\n'):wrapText(element.text, element.w-8, element.fontSize);
+  const starts = element.noWrap?lines.map((_,i)=>lines.slice(0,i).reduce((sum,line)=>sum+line.length+1,0)):undefined;
   const anchor = element.align === 'center' ? 'middle' : element.align === 'right' ? 'end' : 'start';
   const x = element.x + (anchor === 'middle' ? element.w / 2 : anchor === 'end' ? element.w : 0);
   const used = lines.length * element.fontSize * 1.35, offset = element.verticalAlign === 'middle' ? Math.max(0, (element.h - used) / 2) : element.verticalAlign === 'bottom' ? Math.max(0, element.h - used) : 0;
   return <text x={x} y={element.y + offset + element.fontSize * .91} fontStyle={element.italic ? 'italic' : undefined} fontSize={element.fontSize} fill={element.color} fontFamily={element.font?`"${element.font}", "${element.fontFarEast??element.font}", "Yu Gothic", sans-serif`:undefined} fontWeight={element.bold ? 700 : 400} textAnchor={anchor}>
-    {lines.map((line, i) => <tspan x={x} dy={i ? element.lineHeight ?? element.fontSize * 1.35 : 0} key={i}>{line}</tspan>)}
+    {lines.map((line, i) => <tspan x={x} dy={i ? element.lineHeight ?? element.fontSize * 1.35 : 0} key={i}>{element.runs?.length?lineParts(element,line,starts?.[i]).map((part,j)=>part.color||part.bold!==undefined?<tspan key={j} fill={part.color} fontWeight={part.bold===undefined?undefined:part.bold?700:400}>{part.text}</tspan>:part.text):line}</tspan>)}
   </text>;
 }
 

@@ -67,7 +67,9 @@ test('HTML method falls back to the JSON method where it is not available (local
 test('the HTML instructions carry no design preference either',()=>{
   const prompt=freeSystemPrompt('generate',{format:'html',theme:paletteTheme(palette)});
   assert.match(prompt,/デザイン（構図・図形・色・文字の大きさ・配置）はすべてあなたに任せます/);
-  assert.doesNotMatch(prompt,/テーマ候補|書体候補|項目名が長い場合にも向く|"idea":/);
+  assert.doesNotMatch(prompt,/テーマ候補|書体候補|項目名が長い場合にも向く/);
+  // The app's icons are parts the AI may use, like charts; which to use and where is still the AI's choice.
+  assert.match(prompt,/<i data-icon="ID"[^>]*><\/i>で、アプリのアイコン（IDは一覧）を置けます/);assert.match(prompt,/"family":"家族・世帯"/);
 });
 
 test('a real browser reads the layout: title, a run in another colour, a chart, and text in the footer reported',{skip:!findBrowser()},async()=>{

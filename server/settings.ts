@@ -87,6 +87,8 @@ export class SettingsStore {
     if(value.autoRepair!==undefined&&typeof value.autoRepair!=='boolean')throw new AppError(400,'自動対処はオン・オフで指定してください。');
     if(value.editorialGuide!==undefined&&typeof value.editorialGuide!=='boolean')throw new AppError(400,'常設指示はオン・オフで指定してください。');
     if(value.outlineProposals!==undefined&&typeof value.outlineProposals!=='boolean')throw new AppError(400,'構成案を3つ出すかどうかは、オン・オフで指定してください。');
+    if(value.visualReview!==undefined&&typeof value.visualReview!=='boolean')throw new AppError(400,'画像での点検は、オン・オフで指定してください。');
+    if(value.proposalPreviews!==undefined&&typeof value.proposalPreviews!=='boolean')throw new AppError(400,'構成案の見本を作るかどうかは、オン・オフで指定してください。');
     const chatService=value.chatService??'chatgpt';
     if(!['chatgpt','claude','gemini','copilot','other'].includes(String(chatService)))throw new AppError(400,'連携するAIを一覧から選んでください。');
     const subscriptionService=value.subscriptionService??'chatgpt';
@@ -102,6 +104,6 @@ export class SettingsStore {
     const targets=value.targets===undefined?undefined:Array.isArray(value.targets)&&value.targets.length<=3&&value.targets.every(t=>t==='claude'||t==='chatgpt'||t==='local')&&new Set(value.targets).size===value.targets.length?value.targets as AiTarget[]:(()=>{throw new AppError(400,'作成するAIを一覧から3つまで選んでください。');})();
     const activeProjectId=value.activeProjectId??DEFAULT_PROJECT_ID;
     if(typeof activeProjectId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(activeProjectId))throw new AppError(400,'現在のプロジェクトを選び直してください。');
-    return { ...(localModel?{localModel}:{}),...(targets?{targets}:{}), provider: value.provider as ProviderKind, model: value.model, mode: value.mode as Settings['mode'], endpoint, themeId:themeId as string, typographyId:typographyId as string, slideCount:value.slideCount as Settings['slideCount'],autoRepair:value.autoRepair!==false,editorialGuide:value.editorialGuide!==false,outlineProposals:value.outlineProposals!==false,chatService:chatService as Settings['chatService'],subscriptionService:subscriptionService as Settings['subscriptionService'],activeProjectId,...(value.preferredDesignId?{preferredDesignId:String(value.preferredDesignId)}:{}),...(projects?{chatProjects:projects}:{}),...(value.chatOpenIn==='app'?{chatOpenIn:'app' as const}:{}),...(value.designMode?{designMode:value.designMode as Settings['designMode']}:{}) };
+    return { ...(localModel?{localModel}:{}),...(targets?{targets}:{}), provider: value.provider as ProviderKind, model: value.model, mode: value.mode as Settings['mode'], endpoint, themeId:themeId as string, typographyId:typographyId as string, slideCount:value.slideCount as Settings['slideCount'],autoRepair:value.autoRepair!==false,editorialGuide:value.editorialGuide!==false,outlineProposals:value.outlineProposals!==false,visualReview:value.visualReview!==false,proposalPreviews:value.proposalPreviews!==false,chatService:chatService as Settings['chatService'],subscriptionService:subscriptionService as Settings['subscriptionService'],activeProjectId,...(value.preferredDesignId?{preferredDesignId:String(value.preferredDesignId)}:{}),...(projects?{chatProjects:projects}:{}),...(value.chatOpenIn==='app'?{chatOpenIn:'app' as const}:{}),...(value.designMode?{designMode:value.designMode as Settings['designMode']}:{}) };
   }
 }

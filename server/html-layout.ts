@@ -3,15 +3,18 @@ import {existsSync} from 'node:fs';
 import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import type {Theme} from '../shared/contracts.js';
+import type {IconId,Theme} from '../shared/contracts.js';
 import {themeTokens} from '../shared/free-design.js';
+import {iconCatalog,iconSvg} from '../shared/icons.js';
 
 /** One AI-written HTML page, read back as free-design elements. Problems are the
  * app's findings (text outside the slide, in the footer or clipped), sent with a retry. */
-/** fitted: the share (0.85-0.95) the text was made smaller to keep it above the footer, without asking the AI. */
-export type HtmlPageLayout={background?:string;elements:Record<string,unknown>[];problems:string[];fitted?:number}|{error:string};
-/** minTextSize: text drawn smaller than this (px = pt) is reported. */
-export interface HtmlLayoutOptions {minTextSize?:number}
+/** fitted: the share (0.85-0.95) the text was made smaller to keep it above the footer, without asking the AI.
+ * grown: text below the smallest size was made that size (the page still fitted), without asking the AI.
+ * shot: the drawn page as a 960x540 PNG (base64), when asked for. */
+export type HtmlPageLayout={background?:string;elements:Record<string,unknown>[];problems:string[];fitted?:number;grown?:boolean;shot?:string}|{error:string};
+/** minTextSize: body text, and text marked data-role="caption", drawn smaller than this (px = pt) is reported. */
+export interface HtmlLayoutOptions {minTextSize?:{body:number;caption:number};screenshot?:boolean}
 export type HtmlLayout=(pages:{id:string;html:string}[],theme:Theme,options?:HtmlLayoutOptions)=>Promise<HtmlPageLayout[]>;
 
 /** Removes anything that could run code or load from outside. The page also has a
@@ -104,7 +107,8 @@ export const CONVERT_SCRIPT=String.raw`(function(){
     let left=Math.min(...visible.map(l=>l.left)),right=Math.max(...visible.map(l=>l.right));
     const glyphs=visible.flatMap(l=>l.chars.filter(c=>!/\s/.test(c.ch)).map(ink));
     check(block,Math.min(...glyphs.map(g=>g.t)),Math.max(...glyphs.map(g=>g.b)),left,right,short(text));
-    if(options.minTextSize&&size<options.minTextSize-0.25){kinds.add('small');problems.push('文字が小さすぎます（「'+short(text)+'」、'+round(size)+'px）。この資料では文字を'+options.minTextSize+'px以上にしてください。');}
+    const min=options.minTextSize&&(roleOf(block)==='caption'?options.minTextSize.caption:options.minTextSize.body);
+    if(min&&size<min-0.25){kinds.add('small');problems.push('文字が小さすぎます（「'+short(text)+'」、'+round(size)+'px）。この資料では、本文を'+options.minTextSize.body+'px以上、注記（data-role="caption"）を'+options.minTextSize.caption+'px以上にしてください。');}
     inks.push({size,sample:short(text),glyphs,l:Math.min(...glyphs.map(g=>g.l)),r:Math.max(...glyphs.map(g=>g.r)),t:Math.min(...glyphs.map(g=>g.t)),b:Math.max(...glyphs.map(g=>g.b))});
     if(align!=='l'){left=Math.min(left,content.left+padL);right=Math.max(right,content.right-padR);}
     const top=visible[0].top-(pitch?(pitch-(visible[0].bottom-visible[0].top))/2:0),bottom=pitch?top+pitch*visible.length:Math.max(visible[visible.length-1].bottom,visible[0].top+(measured||size*1.25)*visible.length);
@@ -130,6 +134,14 @@ export const CONVERT_SCRIPT=String.raw`(function(){
     const cs=getComputedStyle(el);if(cs.display==='none'||cs.visibility==='hidden')return;
     const alpha=opacity*parseFloat(cs.opacity||'1');if(alpha<0.02)return;
     const r=el.getBoundingClientRect();
+    // An app icon (data-icon, drawn by the app before reading): one editable icon, in the colour of its text.
+    if(el.getAttribute('data-de-icon')==='1'){
+      if(!inside(r))return;
+      shapes(el,cs,r,alpha);
+      const size=Math.min(r.width,r.height),left=r.left+(r.width-size)/2,top=r.top+(r.height-size)/2,box=rect({left,top,right:left+size,bottom:top+size});
+      out.push({t:'icon',icon:el.getAttribute('data-icon'),x:box.x,y:box.y,size:round(size),color:color(cs.color).hex});
+      return;
+    }
     if(el instanceof SVGSVGElement){
       if(!inside(r))return;
       out.push({t:'svg',...rect(r),svg:svgMarkup(el,r)});
@@ -168,7 +180,7 @@ export const CONVERT_SCRIPT=String.raw`(function(){
     const b=f.box,within=out.filter((e,i)=>i!==f.index&&(e.t==='text'||e.t==='box'||e.t==='chart'||e.t==='svg')&&e.x+e.w/2>=b.x&&e.x+e.w/2<=b.x+b.w&&e.y+e.h/2>=b.y&&e.y+e.h/2<=b.y+b.h).length;
     if(within<=3){kinds.add('empty');problems.push('図に中身がありません（線と枠だけの図です）。説明用の目安でも、点・棒・図形・文字など、図が伝える内容を図の中に描いてください。');}
   }
-  return JSON.stringify({background,elements:out,problems:[...new Set(problems)],fit:problems.length>0&&[...kinds].every(k=>k==='bottom')});
+  return JSON.stringify({background,elements:out,problems:[...new Set(problems)],fit:problems.length>0&&[...kinds].every(k=>k==='bottom'||k==='overlap'),grow:problems.length>0&&[...kinds].every(k=>k==='small')});
 })()`;
 
 /** Makes every text of the page smaller by the given share (line heights given in px too). Boxes,
@@ -176,8 +188,49 @@ export const CONVERT_SCRIPT=String.raw`(function(){
 const fitScript=(share:number)=>`(function(){const s=document.querySelector('section.slide');if(!s)return 0;
 const list=[s,...s.querySelectorAll('*')].filter(e=>!(e instanceof SVGElement)),sizes=list.map(e=>{const cs=getComputedStyle(e);return [parseFloat(cs.fontSize),cs.lineHeight];});
 list.forEach((e,i)=>{const [size,lh]=sizes[i];e.style.setProperty('font-size',(size*${share})+'px','important');if(lh.endsWith('px'))e.style.setProperty('line-height',(parseFloat(lh)*${share})+'px','important');});return list.length;})()`;
-/** Text that only runs a little past the bottom is made smaller in these steps before the AI is asked again. */
+/** Makes text drawn below the smallest size of the mode (body, or a caption) that size, so a page whose only
+ * problem is small text can be kept without asking the AI again when it still fits. */
+const growScript=(min:{body:number;caption:number})=>`(function(){const s=document.querySelector('section.slide');if(!s)return 0;let n=0;
+for(const e of [s,...s.querySelectorAll('*')]){if(e instanceof SVGElement||![...e.childNodes].some(c=>c.nodeType===3&&c.textContent.trim()))continue;
+const cs=getComputedStyle(e),size=parseFloat(cs.fontSize),m=e.closest('[data-role]'),min=m&&m.getAttribute('data-role')==='caption'?${min.caption}:${min.body};
+if(size>=min-0.25)continue;e.style.setProperty('font-size',min+'px','important');if(cs.lineHeight.endsWith('px'))e.style.setProperty('line-height',(parseFloat(cs.lineHeight)*min/size)+'px','important');n++;}return n;})()`;
+/** The app's icons (data-icon) drawn into the page before it is read, so the layout and the picture show
+ * them; an unknown id is left empty. Each becomes one editable icon when read. */
+const ICON_SCRIPT=`(function(){const map=${JSON.stringify(Object.fromEntries(Object.keys(iconCatalog).map(id=>[id,iconSvg(id as IconId)])))},s=document.querySelector('section.slide');if(!s)return 0;let n=0;
+for(const e of s.querySelectorAll('[data-icon]')){const svg=map[e.getAttribute('data-icon')];if(!svg)continue;
+const cs=getComputedStyle(e);if(cs.display==='inline')e.style.setProperty('display','inline-block','important');
+const r=e.getBoundingClientRect();if(r.width<4||r.height<4){const size=Math.max(16,parseFloat(cs.fontSize)*1.5)+'px';e.style.setProperty('width',size,'important');e.style.setProperty('height',size,'important');}
+e.innerHTML=svg;const g=e.firstElementChild;g.setAttribute('width','100%');g.setAttribute('height','100%');g.style.display='block';e.setAttribute('data-de-icon','1');n++;}return n;})()`;
+/** For the picture only (after the page was read): each chart place gets a plain sketch of its data,
+ * since the real chart is drawn later by PowerPoint and the place would otherwise look empty. */
+const CHART_SKETCH_SCRIPT=String.raw`(function(){
+  const ns='http://www.w3.org/2000/svg',palette=['#4E79A7','#F28E2B','#59A14F'];
+  for(const el of document.querySelectorAll('section.slide [data-chart]')){
+    let c;try{c=JSON.parse(el.dataset.chart);}catch(e){continue;}
+    const r=el.getBoundingClientRect(),w=Math.max(40,r.width),h=Math.max(40,r.height),cats=Array.isArray(c.categories)?c.categories:[],series=Array.isArray(c.series)?c.series:[];
+    const svg=document.createElementNS(ns,'svg');svg.setAttribute('width',w);svg.setAttribute('height',h);svg.style.display='block';
+    const add=(tag,attrs,text)=>{const n=document.createElementNS(ns,tag);for(const k in attrs)n.setAttribute(k,attrs[k]);if(text!==undefined)n.textContent=text;svg.appendChild(n);return n;};
+    const values=series.flatMap(s=>(s.values||[]).map(Number).filter(Number.isFinite)),max=Math.max(1,...values.map(Math.abs)),pad=18,base=h-pad;
+    const type=String(c.type||'column');
+    if(type==='pie'||type==='doughnut'){
+      const vals=(series[0]?.values||[]).map(v=>Math.max(0,Number(v)||0)),sum=vals.reduce((a,b)=>a+b,0)||1,cx=w/2,cy=h/2,rad=Math.min(w,h)/2-pad;let a0=-Math.PI/2;
+      vals.forEach((v,i)=>{const a1=a0+v/sum*2*Math.PI,large=a1-a0>Math.PI?1:0;add('path',{d:'M'+cx+' '+cy+' L'+(cx+rad*Math.cos(a0))+' '+(cy+rad*Math.sin(a0))+' A'+rad+' '+rad+' 0 '+large+' 1 '+(cx+rad*Math.cos(a1))+' '+(cy+rad*Math.sin(a1))+' Z',fill:palette[i%3],opacity:String(1-i*0.12)});a0=a1;});
+    }else{
+      add('line',{x1:pad,y1:base,x2:w-4,y2:base,stroke:'#888'});
+      const n=Math.max(1,cats.length),slot=(w-pad-4)/n;
+      cats.forEach((cat,i)=>add('text',{x:pad+slot*i+slot/2,y:h-4,'font-size':'10','text-anchor':'middle',fill:'#555'},String(cat).slice(0,8)));
+      if(type==='line')series.forEach((s,k)=>add('polyline',{points:(s.values||[]).map((v,i)=>(pad+slot*i+slot/2)+','+(base-(Number(v)||0)/max*(base-8))).join(' '),fill:'none',stroke:palette[k%3],'stroke-width':'2'}));
+      else series.forEach((s,k)=>(s.values||[]).forEach((v,i)=>{const bw=slot*0.7/Math.max(1,series.length),bh=Math.abs(Number(v)||0)/max*(base-8);add('rect',{x:pad+slot*i+slot*0.15+bw*k,y:base-bh,width:bw,height:bh,fill:palette[k%3]});}));
+    }
+    el.replaceChildren(svg);
+  }
+  return true;
+})()`;
+/** Text that only runs a little past the bottom, or into another text below it, is made smaller in these steps
+ * before the AI is asked again. Made smaller this way, body text may go 2px (a caption 1px) below the smallest
+ * size of the mode: a page a little too full is kept instead of stopping the deck. */
 const FIT_STEPS=[0.95,0.9,0.85];
+const fitFloor=(min:{body:number;caption:number})=>({body:min.body-2,caption:min.caption-1});
 
 const japanese=/Gothic|Mincho|Meiryo|游|ゴシック|明朝|メイリオ|BIZ|UD |Kyokasho|教科書|Noto (Sans|Serif) (JP|CJK)|Hiragino|Yu |MS P?(Gothic|Mincho)|Source Han|源ノ/i;
 /** The fonts the browser actually drew each text with (an installed fallback when the
@@ -244,24 +297,32 @@ export const layoutHtmlSlides:HtmlLayout=async(pages,theme,options={})=>{
       try{
         const doc=slidePage(page.html,theme);
         // Draws the page afresh (optionally with smaller text) and reads it.
-        const read=async(share?:number)=>{
+        const read=async(share?:number,grow=false)=>{
           await send('Page.navigate',{url:'data:text/html;charset=utf-8;base64,'+Buffer.from(doc,'utf8').toString('base64')});
           for(let i=0;i<100;i++){const state=await send('Runtime.evaluate',{expression:'document.readyState',returnByValue:true});if(state.result?.result?.value==='complete')break;await new Promise(r=>setTimeout(r,50));}
           await send('Runtime.evaluate',{expression:'document.fonts.ready.then(()=>true)',awaitPromise:true});
-          await send('Runtime.evaluate',{expression:`window.__deOptions=${JSON.stringify({minTextSize:options.minTextSize})}`});
+          await send('Runtime.evaluate',{expression:`window.__deOptions=${JSON.stringify({minTextSize:share&&options.minTextSize?fitFloor(options.minTextSize):options.minTextSize})}`});
+          await send('Runtime.evaluate',{expression:ICON_SCRIPT});
           if(share)await send('Runtime.evaluate',{expression:fitScript(share)});
+          if(grow&&options.minTextSize)await send('Runtime.evaluate',{expression:growScript(options.minTextSize)});
           const value=(await send('Runtime.evaluate',{expression:CONVERT_SCRIPT,returnByValue:true})).result?.result?.value;
           return typeof value==='string'?JSON.parse(value):{error:'HTMLを読み取れませんでした。'};
         };
-        let parsed=await read(),fitted:number|undefined;
+        let parsed=await read(),fitted:number|undefined,grown=false;
         if(!parsed.error&&parsed.fit){
           for(const share of FIT_STEPS){const next=await read(share);if(!next.error&&!next.problems.length){parsed=next;fitted=share;break;}}
           // The page in the browser must be the one whose elements are kept (fonts are read from it).
           if(fitted===undefined)parsed=await read();
+        }else if(!parsed.error&&parsed.grow){
+          const next=await read(undefined,true);
+          if(!next.error&&!next.problems.length){parsed=next;grown=true;}else parsed=await read();
         }
-        if(debug){const stamp=`${Date.now()}-${page.id}`;await writeFile(path.join(debug,`${stamp}.html`),doc,'utf8');const shot=await send('Page.captureScreenshot',{format:'png',clip:{x:0,y:0,width:960,height:540,scale:1}});if(shot.result?.data)await writeFile(path.join(debug,`${stamp}.png`),Buffer.from(shot.result.data,'base64'));}
+        // The fonts are read before the chart sketches are added, from the page as it was read.
         if(!parsed.error)await usedFonts(send,parsed.elements);
-        results.push(parsed.error?{error:parsed.error}:tokenize({...(parsed.background?{background:parsed.background}:{}),elements:parsed.elements,problems:parsed.problems,...(fitted?{fitted}:{})},theme) as HtmlPageLayout);
+        if(options.screenshot&&!parsed.error)await send('Runtime.evaluate',{expression:CHART_SKETCH_SCRIPT});
+        const shot=debug||options.screenshot?(await send('Page.captureScreenshot',{format:'png',clip:{x:0,y:0,width:960,height:540,scale:1}})).result?.data as string|undefined:undefined;
+        if(debug){const stamp=`${Date.now()}-${page.id}`;await writeFile(path.join(debug,`${stamp}.html`),doc,'utf8');if(shot)await writeFile(path.join(debug,`${stamp}.png`),Buffer.from(shot,'base64'));}
+        results.push(parsed.error?{error:parsed.error}:tokenize({...(parsed.background?{background:parsed.background}:{}),elements:parsed.elements,problems:parsed.problems,...(fitted?{fitted}:{}),...(grown?{grown}:{}),...(options.screenshot&&shot?{shot}:{})},theme) as HtmlPageLayout);
       }catch{results.push({error:'HTMLを読み取れませんでした。<section class="slide">…</section>の形で書いてください。'});}
     }
     return results;

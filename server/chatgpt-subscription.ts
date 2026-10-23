@@ -130,7 +130,7 @@ export class ChatGptSubscription {
   }
   provider(model:string):Provider{
     const binding=this.binding();
-    return {complete:async request=>{
+    return {images:true,complete:async request=>{
       const account=this.active();
       if(!binding||!account||this.binding()!==binding||this.pending)throw new AppError(409,'ChatGPTの接続が変更されています。接続を確認して、新しく作成するか履歴を開き直してください。','SUBSCRIPTION_CONNECTION_CHANGED');
       try{
@@ -140,7 +140,9 @@ export class ChatGptSubscription {
         const selected=model==='auto'?account.models[0]?.id:model;
         if(!selected||!account.models.some(m=>m.id===selected))throw new AppError(400,'選択したモデルをこのChatGPTアカウントで利用できません。接続欄でモデルを更新してください。','SUBSCRIPTION_MODEL');
         if(this.binding()!==binding)throw new AppError(409,'ChatGPTの接続が変更されています。','SUBSCRIPTION_CONNECTION_CHANGED');
-        const response=await this.fetcher(`${RESOURCE}/responses`,{method:'POST',redirect:'error',signal:AbortSignal.timeout(240000),headers:{'Content-Type':'application/json',Authorization:`Bearer ${account.accessToken}`},body:JSON.stringify({model:selected,instructions:request.system,input:[{role:'user',content:request.content}],store:false,stream:true})});
+        // Pictures (drawn slides) go as input_image parts after the text in the same user message.
+        const content=request.images?.length?[{type:'input_text',text:request.content},...request.images.map(image=>({type:'input_image',image_url:`data:${image.mediaType};base64,${image.data}`}))]:request.content;
+        const response=await this.fetcher(`${RESOURCE}/responses`,{method:'POST',redirect:'error',signal:AbortSignal.timeout(240000),headers:{'Content-Type':'application/json',Authorization:`Bearer ${account.accessToken}`},body:JSON.stringify({model:selected,instructions:request.system,input:[{role:'user',content}],store:false,stream:true})});
         if(!response.ok)throw await this.remoteError(response);
         const completed=await readCompletion(response);
         if(this.binding()!==binding)throw new AppError(409,'接続を変更したため、前のアカウントの返答は反映していません。','SUBSCRIPTION_CONNECTION_CHANGED');

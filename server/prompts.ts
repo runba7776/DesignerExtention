@@ -5,7 +5,7 @@ import { MAX_SLIDES } from '../shared/contracts.js';
 import {iconCatalog} from '../shared/icons.js';
 import {chartCatalog} from '../shared/charts.js';
 import type {Theme} from '../shared/contracts.js';
-import {freeSystemPrompt,freeKitSection} from './free-prompts.js';
+import {freeSystemPrompt,freeKitSection,reviewPrompt} from './free-prompts.js';
 
 export const contract = `
 Outline = {title:string, mode:"presentation"|"reading", themeId:string, typographyId?:string, audience:string, inputBrief?:string, assumptions:string[], slides:[{id:"slide-1",title:string,intent:string,layoutId:string,keyPoints:string[],sourceIds?:string[]}]}
@@ -13,7 +13,7 @@ DeckSpec = {id:string,title:string,mode:"presentation"|"reading",themeId:string,
 SlideSpec = {id:string,title:string,layoutId:string,headline?:string,body?:string,items:[{label:string,description?:string,value?:string,parent?:number,icon?:string,refs?:number[]}],notes:string,sources:[{documentId:string,locator:string,quote?:string}],chart?:{type:"bar"|"column"|"line"|"pie"|"doughnut"|"stackedBar"|"stackedColumn"|"waterfall",categories:string[],series:[{name:string,values:number[]}],unit?:string,caption?:string},diagram?:{type:"process"|"cycle"|"hierarchy"|"list",items:[{label:string,description?:string,parent?:number}]},table?:{headers:string[],rows:string[][]},equation?:{text:string,explanation?:string}}
 `;
 
-export type ModelTask='plan'|'generate'|'revise'|'summarize';
+export type ModelTask='plan'|'generate'|'revise'|'summarize'|'review';
 /** full: self-contained instruction (default). project: short instruction for a
  * ChatGPT/Claude project that holds the AI kit catalog; only the layouts used
  * by this request keep their full description. */
@@ -33,6 +33,7 @@ function layoutSection(task:ModelTask,candidateIds:string[]|undefined,options:Pr
 }
 
 export function systemPrompt(task: ModelTask, candidateIds?:string[], options:PromptOptions={}) {
+  if(task==='review')return reviewPrompt();
   // AI-designed slides: no layout catalogue; the AI composes every page itself.
   if(options.design==='free'&&task!=='summarize')return freeSystemPrompt(task,{mode:options.mode,oneShot:options.oneShot,theme:options.theme,outputMode:options.outputMode,format:options.format,editorial:options.editorial,proposals:options.proposals,kitFile:AI_KIT_FILE,kitVersion:aiKitVersion()});
   // The project kit holds no layout catalogue, so template prompts are always complete.

@@ -16,8 +16,8 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import React from 'react';
 import {SlidePreview} from '../web/SlidePreview';
 
-test('48 offline icons cover technology, study, nature, care, industry and communication without invented brands',()=>{
-  assert.equal(Object.keys(iconCatalog).length,48);
+test('75 offline icons cover technology, study, nature, care, industry, daily life, notices and safety without invented brands',()=>{
+  assert.equal(Object.keys(iconCatalog).length,75);
   assert.deepEqual(new Set(Object.values(iconGroups).flat()),new Set(Object.keys(iconCatalog)));
   for(const [label,id] of Object.entries({'データベース':'database','生成AI':'chip','数学の証明':'calculator','幾何の図形':'geometry','大学への進学':'graduation','化学実験':'flask','水資源':'water','医療支援':'medical','工場の製造':'factory','物流の配送':'truck','メール連絡':'mail','法律の比較':'balance'}))assert.equal(resolveItemIcon({label}),id,label);
   assert.equal(resolveItemIcon({label:'OpenAI'}),undefined);

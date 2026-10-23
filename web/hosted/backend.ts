@@ -26,7 +26,9 @@ async function create(): Promise<Backend> {
   if (!projects.list().some(project => project.id === settings.get().activeProjectId)) await settings.update({ activeProjectId: DEFAULT_PROJECT_ID });
   if (settings.get().provider === 'subscription') await settings.update({ provider: 'chat' });
   const providerFactory = localLlmProvider;
-  const engine = new SessionEngine({ settings, projects, dataDir: DATA_DIR, render: renderInBrowser, providerFactory });
+  // The sample experience replays a recorded creation published with this page.
+  const showcase = async () => { const response = await fetch(new URL('./showcase/showcase.json', location.href)); if (!response.ok) throw new Error('no showcase'); return response.json(); };
+  const engine = new SessionEngine({ settings, projects, dataDir: DATA_DIR, render: renderInBrowser, providerFactory, showcase });
   await engine.loadPreferences();
   const assist = new AssistService({ settings, projects, providerFactory, render: renderInBrowser });
   const documents = new Map<string, { document: ParsedDocument; createdAt: number }>();

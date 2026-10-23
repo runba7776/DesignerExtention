@@ -20,7 +20,7 @@ async function setup(){
   const {publicKey,privateKey}=await new Promise<{publicKey:import('node:crypto').KeyObject;privateKey:import('node:crypto').KeyObject}>((resolve,reject)=>generateKeyPair('rsa',{modulusLength:2048},(error,pub,priv)=>error?reject(error):resolve({publicKey:pub,privateKey:priv})));
   const jwk=await exportJWK(publicKey);Object.assign(jwk,{kid:'isolated-test-key',alg:'RS256',use:'sig'});
   const jwks={keys:[jwk]};let oauthCount=0,modelsCount=0,completionCount=0,revokeCount=0,failRefresh=false,clock=Date.now(),delayRevoke:(()=>Promise<void>)|undefined;
-  const calls:{url:string;method:string;body:any}[]=[];
+  const calls:{url:string;method:string;body:any}[]=[],payloads:any[]=[];
   const fetcher:typeof fetch=async(input,init)=>{
     const url=String(input),method=init?.method??'GET',body=typeof init?.body==='string'?Object.fromEntries(new URLSearchParams(init.body)):init?.body instanceof URLSearchParams?Object.fromEntries(init.body):undefined;
     calls.push({url,method,body});
@@ -32,7 +32,7 @@ async function setup(){
       return json({error:'unexpected grant'},400);
     }
     if(url===`${resource}/models`){modelsCount++;return json({models:[{slug:'gpt-test-model',display_name:'Mock GPT',visibility:'list'},{slug:'hidden',display_name:'Hidden',visibility:'private'}]});}
-    if(url===`${resource}/responses`){completionCount++;const payload=JSON.parse(String(init?.body));assert.equal(payload.store,false);assert.equal(payload.stream,true);assert.equal(payload.max_output_tokens,undefined);assert.match(String(init?.headers&&new Headers(init.headers).get('authorization')),/^Bearer fake-/);return new Response(event('response.output_text.delta',{type:'response.output_text.delta',delta:'{"kind":"outline"}'})+event('response.completed',{type:'response.completed',response:{status:'completed',usage:{input_tokens:31,output_tokens:7},output:[{type:'message',content:[{type:'output_text',text:'{"kind":"outline"}'}]}]}}),{headers:{'Content-Type':'text/event-stream'}});}
+    if(url===`${resource}/responses`){completionCount++;const payload=JSON.parse(String(init?.body));payloads.push(payload);assert.equal(payload.store,false);assert.equal(payload.stream,true);assert.equal(payload.max_output_tokens,undefined);assert.match(String(init?.headers&&new Headers(init.headers).get('authorization')),/^Bearer fake-/);return new Response(event('response.output_text.delta',{type:'response.output_text.delta',delta:'{"kind":"outline"}'})+event('response.completed',{type:'response.completed',response:{status:'completed',usage:{input_tokens:31,output_tokens:7},output:[{type:'message',content:[{type:'output_text',text:'{"kind":"outline"}'}]}]}}),{headers:{'Content-Type':'text/event-stream'}});}
     if(url===`${issuer}/api/accounts/oauth/revoke`){if(delayRevoke)await delayRevoke();revokeCount++;return new Response(null,{status:200});}
     throw new Error(`unexpected mock request ${method} ${url}`);
   };
@@ -53,7 +53,7 @@ async function setup(){
   };
   options.fetcher=effectiveFetcher;
   const client=await new ChatGptSubscription(directory,options).load();
-  return {directory,client,opened,calls,memory,get oauthCount(){return oauthCount;},get modelsCount(){return modelsCount;},get completionCount(){return completionCount;},get revokeCount(){return revokeCount;},get clock(){return clock;},set clock(value:number){clock=value;},set failRefresh(value:boolean){failRefresh=value;},set delayRevoke(value:(()=>Promise<void>)|undefined){delayRevoke=value;},close:async()=>{client.dispose();await rm(directory,{recursive:true,force:true});}};
+  return {directory,client,opened,calls,payloads,memory,get oauthCount(){return oauthCount;},get modelsCount(){return modelsCount;},get completionCount(){return completionCount;},get revokeCount(){return revokeCount;},get clock(){return clock;},set clock(value:number){clock=value;},set failRefresh(value:boolean){failRefresh=value;},set delayRevoke(value:(()=>Promise<void>)|undefined){delayRevoke=value;},close:async()=>{client.dispose();await rm(directory,{recursive:true,force:true});}};
 }
 async function makeToken(key:import('node:crypto').KeyObject,subject:string,nonce:string){return new SignJWT({nonce,email:'local-test@example.invalid',name:'Mock User'}).setProtectedHeader({alg:'RS256',kid:'isolated-test-key'}).setIssuer(issuer).setAudience(clientId).setIssuedAt().setExpirationTime('5m').setSubject(subject).sign(key);}
 async function callbackFromLogin(urlText:string,code='first-registration'){
@@ -130,4 +130,16 @@ test('Windows protects OAuth vault using DPAPI when available; permissions rejec
     assert.deepEqual(await store.read(),{secret:'mock-refresh-token'});
     if(process.platform!=='win32'){await import('node:fs/promises').then(fs=>fs.chmod(path.join(directory,'chatgpt-login.dat'),0o644));await assert.rejects(store.read(),/権限/);}
   }finally{await rm(directory,{recursive:true,force:true});}
+});
+
+test('pictures of drawn slides go to ChatGPT as input_image parts after the text; text-only requests stay a plain string',async()=>{
+  const f=await setup();try{
+    await f.client.connect({newAccount:true});
+    const {callback}=await callbackFromLogin(f.opened[0]);assert.equal((await fetch(callback)).status,200);
+    const provider=f.client.provider('auto');assert.equal(provider.images,true);
+    await provider.complete({system:'点検',content:'{"request":{"pages":[{"id":"slide-2"}]}}',maxTokens:4000,images:[{mediaType:'image/png',data:'iVBORw0KGgo='}]});
+    assert.deepEqual(f.payloads.at(-1).input,[{role:'user',content:[{type:'input_text',text:'{"request":{"pages":[{"id":"slide-2"}]}}'},{type:'input_image',image_url:'data:image/png;base64,iVBORw0KGgo='}]}]);
+    await provider.complete({system:'構成',content:'テスト資料',maxTokens:4000});
+    assert.deepEqual(f.payloads.at(-1).input,[{role:'user',content:'テスト資料'}]);
+  }finally{await f.close();}
 });

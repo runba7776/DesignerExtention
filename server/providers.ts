@@ -2,9 +2,10 @@ import type { Settings, Usage } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import { validateLocalEndpoint } from './settings.js';
 
-export interface CompletionRequest { system: string; content: string; maxTokens: number }
+/** images: pictures sent with the text (drawn slides); only a provider with images:true takes them. */
+export interface CompletionRequest { system: string; content: string; maxTokens: number; images?: {mediaType:'image/png';data:string}[] }
 export interface Completion { text: string; usage: Usage }
-export interface Provider { complete(request: CompletionRequest): Promise<Completion> }
+export interface Provider { complete(request: CompletionRequest): Promise<Completion>; images?: boolean }
 export const emptyUsage = (): Usage => ({ calls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
 export class OutputLimitError extends AppError {
   constructor(public usage:Usage,public partialText:string){super(422,'LLMの返答が出力上限で途中終了しました。入力の文字数制限とは別の上限です。','OUTPUT_LIMIT');}

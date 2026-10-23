@@ -13,8 +13,28 @@ const hex = (color: string | undefined, fallback = '000000') => (color && /^#[0-
 const safeFont = (font: string | undefined) => (font ?? 'Yu Gothic').replace(/[&<>"]/g, '');
 const japanese = /[　-ヿ㐀-鿿＀-￯]/;
 
-function addText(slide: Slide, e: Pick<TextElement, 'x' | 'y' | 'w' | 'h' | 'text' | 'fontSize' | 'color' | 'bold' | 'align' | 'font' | 'fontFarEast' | 'noWrap' | 'italic' | 'verticalAlign' | 'lineHeight'>, valign: 'top' | 'middle' | 'bottom' = e.verticalAlign ?? 'top', margin = 0) {
-  slide.addText(e.text, {
+/** A text with coloured or bold parts (runs, such as the blanks still to fill) as PowerPoint text runs, line by line. */
+function textRuns(e: Pick<TextElement, 'text' | 'runs'>) {
+  type Run = { text: string; options: { color?: string; bold?: boolean; breakLine?: boolean } };
+  const out: Run[] = [], lines = e.text.split('\n');
+  let start = 0;
+  lines.forEach((line, index) => {
+    const cuts = [...new Set([0, line.length, ...(e.runs ?? []).flatMap(run => [run.start - start, run.start + run.length - start]).filter(at => at > 0 && at < line.length)])].sort((a, b) => a - b);
+    const parts: Run[] = [];
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const from = cuts[i], to = cuts[i + 1], options: Run['options'] = {};
+      for (const run of e.runs ?? []) if (run.start <= start + from && run.start + run.length >= start + to) { if (run.color) options.color = hex(run.color); if (run.bold !== undefined) options.bold = run.bold; }
+      parts.push({ text: line.slice(from, to), options });
+    }
+    if (!parts.length) parts.push({ text: '', options: {} });
+    if (index < lines.length - 1) parts[parts.length - 1].options.breakLine = true;
+    out.push(...parts);
+    start += line.length + 1;
+  });
+  return out;
+}
+function addText(slide: Slide, e: Pick<TextElement, 'x' | 'y' | 'w' | 'h' | 'text' | 'fontSize' | 'color' | 'bold' | 'align' | 'font' | 'fontFarEast' | 'noWrap' | 'italic' | 'verticalAlign' | 'lineHeight' | 'runs'>, valign: 'top' | 'middle' | 'bottom' = e.verticalAlign ?? 'top', margin = 0) {
+  slide.addText(e.runs?.length ? textRuns(e) : e.text, {
     x: inch(e.x), y: inch(e.y), w: inch(e.w), h: inch(e.h), margin,
     fontFace: safeFont(japanese.test(e.text) ? e.fontFarEast ?? e.font : e.font), fontSize: e.fontSize, color: hex(e.color), bold: !!e.bold, italic: !!e.italic,
     align: e.align ?? 'left', valign, wrap: !e.noWrap, fit: 'none', ...(e.lineHeight ? { lineSpacing: e.lineHeight } : { lineSpacingMultiple: 1.05 }), paraSpaceAfter: 0,

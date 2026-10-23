@@ -36,8 +36,12 @@ export const PLAN_OUTPUT_TOKENS = 16_000;
 export const PLAN_RETRY_OUTPUT_TOKENS = 20_000;
 /** Directions offered at the first outline when the AI designs the slides (see ProposalSet). */
 export const OUTLINE_PROPOSALS = 3;
-/** Smallest text the HTML method accepts (px = pt on the 960x540 slide); the prompts give larger targets. */
-export const MIN_TEXT_SIZE = {presentation: 12, reading: 10} as const;
+/** Smallest text the HTML method accepts (px = pt on the 960x540 slide): body text, and notes the AI marks
+ * as captions (data-role="caption"). Text a little smaller is made larger by the app when the page still fits. */
+export const MIN_TEXT_SIZE = {presentation: {body: 16, caption: 12}, reading: {body: 12, caption: 10}} as const;
+/** Drawn pages shown to the AI in one look, and the answer budget of that look. */
+export const REVIEW_BATCH_SIZE = 4;
+export const REVIEW_OUTPUT_TOKENS = 4_000;
 /** Colors and fonts read from a company PowerPoint theme. Slide text, images and
  * masters are not copied; only the reusable style is stored with a project. */
 export interface TemplateTheme { name:string; source:string; colors:{dk1:string;lt1:string;dk2:string;lt2:string;accent1:string;accent2:string;accent3:string;accent4:string;accent5:string;accent6:string}; fonts:{major:string;minor:string;majorEa?:string;minorEa?:string}; importedAt:string }
@@ -47,7 +51,7 @@ export interface ProjectPrivacy { mode:'full'|'masked'; terms:string[] }
 export interface ProjectProfile {id:string;name:string;audience:string;guidance:string;createdAt:string;updatedAt:string;template?:TemplateTheme;privacy?:ProjectPrivacy}
 /** A ChatGPT/Claude project the user prepared with the AI kit (kitVersion). */
 export interface ChatProjectLink { url:string; kitVersion:string }
-export interface Settings { provider: ProviderKind; model: string; endpoint?: string; mode: OutputMode; hasKey?: boolean; apiKey?: string; themeId?: string; typographyId?:string; slideCount?: number | 'auto'; autoRepair?:boolean; editorialGuide?:boolean; outlineProposals?:boolean; chatService?:ChatService; subscriptionService?:SubscriptionService; preferredDesignId?:string; activeProjectId?:string; chatProjects?:Partial<Record<ChatService,ChatProjectLink>>; chatOpenIn?:'browser'|'app'; designMode?:DesignMode; localModel?:string; targets?:AiTarget[] }
+export interface Settings { provider: ProviderKind; model: string; endpoint?: string; mode: OutputMode; hasKey?: boolean; apiKey?: string; themeId?: string; typographyId?:string; slideCount?: number | 'auto'; autoRepair?:boolean; editorialGuide?:boolean; outlineProposals?:boolean; proposalPreviews?:boolean; visualReview?:boolean; chatService?:ChatService; subscriptionService?:SubscriptionService; preferredDesignId?:string; activeProjectId?:string; chatProjects?:Partial<Record<ChatService,ChatProjectLink>>; chatOpenIn?:'browser'|'app'; designMode?:DesignMode; localModel?:string; targets?:AiTarget[] }
 /** free: the AI designs each slide (positions, shapes, colours). template: the AI
  * picks one of the registered layouts and the app places everything. */
 /** free: the AI places elements by coordinates (JSON). html (trial): the AI writes each page as HTML/CSS and
@@ -61,7 +65,10 @@ export type IconId = 'idea'|'document'|'chart'|'people'|'globe'|'shield'|'calcul
   |'book'|'graduation'|'flask'|'atom'|'geometry'|'puzzle'
   |'leaf'|'recycle'|'energy'|'water'|'sun'|'heart'|'medical'|'accessibility'
   |'factory'|'tools'|'truck'|'train'|'plane'|'shopping'|'package'
-  |'message'|'mail'|'camera'|'pin'|'calendar'|'flag'|'balance';
+  |'message'|'mail'|'camera'|'pin'|'calendar'|'flag'|'balance'
+  |'person'|'family'|'child'|'elder'|'home'|'school'|'food'|'walk'
+  |'warning'|'info'|'question'|'checklist'|'bell'|'megaphone'|'phone'|'pencil'
+  |'fire'|'umbrella'|'exit'|'map'|'bus'|'car'|'bicycle'|'trash'|'key'|'lock'|'star';
 /** refs are 1-based indexes into the slide's sources, shown as citation markers. */
 export interface SlideItem { label: string; description?: string; value?: string; parent?: number; icon?:IconId|'none'; refs?:number[] }
 export type ChartType = 'bar'|'column'|'line'|'pie'|'doughnut'|'stackedBar'|'stackedColumn'|'waterfall';
@@ -96,13 +103,29 @@ export interface OutlineSlide { id: string; title: string; intent: string; layou
 /** Colours an AI chose for one deck while planning it. The app checks contrast and
  * turns them into the deck's own theme (DeckSpec.aiTheme). */
 export interface AiPalette { name?:string; background:string; text:string; muted:string; accent:string; accent2:string; surface?:string; headingFont?:string; bodyFont?:string }
-export interface Outline { title: string; mode: OutputMode; themeId?: string; typographyId?:string; palette?:AiPalette; audience?: string; inputBrief?:string; visualStyle?:string; assumptions: string[]; slides: OutlineSlide[] }
+/** A fact the deck needs that the request and documents do not give (a date, a place, a contact). The AI
+ * names it while planning; the user may answer before the pages are made (value). What is still unknown
+ * is written on the slides as one kind of blank, ［label］, which the app marks, lists and fills. */
+export interface OpenFact { label:string; hint?:string; value?:string }
+export interface Outline { title: string; mode: OutputMode; themeId?: string; typographyId?:string; palette?:AiPalette; audience?: string; inputBrief?:string; visualStyle?:string; assumptions: string[]; openFacts?: OpenFact[]; slides: OutlineSlide[] }
 /** One direction the AI offered before the user picked an outline. typicality is the AI's own
- * estimate (0-1) of how many makers would choose this direction for the same request. */
-export interface OutlineProposal { direction:string; difference:string; typicality:number; outline:Outline }
-/** The directions offered (items), the wider list the AI compared them against (candidates),
- * and the one the user picked (chosen, an index into items). */
-export interface ProposalSet { items:OutlineProposal[]; candidates:{direction:string;typicality:number}[]; chosen?:number }
+ * estimate (0-1) of how many makers would choose this direction for the same request. suitedFor is
+ * where the direction fits best; previewSlide the page that shows its look best; preview the cover and
+ * that page made in advance (or previewError when they could not be made). */
+export interface OutlineProposal { direction:string; difference:string; typicality:number; outline:Outline; suitedFor?:string; previewSlide?:string; preview?:DeckSpec; previewError?:string }
+/** The directions offered (items), the wider list the AI compared them against (candidates), the one
+ * the AI recommends for this request and why, how the app ordered them from the user's earlier
+ * choices (orderNote), the one furthest from those choices (fresh, kept near the top so the picks do
+ * not narrow), and the one the user picked (chosen, an index into items). */
+export interface ProposalSet { items:OutlineProposal[]; candidates:{direction:string;typicality:number}[]; recommended?:number; reason?:string; orderNote?:string; fresh?:number; chosen?:number }
+/** What the AI saw on a drawn page. high problems are fixed automatically (fixed, or unresolved when that
+ * failed); medium and low ones are only shown to the user as hints. */
+export interface ReviewHint { slideId:string; title:string; severity:'high'|'medium'|'low'; what:string; fix:string; unresolved?:boolean; fixed?:boolean }
+/** One look at the drawn pages: how many were seen, which were made again, and the calls it took. */
+export interface ReviewReport { checked:number; fixed:string[]; unresolved:string[]; calls:number }
+/** The look at drawn pages runs after the deck is shown (pending until then). versions keeps each remade
+ * page before and after, and which one the deck uses, so the user can go back. */
+export interface PolishState { state:'pending'|'done'|'failed'|'skipped'; variantId?:string; pages?:number; seconds?:number; versions?:Record<string,{before:SlideSpec;after:SlideSpec;applied:'before'|'after'}> }
 export interface ChatMessage { role: 'user' | 'assistant'; text: string }
 export interface Usage { calls: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; estimatedCostUsd?: number }
 export interface RenderResult { artifactId: string; pptxUrl: string; thumbnails: string[]; warnings: string[]; native: boolean }
@@ -129,7 +152,7 @@ export interface RefreshText { id:string; slideId:string; page:number; path:stri
 export interface RefreshPlan { id:string; variantId:string; title:string; documents:{id:string;name:string}[]; previousDocuments:string[]; entries:RefreshEntry[]; texts:RefreshText[]; counts:{changed:number;same:number;review:number;missing:number} }
 /** Kept with a refreshed deck: what changed from the previous report, for the marks in the preview. */
 export interface RefreshSummary { at:string; from:string; documents:string[]; previousDocuments:string[]; changes:{slideId:string;page:number;where:string;before:string;after:string;kind:'text'|'value'}[]; edited:number; unresolved:number }
-export interface Session { targets?:AiTarget[]; sendScope?:SendScope; refresh?:RefreshSummary; id: string; phase: 'clarifying' | 'outline' | 'ready'; messages: ChatMessage[]; outline?: Outline; proposals?: ProposalSet;variants: DeckVariant[]; usage: Usage; warnings: string[]; historyId?:string; savedAt?:string; historySaveError?:string; cloudConsentRequired?:boolean; repairReport?:RepairReport; provider?:ProviderKind; subscriptionService?:SubscriptionService; projectId?:string; chatHandoff?:ChatHandoff; recovery?:{task:'plan'|'generate'|'revise';message:string;retryAvailable:boolean;stage?:'content'|'text-fit';completedSlides?:number;totalSlides?:number;nextBatchSize?:number;slideId?:string} }
+export interface Session { targets?:AiTarget[]; sendScope?:SendScope; refresh?:RefreshSummary; id: string; phase: 'clarifying' | 'outline' | 'ready'; messages: ChatMessage[]; outline?: Outline; proposals?: ProposalSet; reviewHints?: ReviewHint[]; reviewReport?: ReviewReport; polish?: PolishState; variants: DeckVariant[]; usage: Usage; warnings: string[]; historyId?:string; savedAt?:string; historySaveError?:string; cloudConsentRequired?:boolean; repairReport?:RepairReport; provider?:ProviderKind; subscriptionService?:SubscriptionService; projectId?:string; chatHandoff?:ChatHandoff; recovery?:{task:'plan'|'generate'|'revise';message:string;retryAvailable:boolean;stage?:'content'|'text-fit';completedSlides?:number;totalSlides?:number;nextBatchSize?:number;slideId?:string} }
 export interface HistoryEntry { id:string; title:string; createdAt:string; updatedAt:string; slides:number; variants:number; mode:OutputMode; projectId?:string; thumbnail?:string }
 export interface HistoryVersion { revision:number; savedAt:string; title:string; slides:number }
 /** Only reusable visual style is saved here; slide text and source documents are excluded. */
@@ -139,7 +162,9 @@ export interface Feedback { sessionId: string; variantId: string; slideId?: stri
 
 export interface Theme { background: string; foreground: string; muted: string; accent: string; secondary: string; pale: string; font: string; headingFont?:string; numberFont?:string; equationFont?:string; typographyId?:string; itemColors?:string[]; panelStyle?:'tint'|'outline'|'header'; name?:string; description?:string; coverStyle?:'editorial'|'split'|'band'|'block'; headingStyle?:'rule'|'accent'|'band'; tableStyle?:'minimal'|'striped'|'contrast' }
 export interface Rect { x: number; y: number; w: number; h: number }
-export interface TextElement extends Rect { kind: 'text'; text: string; fontSize: number; color: string; font?:string; fontFarEast?:string; role?:'heading'|'body'|'label'|'number'|'equation'; bold?: boolean; italic?:boolean; align?: 'left' | 'center' | 'right'; verticalAlign?:'top'|'middle'|'bottom'; noWrap?:boolean; lineHeight?:number; exact?:boolean; minFontSize?:number; runs?:{start:number;length:number;color?:string;bold?:boolean;italic?:boolean}[] }
+export interface TextElement extends Rect { kind: 'text'; text: string; fontSize: number; color: string; font?:string; fontFarEast?:string; role?:'heading'|'body'|'label'|'number'|'equation'; bold?: boolean; italic?:boolean; align?: 'left' | 'center' | 'right'; verticalAlign?:'top'|'middle'|'bottom'; noWrap?:boolean; lineHeight?:number; exact?:boolean; minFontSize?:number; runs?:{start:number;length:number;color?:string;bold?:boolean;italic?:boolean}[];
+  /** The colour of the blanks still to fill (［実施日］) in this text; they are also given as runs. */
+  blankColor?:string }
 /** A picture: SVG artwork (inserted as an editable-in-PowerPoint vector image) or PNG data. */
 export interface ImageElement extends Rect { kind: 'image'; svg?: string; png?: string }
 export interface ShapeElement extends Rect { kind: 'shape'; shape: FreeShape; fill: string; stroke?: string; strokeWidth?:number; opacity?:number; radius?:number; rotation?:number }

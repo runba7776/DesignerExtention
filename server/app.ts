@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 import type { DeckSpec, RenderResult } from '../shared/contracts.js';
@@ -36,7 +37,7 @@ export async function createApp(options: AppOptions) {
   if(!projects.list().some(project=>project.id===settings.get().activeProjectId))await settings.update({activeProjectId:DEFAULT_PROJECT_ID});
   const subscriptions = options.subscriptionManager ?? await new SubscriptionManager(options.dataDir).load();
   const providerFactory = options.providerFactory ?? ((current:Settings,key?:string) => current.provider==='subscription' ? subscriptions.createProvider(current) : createProvider(current,key));
-  const engine = new SessionEngine({ settings, projects, dataDir: options.dataDir,artifactRoot:options.artifactRoot, render: options.render, open: options.open, providerFactory, htmlLayout:layoutHtmlSlides, subscriptionBinding:service=>subscriptions.binding(service) });
+  const engine = new SessionEngine({ settings, projects, dataDir: options.dataDir,artifactRoot:options.artifactRoot, render: options.render, open: options.open, providerFactory, htmlLayout:layoutHtmlSlides, showcase:()=>readFile(path.join(options.webRoot,'showcase','showcase.json'),'utf8').then(JSON.parse), subscriptionBinding:service=>subscriptions.binding(service) });
   const assist = new AssistService({ settings, projects, providerFactory, render: options.render });
   await engine.loadPreferences();
   const documents = new Map<string, { document: ParsedDocument; createdAt: number }>();

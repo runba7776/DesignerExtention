@@ -1,4 +1,4 @@
-import type { AiPalette,ChartSpec,ChartType,DeckSpec,FreeDesign,FreeElement,IconId,Outline,OutlineProposal, SlideSpec, SourceRef, Theme } from '../shared/contracts.js';
+import type { AiPalette,ChartSpec,ChartType,DeckSpec,FreeDesign,FreeElement,IconId,OpenFact,Outline,OutlineProposal, SlideSpec, SourceRef, Theme } from '../shared/contracts.js';
 import {colorTokens,freeShapes,FREE_LAYOUT_ID,FOOTER_TOP,SLIDE_H,SLIDE_W} from '../shared/free-design.js';
 import {dummyText,type DesignPacket,type SlotContent} from '../shared/confidential.js';
 import { AppError } from './errors.js';
@@ -9,6 +9,7 @@ import {AI_THEME_ID} from '../shared/ai-theme.js';
 import {typographyProfiles} from '../shared/typography.js';
 import {iconCatalog} from '../shared/icons.js';
 import {chartCatalog,chartDataProblem} from '../shared/charts.js';
+import {blankLabel} from '../shared/blanks.js';
 
 // Kept separate from orchestration so additional layout grammars can be registered centrally.
 export const SUPPORTED_LAYOUTS = listLayouts().map((entry) => entry.id);
@@ -30,7 +31,24 @@ export function validateOutline(value: unknown): Outline {
   if (slides.length < 2) bad(`表紙を含め2〜${MAX_SLIDES}枚にしてください`);
   if (slides[0].layoutId !== 'cover') bad('1枚目は表紙です');
   if (slides.slice(1).some((slide) => slide.layoutId === 'cover')) bad('表紙は1枚目だけです');
-  return { title: text(data.title, '資料名', 100)!, mode: mode(data.mode), ...(data.themeId&&data.themeId!==AI_THEME_ID?{themeId:validateTheme(data.themeId)}:{}), ...(data.typographyId?{typographyId:validateTypography(data.typographyId)}:{}), ...(data.inputBrief?{inputBrief:text(data.inputBrief,'確認用の条件',6000)!}:{}),...(data.visualStyle?{visualStyle:text(data.visualStyle,'デザインの方針',600)!}:{}),...(palette(data.palette)?{palette:palette(data.palette)}:{}), audience: text(data.audience, '対象者', 150, true), assumptions: stringList(data.assumptions ?? [], '前提', 8, 250), slides };
+  const facts = openFacts(data.openFacts);
+  return { title: text(data.title, '資料名', 100)!, mode: mode(data.mode), ...(data.themeId&&data.themeId!==AI_THEME_ID?{themeId:validateTheme(data.themeId)}:{}), ...(data.typographyId?{typographyId:validateTypography(data.typographyId)}:{}), ...(data.inputBrief?{inputBrief:text(data.inputBrief,'確認用の条件',6000)!}:{}),...(data.visualStyle?{visualStyle:text(data.visualStyle,'デザインの方針',600)!}:{}),...(palette(data.palette)?{palette:palette(data.palette)}:{}), audience: text(data.audience, '対象者', 150, true), assumptions: stringList(data.assumptions ?? [], '前提', 8, 250), ...(facts.length?{openFacts:facts}:{}), slides };
+}
+
+/** The facts the deck needs that the request and documents do not give. Malformed entries are skipped
+ * (the blanks on the slides still list them); names are kept without the blank's brackets. */
+function openFacts(value:unknown):OpenFact[]{
+  if(!Array.isArray(value))return [];
+  const seen=new Set<string>(),out:OpenFact[]=[];
+  for(const entry of value.slice(0,8)){
+    if(!entry||typeof entry!=='object')continue;
+    const raw=entry as Record<string,unknown>,label=typeof raw.label==='string'?blankLabel(raw.label.replace(/[［］\[\]]/g,'')).slice(0,16):'';
+    if(!label||seen.has(label))continue;seen.add(label);
+    const hint=typeof raw.hint==='string'&&raw.hint.trim()?raw.hint.trim().slice(0,60):undefined,given=typeof raw.value==='string'&&raw.value.trim()?raw.value.trim().replace(/[［］]/g,'').slice(0,80):undefined;
+    out.push({label,...(hint?{hint}:{}),...(given?{value:given}:{})});
+    if(out.length>=6)break;
+  }
+  return out;
 }
 
 /** The AI's palette for the deck. A malformed one is ignored (the theme is used
@@ -315,23 +333,44 @@ export function validatePlanResponse(value: unknown, proposals?: (outline: Outli
   bad(proposals ? 'kindはquestions・outline・proposalsのどれかです' : 'kindはquestionsまたはoutlineです');
 }
 
+/** The AI's look at drawn pages. Only the pages that were shown count; a malformed finding is
+ * skipped instead of refusing the whole answer (the look is extra, never required). */
+export function validateReview(value: unknown, ids: string[]): { id: string; problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string }[] }[] {
+  const data = object(value, '点検の応答');
+  return array(data.pages, '点検したページ', ids.length + 2).flatMap((entry: unknown) => {
+    if (!entry || typeof entry !== 'object' || !ids.includes((entry as any).id)) return [];
+    const page = entry as Record<string, any>;
+    const problems = (Array.isArray(page.problems) ? page.problems : []).flatMap((p: any) =>
+      p && ['high', 'medium', 'low'].includes(p.severity) && typeof p.what === 'string' && p.what.trim() ? [{ severity: p.severity, what: p.what.trim().slice(0, 80), fix: typeof p.fix === 'string' ? p.fix.trim().slice(0, 120) : '' }] : []).slice(0, 3);
+    return [{ id: String(page.id), problems }];
+  });
+}
+
 /** A direction whose outline fails a check is left out with its reason; the response is
  * refused only when no direction is usable. */
 function validateProposals(data: Record<string, any>, check: (outline: Outline) => void) {
-  const items: OutlineProposal[] = [], problems: AppError[] = [];
-  for (const entry of array(data.proposals, '構成案の候補', 5)) {
+  const items: OutlineProposal[] = [], problems: AppError[] = [], kept: number[] = [];
+  array(data.proposals, '構成案の候補', 5).forEach((entry, index) => {
     try {
       const proposal = object(entry, '構成案の候補');
       const outline = validateOutline(proposal.outline); check(outline);
-      items.push({ direction: text(proposal.direction, '方向の名前', 40)!, difference: text(proposal.difference, 'ほかの案との違い', 200, true) ?? '', typicality: likelihood(proposal.typicality), outline });
+      const suitedFor = typeof proposal.suitedFor === 'string' && proposal.suitedFor.trim() ? proposal.suitedFor.trim().slice(0, 40) : undefined;
+      // The page shown as the direction's sample besides the cover: the AI's pick, else a middle page.
+      const pages = outline.slides.filter((s) => s.layoutId !== 'cover');
+      const previewSlide = pages.some((s) => s.id === proposal.previewSlide) ? String(proposal.previewSlide) : pages[Math.floor(pages.length / 2)]?.id;
+      items.push({ direction: text(proposal.direction, '方向の名前', 40)!, difference: text(proposal.difference, 'ほかの案との違い', 200, true) ?? '', typicality: likelihood(proposal.typicality), ...(suitedFor ? { suitedFor } : {}), ...(previewSlide ? { previewSlide } : {}), outline });
+      kept.push(index);
     } catch (error) { if (!(error instanceof AppError)) throw error; problems.push(error); }
-  }
+  });
   if (!items.length) throw problems[0] ?? bad('構成案の候補がありません');
+  // The recommendation points into the reply; after dropping unusable directions it points into items.
+  const recommended = Number.isInteger(data.recommended) && kept.includes(data.recommended) ? kept.indexOf(data.recommended) : undefined;
+  const reason = recommended !== undefined && typeof data.reason === 'string' && data.reason.trim() ? data.reason.trim().slice(0, 120) : undefined;
   // The wider list the AI compared is shown for reference only; a malformed entry is skipped.
   const candidates = (Array.isArray(data.candidates) ? data.candidates.slice(0, 8) : []).flatMap((entry: unknown) => {
     try { const c = object(entry, '比べた方向'); return [{ direction: text(c.direction, '比べた方向', 40)!, typicality: likelihood(c.typicality) }]; } catch { return []; }
   });
-  return { items, candidates, problems };
+  return { items, candidates, problems, ...(recommended !== undefined ? { recommended } : {}), ...(reason ? { reason } : {}) };
 }
 /** The AI's estimate of how often a direction is chosen, 0-1 (a percentage is accepted). */
 function likelihood(value: unknown): number {

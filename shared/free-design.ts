@@ -24,6 +24,9 @@ export function resolveColor(theme:Theme,value:string|undefined,fallback:string)
 /** The slide's own background colour (a full-bleed design background or the theme's). */
 export function designBackground(theme:Theme,design:FreeDesign|undefined){return design?.background?resolveColor(theme,design.background,theme.background):theme.background;}
 export const isDarkColor=(color:string)=>luminance(color)<.2;
+/** One kind of blank for facts still unknown when the deck was made: the item's name in full-width square
+ * brackets, ［実施日］ (see blanks.ts). A browser line break may fall inside one. */
+export const BLANK=/［([^［］]{1,30})］/g;
 
 /** Every visible text of an AI-designed slide, for source checks, notes and text fitting. */
 export function designTexts(slide:Pick<SlideSpec,'design'>):string[]{
@@ -55,6 +58,12 @@ export function designTextBox(e:Extract<FreeElement,{t:'text'}>,design:FreeDesig
 export function designMarkedText(e:Extract<FreeElement,{t:'text'}>,marker:(refs?:number[])=>string){
   return e.role==='number'||e.role==='title'?e.text:e.text+marker(e.refs);
 }
+/** Blanks still to fill (［実施日］) are drawn in one colour that stands out on the page, the same everywhere. */
+function markBlanks(el:TextElement,theme:Theme,ground:string){
+  const found=[...el.text.matchAll(BLANK)];if(!found.length)return;
+  let color=negativeColor(theme);if(contrast(color,ground)<3)color=readableColor(color,ground);
+  el.blankColor=color;el.runs=[...(el.runs??[]),...found.map(m=>({start:m.index!,length:m[0].length,color}))];
+}
 type Helpers={chart:(c:LayoutContext,data:ChartSpec,rect:Rect)=>void;table:(c:LayoutContext,data:TableSpec,rect:Rect,size?:number)=>void;marker:(refs?:number[])=>string;wrap:(text:string,width:number,size:number)=>string[]};
 const roles:Record<string,TextElement['role']>={title:'heading',heading:'label',number:'number',body:'body',caption:'body'};
 
@@ -84,7 +93,8 @@ export function drawDesign(c:LayoutContext,design:FreeDesign,helpers:Helpers){
       let color=resolveColor(theme,e.color,theme.foreground);
       if(color==='none'||contrast(color,ground)<(e.size>=24?3:4.5))color=readableColor(color==='none'?theme.foreground:color,ground);
       const length=e.text.length,runs=(e.runs??[]).filter(run=>run.s+run.l<=length).map(run=>({start:run.s,length:run.l,...(run.color?{color:resolveColor(theme,run.color,color)}:{}),...(run.bold!==undefined?{bold:run.bold}:{}),...(run.italic!==undefined?{italic:run.italic}:{})}));
-      c.scene.elements.push({kind:'text',x:e.x,y:e.y,w:e.w,h:e.h,text:e.text,fontSize:e.size,color,...fontFor(theme,roles[e.role??'body']),...(e.font?{font:e.font,fontFarEast:e.fontFarEast??e.font}:{}),...(runs.length?{runs}:{}),bold:!!e.bold,...(e.italic?{italic:true}:{}),align:e.align==='c'?'center':e.align==='r'?'right':'left',noWrap:true,exact:true,...(e.lh?{lineHeight:e.lh}:{}),role:roles[e.role??'body'],font:e.role==='number'?theme.numberFont??theme.font:e.role==='title'||e.role==='heading'?theme.headingFont??theme.font:theme.font,fontFarEast:e.role==='title'||e.role==='heading'?theme.headingFont??theme.font:theme.font});
+      const el:TextElement={kind:'text',x:e.x,y:e.y,w:e.w,h:e.h,text:e.text,fontSize:e.size,color,...fontFor(theme,roles[e.role??'body']),...(e.font?{font:e.font,fontFarEast:e.fontFarEast??e.font}:{}),...(runs.length?{runs}:{}),bold:!!e.bold,...(e.italic?{italic:true}:{}),align:e.align==='c'?'center':e.align==='r'?'right':'left',noWrap:true,exact:true,...(e.lh?{lineHeight:e.lh}:{}),role:roles[e.role??'body'],font:e.role==='number'?theme.numberFont??theme.font:e.role==='title'||e.role==='heading'?theme.headingFont??theme.font:theme.font,fontFarEast:e.role==='title'||e.role==='heading'?theme.headingFont??theme.font:theme.font};
+      markBlanks(el,theme,ground);c.scene.elements.push(el);
     }
     else if(e.t==='text'){
       const ground=under(e.x+e.w/2,e.y+Math.min(e.h,e.size*1.4)/2);
@@ -97,7 +107,8 @@ export function drawDesign(c:LayoutContext,design:FreeDesign,helpers:Helpers){
       const added=c.scene.elements[count];
       if(added?.kind==='text'){if(e.va&&e.va!=='t')added.verticalAlign=e.va==='m'?'middle':'bottom';if(e.italic)added.italic=true;
         // A font the AI chose for this text; one the PC may not have becomes the nearest standard font.
-        if(e.font){added.font=resolveFont(e.font,added.font??theme.font);added.fontFarEast=resolveFont(e.fontFarEast??e.font,added.fontFarEast??theme.font);}}
+        if(e.font){added.font=resolveFont(e.font,added.font??theme.font);added.fontFarEast=resolveFont(e.fontFarEast??e.font,added.fontFarEast??theme.font);}
+        markBlanks(added,theme,ground);}
     }
   }
 }

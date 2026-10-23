@@ -27,10 +27,18 @@ test('a large figure of only lines and a frame is reported as empty; connectors 
   assert.ok(!connectors.problems.some(p=>/図に中身がありません/.test(p)),JSON.stringify(connectors.problems));
 });
 
-test('text below the smallest size of the mode is reported',{skip:!findBrowser()},async()=>{
+test('text below the smallest size of the mode is made that size when the page still fits, else reported; captions have their own size',{skip:!findBrowser()},async()=>{
+  const reading={body:12,caption:10};
   const small=label(56,120,'本文').replace('font-size:16px','font-size:10px');
-  assert.ok((await read(small,{minTextSize:12})).problems.some(p=>/文字が小さすぎます（「本文」、10px）。この資料では文字を12px以上/.test(p)));
-  assert.deepEqual((await read(small,{minTextSize:10})).problems,[],'10px is allowed in a reading deck');
+  const grown=await read(small,{minTextSize:reading});
+  assert.deepEqual(grown.problems,[]);assert.equal(grown.grown,true);
+  assert.equal(grown.elements.find(e=>e.t==='text'&&e.text==='本文')!.size,12,'made the smallest body size, without the AI');
+  const boxed='<div style="position:absolute;left:56px;top:120px;width:200px;height:28px;overflow:hidden"><p style="margin:0;font-size:10px;line-height:14px">一行目<br>二行目</p></div>';
+  const kept=await read(boxed,{minTextSize:reading});
+  assert.equal(kept.grown,undefined);
+  assert.ok(kept.problems.some(p=>/文字が小さすぎます（「一行目二行目」、10px）。この資料では、本文を12px以上、注記（data-role="caption"）を10px以上/.test(p)),JSON.stringify(kept.problems));
+  const caption=label(56,120,'注記').replace('font-size:16px','font-size:11px').replace('<p ','<p data-role="caption" ');
+  assert.deepEqual((await read(caption,{minTextSize:reading})).problems,[],'a caption may be smaller than body text');
   assert.deepEqual((await read(small)).problems,[],'no minimum given, nothing reported');
 });
 
@@ -46,11 +54,22 @@ test('text running a little past the bottom is made smaller in the browser inste
   assert.equal(crossed.fitted,undefined);assert.ok(crossed.problems.some(p=>/重なっています/.test(p)),'overlapping text is not fitted');
 });
 
+test('text running into a note below is fitted the same way, and fitting may take body text 2px below the smallest size, not further',{skip:!findBrowser()},async()=>{
+  const presentation={body:16,caption:12};
+  const block=(size:number,line:number)=>`<p style="position:absolute;left:56px;top:300px;width:840px;margin:0;font-size:${size}px;line-height:${line}px">${Array.from({length:5},(_,i)=>`${i+1}行目の説明です`).join('<br>')}</p>`;
+  const note='<p style="position:absolute;left:56px;top:412px;margin:0;font-size:18px">補足の注記</p>';
+  const fitted=await read(block(20,27)+note,{minTextSize:presentation});
+  assert.deepEqual(fitted.problems,[]);assert.ok(fitted.fitted&&fitted.fitted>=.85,String(fitted.fitted));
+  const tight=await read(block(16,26)+note.replace('top:412px','top:400px').replace('18px','16px'),{minTextSize:presentation});
+  assert.ok(tight.problems.some(p=>/重なっています/.test(p)),JSON.stringify(tight.problems));
+  assert.equal(tight.fitted,undefined,'16px made 85% (13.6px) is below 14px: left to the AI');
+});
+
 test('the instructions give text size targets per mode, ask for figures with content, and make the three directions differ',()=>{
   const html=freeSystemPrompt('generate',{format:'html',outputMode:'presentation'}),reading=freeSystemPrompt('generate',{format:'html',outputMode:'reading'}),json=freeSystemPrompt('generate',{outputMode:'presentation'});
-  assert.match(html,/本文16px以上・注記12px以上を目安にします（12px未満の文字は直すよう依頼します）/);
-  assert.match(reading,/本文12px以上・注記10px以上を目安にします（10px未満の文字は直すよう依頼します）。読む資料でも、1ページの文章は見出しの付いた3つまでのまとまりにします/);
-  assert.match(json,/本文16pt以上・注記12pt以上を目安にします。/);assert.doesNotMatch(json,/pt未満の文字は直すよう依頼/);
+  assert.match(html,/本文16px以上・注記12px以上を目安にします。注記（補足、図の目盛りや小さなラベル）の要素にはdata-role="caption"を付けます。data-role="caption"のない文字が16px未満、注記が12px未満のときは、アプリが大きくするか、直すよう依頼します。/);
+  assert.match(reading,/本文12px以上・注記10px以上を目安にします。.*注記が10px未満のときは、アプリが大きくするか、直すよう依頼します。読む資料でも、1ページの文章は見出しの付いた3つまでのまとまりにします/);
+  assert.match(json,/本文16pt以上・注記12pt以上を目安にします。/);assert.doesNotMatch(json,/アプリが大きくするか/);
   for(const prompt of [html,reading,json])assert.match(prompt,/図は中身まで描きます。軸や枠だけの図にせず/);
   const plan=freeSystemPrompt('plan',{proposals:3});
   assert.match(plan,/題材の選び方・話の順序・見せ方の型のうち、少なくとも2つが異なる/);
@@ -73,7 +92,7 @@ test('the app passes the smallest size of the mode and tells the user when a pag
     }})});
     const session=await engine.create({prompt:'2枚',mode:'reading',cloudConsent:true},[]);
     const ready=await engine.generate(session.id);
-    assert.equal(ready.phase,'ready');assert.equal(seen[0].minTextSize,10);
+    assert.equal(ready.phase,'ready');assert.deepEqual(seen[0].minTextSize,{body:12,caption:10});
     assert.ok(ready.warnings.some(w=>/「本文」は文字が下端に少しはみ出したため、文字を90%に縮めて収めました（AIは呼び出していません）/.test(w)),JSON.stringify(ready.warnings));
   }finally{await rm(dir,{recursive:true,force:true});}
 });

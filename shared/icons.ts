@@ -6,7 +6,10 @@ export const iconCatalog:Record<IconId,string>={idea:'アイデア・発想',doc
   book:'本・学習',graduation:'学校・進学',flask:'化学・実験',atom:'物理・原子',geometry:'図形・幾何',puzzle:'組み合わせ・パズル',
   leaf:'自然・環境',recycle:'再利用・資源循環',energy:'電力・エネルギー',water:'水・水資源',sun:'太陽・太陽光',heart:'健康・ケア',medical:'医療・病院',accessibility:'利用しやすさ・バリアフリー',
   factory:'製造・工場',tools:'修理・保守',truck:'物流・配送',train:'鉄道・交通',plane:'航空・旅行',shopping:'買い物・小売',package:'製品・荷物',
-  message:'対話・発信',mail:'メール・連絡',camera:'写真・撮影',pin:'場所・拠点',calendar:'暦・日付',flag:'節目・開始',balance:'法務・公平'};
+  message:'対話・発信',mail:'メール・連絡',camera:'写真・撮影',pin:'場所・拠点',calendar:'暦・日付',flag:'節目・開始',balance:'法務・公平',
+  person:'人・利用者',family:'家族・世帯',child:'子ども',elder:'高齢者',home:'家・住まい',school:'学校・教育施設',food:'食事・給食',walk:'徒歩・移動・避難',
+  warning:'注意・危険',info:'お知らせ・案内',question:'質問・疑問',checklist:'チェックリスト・手順',bell:'通知・呼び出し',megaphone:'広報・呼びかけ',phone:'電話・問い合わせ',pencil:'記入・作成',
+  fire:'火災・火気',umbrella:'雨・天候',exit:'出口・避難口',map:'地図・経路',bus:'バス・送迎',car:'車・自動車',bicycle:'自転車',trash:'ごみ・廃棄',key:'鍵・権限',lock:'施錠・保護',star:'重要・評価'};
 export const iconGroups:Record<string,IconId[]>={
   '仕事・情報':['idea','document','chart','people','globe','shield','clock','target','building','coins','search'],
   'IT・技術':['laptop','smartphone','server','database','cloud','network','code','chip'],
@@ -15,6 +18,9 @@ export const iconGroups:Record<string,IconId[]>={
   '健康・暮らし':['heart','medical','accessibility'],
   '産業・移動':['factory','tools','truck','train','plane','shopping','package'],
   '対話・場所':['message','mail','camera','pin','calendar','flag','balance'],
+  '人・暮らし':['person','family','child','elder','home','school','food','walk'],
+  '案内・注意':['warning','info','question','checklist','bell','megaphone','phone','pencil','star'],
+  '安全・移動':['fire','umbrella','exit','map','bus','car','bicycle','trash','key','lock'],
 };
 export function resolveItemIcon(item:SlideItem):IconId|undefined {
   if(item.icon==='none')return undefined;
@@ -29,6 +35,7 @@ export function resolveItemIcon(item:SlideItem):IconId|undefined {
     [/リサイクル|再利用|資源循環|\brecycl/i,'recycle'],[/太陽|ソーラー|\bsolar\b/i,'sun'],[/水資源|水道|水質|\bwater\b/i,'water'],[/電力|エネルギー|電池|\benergy\b/i,'energy'],[/環境|自然|森林|\becology\b/i,'leaf'],
     [/医療|病院|医師|\bmedical\b/i,'medical'],[/健康|ケア|福祉|\bhealth\b/i,'heart'],[/工場|製造|生産設備|\bfactory\b/i,'factory'],[/修理|保守|メンテナンス|\brepair\b/i,'tools'],
     [/物流|配送|トラック|\blogistics\b/i,'truck'],[/鉄道|電車|\btrain\b/i,'train'],[/航空|飛行機|旅行|\btravel\b/i,'plane'],[/小売|買い物|店舗|\bretail\b/i,'shopping'],[/製品|商品|荷物|\bpackage\b/i,'package'],
+    [/避難|防災|非常口|\bexit\b/i,'exit'],[/火災|火気|消火|\bfire\b/i,'fire'],[/注意|危険|警告|\bwarning\b/i,'warning'],[/電話|問い合わせ|問合せ|\bphone\b/i,'phone'],[/家族|世帯|保護者|\bfamily\b/i,'family'],[/子ども|子供|児童|\bchild/i,'child'],[/高齢|シニア|\belder/i,'elder'],[/住まい|住宅|自宅|\bhome\b/i,'home'],[/食事|給食|料理|\bfood\b/i,'food'],[/地図|経路|ルート|\bmap\b/i,'map'],[/バス|送迎|\bbus\b/i,'bus'],[/自転車|\bbicycle\b/i,'bicycle'],[/ごみ|廃棄|\btrash\b/i,'trash'],
     [/メール|\be-?mail\b/i,'mail'],[/写真|撮影|\bcamera\b/i,'camera'],[/対話|会話|コミュニケーション|\bchat\b/i,'message'],[/拠点|所在地|場所|\blocation\b/i,'pin'],[/日付|カレンダー|\bcalendar\b/i,'calendar'],[/節目|開始地点|\bmilestone\b/i,'flag'],[/法務|法律|公平|\blegal\b/i,'balance'],
     [/為替|地域|海外|国際|日本|アジア|北米|欧州|\bglobal\b/i,'globe'],[/売上|収益|利益|費用|経費|原価|資産|資本|現金|財務|金額|自己株式|キャッシュ|\b(?:CF|cash|revenue)\b/i,'coins'],[/時間|日程|予定|スケジュール|\bschedule\b/i,'clock'],[/顧客|人材|チーム|学生|\b(?:people|team)\b/i,'people'],[/資料|文書|記録|\bdocument\b/i,'document'],[/分析|グラフ|統計|\b(?:chart|analysis)\b/i,'chart'],[/企業|会社|組織|\bcompany\b/i,'building'],[/調査|確認|検証|\bsearch\b/i,'search'],[/目標|目的|\b(?:goal|target)\b/i,'target'],[/発想|アイデア|\bidea\b/i,'idea']];
   return rules.find(([pattern])=>pattern.test(item.label))?.[1];
@@ -87,6 +94,46 @@ export function iconElements(id:IconId,rect:Rect,color:string):SceneElement[] {
     case 'calendar':box(2,4,20,18,'roundRect');line(2,9,22,9);line(7,1,7,6);line(17,1,17,6);for(const y of [13,17])for(const x of [6,11,16])box(x,y,2,2);break;
     case 'flag':line(4,2,4,23);line(4,3,20,3);line(20,3,16,8);line(16,8,20,13);line(20,13,4,13);line(1,23,8,23);break;
     case 'balance':line(12,2,12,22);line(5,22,19,22);line(3,6,21,6);line(6,6,2,15);line(6,6,10,15);line(2,15,10,15);line(18,6,14,15);line(18,6,22,15);line(14,15,22,15);break;
+    case 'person':box(8,2,8,8,'ellipse');box(5,12,14,10,'roundRect');break;
+    case 'family':box(3,2,5,5,'ellipse');box(2,9,7,13,'roundRect');box(16,2,5,5,'ellipse');box(15,9,7,13,'roundRect');box(10,10,4,4,'ellipse');box(9.5,15,5,7,'roundRect');break;
+    case 'child':box(4,7,7,7,'ellipse');box(3,15,9,7,'roundRect');box(15,1,7,8,'ellipse');outline([[18.5,9],[17,12],[11,16]]);break;
+    case 'elder':box(6,2,6,6,'ellipse');outline([[9,9],[8,15],[9,22]]);line(8,15,6,22);line(8.5,12,14,14);line(14,14,15,22);line(14,14,16,13);break;
+    case 'home':outline([[2,11],[12,3],[22,11]]);box(5,10,14,12);box(10,15,4,7);break;
+    case 'school':outline([[2,11],[12,5],[22,11]]);box(2,11,20,11);line(12,5,12,1);outline([[12,1],[17,2],[12,3]]);box(10,16,4,6);box(4,14,3,3);box(17,14,3,3);break;
+    case 'food':outline([[3,12],[21,12],[19,18],[15,21],[9,21],[5,18],[3,12]]);line(13,2,17,11);line(17,2,20,10);break;
+    case 'walk':box(12,1,4,4,'ellipse');line(13,6,11,13);line(12,8,16,11);line(12,8,8,11);line(11,13,15,22);line(11,13,7,22);break;
+    case 'warning':outline([[12,2],[22,21],[2,21],[12,2]]);line(12,8,12,15);box(11,17,2,2,'ellipse',color);break;
+    case 'info':box(2,2,20,20,'ellipse');box(11,6,2,2,'ellipse',color);line(12,10,12,18);break;
+    case 'question':box(2,2,20,20,'ellipse');outline([[8.5,9],[9.5,6.5],[12,5.5],[14.5,6.5],[15.5,9],[14,11],[12,12.5],[12,15]]);box(11,17,2,2,'ellipse',color);break;
+    case 'checklist':box(4,3,16,19,'roundRect');box(8,1,8,4,'roundRect');for(const y of [10,16]){line(7,y,8.5,y+1.5);line(8.5,y+1.5,11,y-1.5);line(13,y,17,y);}break;
+    case 'bell':outline([[6,17],[6,10],[8,5],[12,3],[16,5],[18,10],[18,17],[20,19],[4,19],[6,17]]);box(10.5,19.5,3,3,'ellipse');line(12,1,12,3);break;
+    case 'megaphone':outline([[3,9],[13,9],[21,3],[21,21],[13,15],[3,15],[3,9]]);line(13,9,13,15);line(7,15,9,21);break;
+    case 'phone':outline([[6,2],[9,2],[11,7],[9,9],[11,13],[15,15],[17,13],[22,15],[22,18],[19,22],[15,21],[9,17],[5,12],[3,7],[3,5],[6,2]]);break;
+    case 'pencil':outline([[16,2],[22,8],[9,21],[3,21],[3,15],[16,2]]);line(13,5,19,11);break;
+    case 'fire':outline([[12,1],[16,6],[18,11],[17,17],[13,22],[8,21],[5,17],[6,11],[9,8],[10,12],[12,9],[12,1]]);break;
+    case 'umbrella':outline([[1,12],[3,7],[7,3],[12,2],[17,3],[21,7],[23,12],[1,12]]);line(12,2,12,19);outline([[12,19],[12,21],[10,22],[8,21]]);break;
+    case 'exit':box(3,2,11,20);box(10,11,2,2,'ellipse',color);line(13,12,22,12);line(19,9,22,12);line(19,15,22,12);break;
+    case 'map':outline([[2,5],[8,3],[16,6],[22,4],[22,19],[16,21],[8,18],[2,20],[2,5]]);line(8,3,8,18);line(16,6,16,21);break;
+    case 'bus':box(3,2,18,17,'roundRect');box(5,5,14,6);box(6,14,2,2,'ellipse',color);box(16,14,2,2,'ellipse',color);box(5,19,4,4,'ellipse');box(15,19,4,4,'ellipse');break;
+    case 'car':outline([[2,17],[2,12],[5,11],[8,6],[16,6],[19,11],[22,12],[22,17],[2,17]]);line(5,11,19,11);box(4,15,5,5,'ellipse');box(15,15,5,5,'ellipse');break;
+    case 'bicycle':box(1,11,10,10,'ellipse');box(13,11,10,10,'ellipse');outline([[6,16],[10,8],[17,8],[18,16]]);line(6,16,12,16);line(12,16,17,8);line(8,6,12,6);line(10,6,10,8);line(17,8,17,5);line(16,5,19,5);break;
+    case 'trash':line(3,6,21,6);outline([[9,6],[9,3],[15,3],[15,6]]);outline([[5,6],[6,22],[18,22],[19,6]]);line(10,10,10,18);line(14,10,14,18);break;
+    case 'key':box(2,6,10,10,'ellipse');box(5,9,4,4,'ellipse');line(12,11,22,11);line(18,11,18,15);line(21,11,21,14);break;
+    case 'lock':outline([[7,11],[7,7],[9,3],[12,2],[15,3],[17,7],[17,11]]);box(4,11,16,11,'roundRect');box(11,14,2,2,'ellipse',color);line(12,16,12,19);break;
+    case 'star':outline(Array.from({length:11},(_,k)=>{const r=k%2?4.5:10.5,a=(-90+36*k)*Math.PI/180;return [12+r*Math.cos(a),12.5+r*Math.sin(a)];}));break;
   }
   return e;
+}
+/** An icon as SVG, for pages drawn in a browser (the HTML method): the same strokes as its PowerPoint
+ * shapes, in the colour of the text around it (currentColor). */
+export function iconSvg(id:IconId){
+  const n=(v:number)=>Math.round(v*100)/100;
+  const parts=iconElements(id,{x:0,y:0,w:24,h:24},'currentColor').map(e=>{
+    if(e.kind==='line'){const y1=e.flipY?e.y+e.h:e.y,y2=e.flipY?e.y:e.y+e.h;return `<line x1="${n(e.x)}" y1="${n(y1)}" x2="${n(e.x+e.w)}" y2="${n(y2)}"/>`;}
+    if(e.kind!=='shape')return '';
+    const fill=e.fill==='none'?'none':'currentColor';
+    if(e.shape==='ellipse')return `<ellipse cx="${n(e.x+e.w/2)}" cy="${n(e.y+e.h/2)}" rx="${n(e.w/2)}" ry="${n(e.h/2)}" fill="${fill}"/>`;
+    return `<rect x="${n(e.x)}" y="${n(e.y)}" width="${n(e.w)}" height="${n(e.h)}"${e.shape==='roundRect'?` rx="${n(Math.min(e.w,e.h)/6)}"`:''} fill="${fill}"/>`;
+  }).join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${parts}</svg>`;
 }

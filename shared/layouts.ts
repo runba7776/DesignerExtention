@@ -51,15 +51,16 @@ export function textUnits(text:string){return Array.from(text).reduce((sum,char)
 // Line-break units: a number with its magnitude/unit, an English word, or a
 // Japanese phrase (kanji/katakana word + the particles/okurigana after it), so a
 // line never breaks inside 営業利益 or 前年同期比.
-const tokenPattern=/[+−△▲-]?\d+(?:[,.]\d+)*(?:(?:兆|億|万|千)\d+(?:[,.]\d+)*)*(?:兆|億|万|千)?(?:円|ドル|点|%|％|倍|人|社|件|年|月|日|時間|分|秒)?|[A-Za-z]+(?:[-_][A-Za-z0-9]+)*|[\p{Script=Han}\p{Script=Katakana}ー々〆ヶ]+|\p{Script=Hiragana}+|./gu;
-const lineStartForbidden=/^[、。，．・：；！？!?,.)）」』〉》】〕％%⁰¹²³⁴⁵⁶⁷⁸⁹˒]/u, lineEndForbidden=/[（「『〈《【〔(]$/u, joiner=/^[〜～]$/u;
+// A blank still to fill (［実施日］) is one word: it never breaks inside.
+const tokenPattern=/［[^［］\n]{1,30}］|[+−△▲-]?\d+(?:[,.]\d+)*(?:(?:兆|億|万|千)\d+(?:[,.]\d+)*)*(?:兆|億|万|千)?(?:円|ドル|点|%|％|倍|人|社|件|年|月|日|時間|分|秒)?|[A-Za-z]+(?:[-_][A-Za-z0-9]+)*|[\p{Script=Han}\p{Script=Katakana}ー々〆ヶ]+|\p{Script=Hiragana}+|./gu;
+const lineStartForbidden=/^[、。，．・：；！？!?,.)）」』〉》】〕］％%⁰¹²³⁴⁵⁶⁷⁸⁹˒]/u, lineEndForbidden=/[（「『〈《【〔［(]$/u, joiner=/^[〜～]$/u;
 /** A short calculation (101×50, 1+100=101) is kept on one line. */
 const operator=/^[×÷＋+＝=≠−]$/u,inExpression=(previous:string,token:string)=>(operator.test(token)&&/\d$/u.test(previous))||(/^\d/u.test(token)&&/[×÷＋+＝=≠−]$/u.test(previous));
 /** Indivisible parts of a phrase: a word, a number with its unit, or a run of
  * kana (して, から) kept whole; 第1四半期 stays one part. */
 function wordAtoms(phrase:string){
   const atoms:string[]=[];
-  for(const atom of phrase.match(/[+−△▲-]?\d+(?:[,.]\d+)*(?:(?:兆|億|万|千)\d+(?:[,.]\d+)*)*(?:兆|億|万|千)?(?:円|ドル|点|%|％|倍|人|社|件|年|月|日|時間|分|秒)?|[A-Za-z]+(?:[-_][A-Za-z0-9]+)*|[\p{Script=Han}\p{Script=Katakana}ー々〆ヶ]+|\p{Script=Hiragana}+|./gu)??[]){
+  for(const atom of phrase.match(/［[^［］\n]{1,30}］|[+−△▲-]?\d+(?:[,.]\d+)*(?:(?:兆|億|万|千)\d+(?:[,.]\d+)*)*(?:兆|億|万|千)?(?:円|ドル|点|%|％|倍|人|社|件|年|月|日|時間|分|秒)?|[A-Za-z]+(?:[-_][A-Za-z0-9]+)*|[\p{Script=Han}\p{Script=Katakana}ー々〆ヶ]+|\p{Script=Hiragana}+|./gu)??[]){
     const previous=atoms[atoms.length-1];
     if(previous!==undefined&&(lineStartForbidden.test(atom)||lineEndForbidden.test(previous)||inExpression(previous,atom)||(/^\d/u.test(atom)&&/[第約]$/u.test(previous))||(/^\p{Script=Han}/u.test(atom)&&/\d$/u.test(previous))))atoms[atoms.length-1]=previous+atom;else atoms.push(atom);
   }
