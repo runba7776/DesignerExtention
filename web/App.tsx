@@ -22,12 +22,11 @@ import { RehearsalPanel } from './RehearsalPanel';
 import { SourcesDialog } from './SourcesDialog';
 import { AddinGuide } from './AddinGuide';
 import { deckRehearsalSlides } from '../shared/rehearsal';
-import { Icon, Modal, Spinner } from './ui';
+import { Icon, Spinner } from './ui';
 import { SettingsDialog, withProvider } from './SettingsDialog';
 import { SlidePreview } from './SlidePreview';
 import { themes, TEMPLATE_THEME_ID } from '../shared/themes';
 import { AI_THEME_ID } from '../shared/ai-theme';
-import { typographyProfiles } from '../shared/typography';
 import { MAX_SLIDES, APP_VERSION, MAX_PROMPT_CHARACTERS } from '../shared/contracts';
 import { HistoryDialog } from './HistoryDialog';
 import { LayoutDialog } from './LayoutDialog';
@@ -50,7 +49,17 @@ import {
 } from './RoutePanel';
 import { ProposalPicker } from './ProposalPicker';
 import { ReviewHints } from './ReviewHints';
-import { BlankFields, OpenFactsForm } from './BlankFields';
+import { BlankFields } from './BlankFields';
+import { Topbar } from './screen/Topbar';
+import { Intro, SessionHeading } from './screen/SessionHeading';
+import { RecoveryPanel, RepairReportPanel } from './screen/RecoveryPanels';
+import { OutlineSection } from './screen/OutlineSection';
+import { SessionStatus } from './screen/SessionStatus';
+import { OutputStyle, VariantHeadings } from './screen/DeckControls';
+import { SlideGrid } from './screen/SlideGrid';
+import { ExportBar, SourceExport } from './screen/ExportBar';
+import { FeedbackSection } from './screen/FeedbackSection';
+import { CompareDialog, TransmissionDialog } from './screen/Dialogs';
 import { deckBlanks } from '../shared/blanks';
 
 const defaultSettings: Settings = {
@@ -67,8 +76,6 @@ const providerLabel = {
   local: 'ローカル LLM',
   demo: 'サンプル体験',
 };
-const ratingLabels = ['改善が必要', 'やや使いにくい', 'ふつう', '良い', 'とても良い'];
-const feedbackReasons = ['見やすさ', '説明の分かりやすさ', '内容の正確さ', '情報量', '配色・雰囲気'];
 const updateMessage =
   '更新を反映する準備ができました。作成中の資料と入力中の指示・返答を保存してから、Restart-DesignerExtension.cmd を実行し、この画面を開き直してください。';
 const activeSessionStorageKey = 'designer-extension.current-session';
@@ -144,9 +151,6 @@ export default function App() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [dropActive, setDropActive] = useState(false);
-  const [rating, setRating] = useState(0);
-  const [reasons, setReasons] = useState<string[]>([]);
-  const [feedbackSaved, setFeedbackSaved] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState<{ variantId: string; slideId?: string }>();
   const [guideOpen, setGuideOpen] = useState(false);
   const [setupFromHandoff, setSetupFromHandoff] = useState(false);
@@ -331,9 +335,6 @@ export default function App() {
     liveSession.current = next;
     setSession(next);
     if (!next.variants.some(variant => variant.id === selectedVariant)) setSelectedVariant(next.variants[0]?.id ?? '');
-    setFeedbackSaved(false);
-    setRating(0);
-    setReasons([]);
   };
 
   useEffect(() => {
@@ -1016,9 +1017,6 @@ export default function App() {
   }
   function selectVariant(variantId: string) {
     setSelectedVariant(variantId);
-    setFeedbackSaved(false);
-    setRating(0);
-    setReasons([]);
     setSelectedSlide(undefined);
   }
   function revise(variant: DeckVariant, index: number) {
@@ -1045,9 +1043,6 @@ export default function App() {
     setNotice('');
     setCompareIndex(undefined);
     setCloudConsent(false);
-    setRating(0);
-    setReasons([]);
-    setFeedbackSaved(false);
     setLoading(true);
     void api<Settings>('/settings')
       .then(setSettings)
@@ -1095,7 +1090,7 @@ export default function App() {
       setNotice('このPCの履歴に保存しました。');
     });
   }
-  function feedback() {
+  function feedback(rating: number, reasons: string[], saved: () => void) {
     if (!session || !currentVariant || !rating) return;
     void run('評価を保存しています', async signal => {
       await api('/feedback', {
@@ -1108,7 +1103,7 @@ export default function App() {
         }),
         signal,
       });
-      setFeedbackSaved(true);
+      saved();
     });
   }
   function saveDesign(name: string) {
@@ -1440,6 +1435,13 @@ export default function App() {
       local: session.provider === 'local' || !!session.targets?.includes('local'),
       hosted: __HOSTED__,
     });
+  const usageLine = !session
+    ? undefined
+    : isChat
+      ? '有料APIの呼び出し：0回 · ご利用のAIチャットの契約・上限が適用されます。'
+      : session.usage && (phase === 'ready' || session.usage.calls > 0)
+        ? `${activeProvider === 'local' ? 'ローカルLLMの呼び出し' : isSubscription ? `${aiName}の月額版での処理` : '今回のAI呼び出し'}：${session.usage.calls} 回${session.usage.inputTokens + session.usage.outputTokens > 0 ? ` · ${(session.usage.inputTokens + session.usage.outputTokens).toLocaleString()} トークン` : ''} · ${isSubscription ? 'ご契約の利用枠を消費します。' : '有料APIは使用していません。'}`
+        : undefined;
   const conversation = session && session.messages.length > 0 && (
     <div className="conversation">
       {session.messages.map((message, index) => (
@@ -1473,56 +1475,18 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-symbol">
-            <Icon name="slides" size={20} />
-          </span>
-          <div>
-            <div className="brand-name">Designer Extention</div>
-            <div className="brand-caption">FOR POWERPOINT</div>
-          </div>
-        </div>
-        <div className="topbar-right">
-          <button
-            className="project-badge"
-            disabled={!!busy || loading}
-            onClick={() => setProjectsOpen(true)}
-            aria-label={`プロジェクト：${activeProject?.name ?? '選択中'}。プロジェクト管理を開く`}
-          >
-            {activeProject?.name ?? 'プロジェクト'}
-          </button>
-          <button
-            className="button ghost small"
-            disabled={!!busy || loading || updateRequired}
-            onClick={() => setHistoryOpen(true)}
-          >
-            履歴
-          </button>
-          <button
-            className="button ghost small"
-            disabled={!!busy || loading || updateRequired}
-            onClick={() => setDesignsOpen(true)}
-          >
-            <Icon name="star" size={13} />
-            お気に入り
-          </button>
-          <button className="button ghost small" onClick={() => setLayoutPicker('catalog')}>
-            構図一覧
-          </button>
-          <button
-            className="provider-badge"
-            onClick={() => setSettingsOpen(true)}
-            aria-label={`処理先：${providerLabel[activeProvider]}。設定を開く`}
-          >
-            <span className="provider-dot" />
-            {isSubscription ? `${aiName} · 月額版` : isChat ? aiName : providerLabel[activeProvider]}
-          </button>
-          <button className="icon-button" aria-label="設定" onClick={() => setSettingsOpen(true)}>
-            <Icon name="settings" size={20} />
-          </button>
-        </div>
-      </header>
+      <Topbar
+        projectName={activeProject?.name}
+        locked={!!busy || loading}
+        updateRequired={updateRequired}
+        provider={isSubscription ? `${aiName} · 月額版` : isChat ? aiName : providerLabel[activeProvider]}
+        providerLabel={providerLabel[activeProvider]}
+        onProjects={() => setProjectsOpen(true)}
+        onHistory={() => setHistoryOpen(true)}
+        onDesigns={() => setDesignsOpen(true)}
+        onLayouts={() => setLayoutPicker('catalog')}
+        onSettings={() => setSettingsOpen(true)}
+      />
       <main className={`workspace ${!session ? 'empty' : ''}`}>
         {updateRequired && (
           <p className="update-notice" role="status">
@@ -1538,60 +1502,9 @@ export default function App() {
           </p>
         )}
         {!session ? (
-          <div className="intro">
-            <div className="eyebrow">FROM THOUGHT TO SLIDE</div>
-            <h1>
-              伝えたいことを、
-              <br />
-              伝わるスライドに。
-            </h1>
-            <p>
-              資料からも、ひとつのアイデアからも。
-              <br />
-              対話で構成を整え、見やすいプレゼンテーションへ。
-            </p>
-          </div>
+          <Intro />
         ) : (
-          <>
-            <div className="active-header">
-              <div>
-                <div className="eyebrow">YOUR PRESENTATION</div>
-                <h1>{selectedDeckTitle ?? '伝える順序を、一緒に整える。'}</h1>
-                <p>
-                  {phase === 'ready'
-                    ? 'スライドを選んで拡大。気になる部分は、指示して修正できます。'
-                    : session.recovery
-                      ? '指示と資料を保持しています。下の案内から再開できます。'
-                      : phase === 'outline'
-                        ? '構成を確認してください。変更したいところは、プロンプトから伝えられます。'
-                        : 'より伝わる資料にするために、少しだけ確認させてください。'}
-                </p>
-              </div>
-              <button type="button" className="button ghost small" onClick={reset} disabled={!!busy}>
-                <Icon name="plus" size={14} />
-                新しく作成
-              </button>
-            </div>
-            <div className="stage-line" aria-label="作成の進捗">
-              <span className={phase === 'clarifying' ? 'current' : 'done'}>01 内容を整理</span>
-              <i />
-              <span
-                className={
-                  phase === 'outline' && session.recovery?.task !== 'generate'
-                    ? 'current'
-                    : phase === 'ready' || session.recovery?.task === 'generate'
-                      ? 'done'
-                      : ''
-                }
-              >
-                02 構成を確認
-              </span>
-              <i />
-              <span className={phase === 'ready' || session.recovery?.task === 'generate' ? 'current' : ''}>
-                03 スライドを作成
-              </span>
-            </div>
-          </>
+          <SessionHeading title={selectedDeckTitle} session={session} busy={!!busy} onReset={reset} />
         )}
         {error && (
           <div className="error-banner" role="alert">
@@ -1644,94 +1557,21 @@ export default function App() {
                 />
               )}
               {session.recovery && (
-                <section ref={recoveryPanel} className="plan-recovery" role="status">
-                  <h2>
-                    {session.recovery.task === 'plan'
-                      ? '構成案の作成が途中で止まりました'
+                <RecoveryPanel
+                  ref={recoveryPanel}
+                  recovery={session.recovery}
+                  disabled={!!busy || updateRequired}
+                  onFinishSmaller={finishSmaller}
+                  onRetry={
+                    session.recovery.task === 'plan'
+                      ? retryPlan
                       : session.recovery.task === 'revise'
-                        ? 'スライドの修正を完了できませんでした'
-                        : session.recovery.stage === 'text-fit'
-                          ? '文字量の調整で止まりました'
-                          : 'スライド作成が途中で止まりました'}
-                  </h2>
-                  {session.recovery.task === 'generate' && (
-                    <p className="recovery-progress">
-                      本文を保持：{session.recovery.completedSlides} / {session.recovery.totalSlides} 枚
-                    </p>
-                  )}
-                  <p>{session.recovery.message}</p>
-                  <small>
-                    {session.recovery.retryAvailable
-                      ? '再試行すると接続したAIを呼び出します。自動対処は1回の操作で最大2回です。'
-                      : '再試行を停止しています。優先する条件を整理して、指示を送り直してください。'}
-                  </small>
-                  {session.recovery.stage === 'text-fit' && (
-                    <button
-                      className="button primary small"
-                      disabled={!!busy || updateRequired}
-                      onClick={finishSmaller}
-                    >
-                      文字を小さくして仕上げる（AIは使いません）
-                    </button>
-                  )}
-                  {session.recovery.retryAvailable && (
-                    <button
-                      className="button secondary small"
-                      disabled={!!busy || updateRequired}
-                      onClick={
-                        session.recovery.task === 'plan'
-                          ? retryPlan
-                          : session.recovery.task === 'revise'
-                            ? retryRevision
-                            : generate
-                      }
-                    >
-                      {session.recovery.task === 'plan'
-                        ? '保存した指示で構成を再試行'
-                        : session.recovery.task === 'revise'
-                          ? '保存した修正指示で再試行'
-                          : session.recovery.completedSlides === session.recovery.totalSlides
-                            ? '保持した本文を仕上げる'
-                            : '残りのスライドから再開'}
-                    </button>
-                  )}
-                </section>
+                        ? retryRevision
+                        : generate
+                  }
+                />
               )}
-
-              {session.repairReport && (
-                <section
-                  ref={repairPanel}
-                  className={`repair-report ${session.repairReport.status}`}
-                  role="status"
-                  aria-label="自動対処の結果"
-                >
-                  <h2>
-                    {session.repairReport.status === 'recovered'
-                      ? '自動で対処し、処理を完了しました'
-                      : '自動対処では完了できず、停止しました'}
-                  </h2>
-                  <ol>
-                    {session.repairReport.steps.map((step, index) => (
-                      <li key={index}>
-                        <strong>{step.reason}</strong>
-                        <p>{step.adjustment}</p>
-                      </li>
-                    ))}
-                  </ol>
-                  {session.repairReport.changes && (
-                    <p className="repair-usage">
-                      反映した変更：
-                      {session.repairReport.changes.length ? session.repairReport.changes.join('・') : '内容の変更なし'}
-                    </p>
-                  )}
-                  <p className="repair-usage">
-                    自動再試行：{session.repairReport.retries} 回 · この操作のAI呼び出し：
-                    {session.repairReport.apiCalls} 回
-                  </p>
-                  <small>対処内容は上記の通りです。有料APIは使用していません。</small>
-                </section>
-              )}
-
+              {session.repairReport && <RepairReportPanel ref={repairPanel} report={session.repairReport} />}
               {phase === 'ready' ? (
                 <details className="conversation">
                   <summary>ここまでの対話を見る</summary>
@@ -1751,97 +1591,25 @@ export default function App() {
                 />
               )}
               {phase === 'outline' && session.outline && (
-                <section className="outline" aria-label="構成案">
-                  <div className="outline-heading">
-                    <h2>スライドの構成案</h2>
-                    <span>{session.outline.slides.length} 枚</span>
-                  </div>
-                  {session.outline.assumptions.length > 0 && (
-                    <p className="outline-description">{session.outline.assumptions.join(' / ')}</p>
-                  )}
-                  {!!session.outline.openFacts?.length && (
-                    <OpenFactsForm
-                      facts={session.outline.openFacts}
-                      values={facts}
-                      disabled={!!busy || handoffPending}
-                      onChange={setFacts}
-                    />
-                  )}
-                  {session.outline.inputBrief && (
-                    <details className="input-brief" open>
-                      <summary>確認する条件</summary>
-                      <p>{session.outline.inputBrief}</p>
-                      <small>
-                        原文は会話に保持します。この条件と構成を確認してから作成してください。作成時は整理した条件を使って送信量を減らします。
-                      </small>
-                    </details>
-                  )}
-                  {session.outline.slides.map((slide, index) => (
-                    <div className="outline-row" key={slide.id}>
-                      <span className="outline-number">{String(index + 1).padStart(2, '0')}</span>
-                      <div>
-                        <h3>{slide.title}</h3>
-                        <p>{slide.intent}</p>
-                        {slide.keyPoints.length > 0 && <p>{slide.keyPoints.join(' · ')}</p>}
-                      </div>
-                    </div>
-                  ))}
-                  {session.recovery?.task !== 'generate' && (
-                    <div className="outline-actions">
-                      <button className="button primary" disabled={!!busy || handoffPending} onClick={generate}>
-                        <Icon name="slides" size={16} />
-                        この構成で作成
-                      </button>
-                    </div>
-                  )}
-                </section>
+                <OutlineSection
+                  outline={session.outline}
+                  facts={facts}
+                  disabled={!!busy || handoffPending}
+                  canGenerate={session.recovery?.task !== 'generate'}
+                  onFacts={setFacts}
+                  onGenerate={generate}
+                />
               )}
               {composer}
-              {phase === 'ready' && (
-                <div className="history-save">
-                  <button className="button secondary small" disabled={!!busy} onClick={saveHistory}>
-                    履歴に保存
-                  </button>
-                  <span role={session.historySaveError ? 'alert' : 'status'}>
-                    {session.historySaveError ??
-                      (session.savedAt
-                        ? `このPCに自動保存 · ${new Date(session.savedAt).toLocaleTimeString('ja-JP')}`
-                        : '履歴の保存状況を確認してください')}
-                  </span>
-                </div>
-              )}
-              {sessionRoute && (
-                <p className="route-summary compact" aria-label="この資料の送り先">
-                  <span>
-                    <strong>送り先</strong>
-                    {sessionRoute.to}
-                  </span>
-                  <span>
-                    <strong>渡すもの</strong>
-                    {sessionRoute.what}
-                  </span>
-                </p>
-              )}
-              {isChat ? (
-                <p className="workspace-note">
-                  有料APIの呼び出し：0回 · ご利用のAIチャットの契約・上限が適用されます。
-                </p>
-              ) : (
-                session.usage &&
-                (phase === 'ready' || session.usage.calls > 0) && (
-                  <p className="workspace-note">
-                    {activeProvider === 'local'
-                      ? 'ローカルLLMの呼び出し'
-                      : isSubscription
-                        ? `${aiName}の月額版での処理`
-                        : '今回のAI呼び出し'}
-                    ：{session.usage.calls} 回
-                    {session.usage.inputTokens + session.usage.outputTokens > 0 &&
-                      ` · ${(session.usage.inputTokens + session.usage.outputTokens).toLocaleString()} トークン`}{' '}
-                    · {isSubscription ? 'ご契約の利用枠を消費します。' : '有料APIは使用していません。'}
-                  </p>
-                )
-              )}
+              <SessionStatus
+                ready={phase === 'ready'}
+                busy={!!busy}
+                savedAt={session.savedAt}
+                saveError={session.historySaveError}
+                route={sessionRoute}
+                usage={usageLine}
+                onSave={saveHistory}
+              />
             </section>
             {phase === 'ready' && variants.length > 0 && (
               <section className="previews" aria-label="作成したスライド">
@@ -1901,268 +1669,65 @@ export default function App() {
                   />
                 )}
                 {variants.length > 1 && (
-                  <div className="variant-headings">
-                    {pair.map((variant, index) => (
-                      <div className="variant-label" key={variant.id}>
-                        <span>
-                          {variants.length > 2 ? (
-                            <select
-                              className="variant-pick"
-                              aria-label={`${index + 1}列目に表示する案`}
-                              value={variant.id}
-                              disabled={!!busy}
-                              onChange={event =>
-                                setPairIds(
-                                  index ? [pair[0].id, event.target.value] : [event.target.value, pair[1]?.id ?? ''],
-                                )
-                              }
-                            >
-                              {variants.map(v => (
-                                <option key={v.id} value={v.id}>
-                                  {letterOf(v)} 案 · {v.label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <>
-                              {letterOf(variant)} 案<span className="variant-title">{variant.label}</span>
-                            </>
-                          )}
-                        </span>
-                        <button
-                          className={`button small ${currentVariant?.id === variant.id ? 'secondary active' : 'secondary'}`}
-                          aria-pressed={currentVariant?.id === variant.id}
-                          disabled={!!busy}
-                          onClick={() => selectVariant(variant.id)}
-                        >
-                          {currentVariant?.id === variant.id ? (
-                            <>
-                              <Icon name="check" size={12} />
-                              選択中
-                            </>
-                          ) : (
-                            'この案を選ぶ'
-                          )}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                  <VariantHeadings
+                    variants={variants}
+                    pair={pair}
+                    currentId={currentVariant?.id}
+                    busy={!!busy}
+                    letterOf={letterOf}
+                    onPair={setPairIds}
+                    onSelect={selectVariant}
+                  />
                 )}
-                <div className="output-style">
-                  <label className="output-theme">
-                    選択中の案のテーマ
-                    <select
-                      aria-label="作成した資料のテーマ"
-                      value={currentVariant?.deck.themeId}
-                      disabled={!!busy || handoffPending}
-                      onChange={event => changeTheme(event.target.value)}
-                    >
-                      {(projectTemplate || currentVariant?.deck.themeId === TEMPLATE_THEME_ID) && (
-                        <option value={TEMPLATE_THEME_ID}>会社テンプレート</option>
-                      )}
-                      {currentVariant?.deck.aiTheme && <option value={AI_THEME_ID}>AIが決めた配色</option>}
-                      {Object.entries(themes).map(([id, theme]) => (
-                        <option key={id} value={id}>
-                          {theme.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="output-theme">
-                    書体
-                    <select
-                      aria-label="作成した資料の書体"
-                      value={currentVariant?.deck.typographyId ?? 'auto'}
-                      disabled={!!busy || handoffPending}
-                      onChange={event => changeTheme(currentVariant!.deck.themeId, event.target.value)}
-                    >
-                      <option value="auto">テーマに合わせる</option>
-                      {Object.entries(typographyProfiles).map(([id, p]) => (
-                        <option key={id} value={id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    className="button secondary small"
-                    disabled={!!busy || handoffPending}
-                    onClick={() =>
-                      currentVariant &&
-                      setSaveDesignTarget({
-                        variantId: currentVariant.id,
-                        name: `${themeName(currentVariant.deck.themeId) ?? 'お気に入り'}のデザイン`,
-                      })
-                    }
-                  >
-                    <Icon name="star" size={13} />
-                    デザインを保存
-                  </button>
-                  <small>見た目の変更・デザインの保存にAIを呼び出しません。</small>
-                  {currentVariant?.deck.typographyId && (
-                    <p className="font-description">
-                      {
-                        typographyProfiles[currentVariant.deck.typographyId as keyof typeof typographyProfiles]
-                          ?.description
-                      }
-                    </p>
-                  )}
-                </div>
-                <div className="slide-grid">
-                  {currentVariant?.deck.slides.map((_, index) => (
-                    <div className={`slide-row ${variants.length > 1 ? 'paired' : ''}`} key={index}>
-                      {pair.map(
-                        variant =>
-                          variant.deck.slides[index] && (
-                            <div className="slide-card" key={variant.id}>
-                              <button
-                                type="button"
-                                className={`slide-preview ${variants.length > 1 && variant.id === currentVariant.id ? 'selected' : ''}`}
-                                aria-label={`${variant.label}、スライド ${index + 1}：${variant.deck.slides[index].title}を拡大`}
-                                onClick={() => setCompareIndex(index)}
-                              >
-                                {renderSlide(variant, index)}
-                                <span className="expand-overlay">
-                                  <Icon name="expand" size={15} />
-                                </span>
-                              </button>
-                              <div className="slide-caption">
-                                <span>
-                                  <strong>{String(index + 1).padStart(2, '0')}</strong>
-                                  <span className="slide-title">{variant.deck.slides[index].title}</span>
-                                </span>
-                                <button
-                                  type="button"
-                                  className="button ghost small"
-                                  disabled={!!busy || handoffPending}
-                                  aria-label={`${variant.label}のスライド ${index + 1}の構図を変更`}
-                                  onClick={() => setLayoutPicker({ variantId: variant.id, index })}
-                                >
-                                  構図
-                                </button>
-                                {canRefine && (
-                                  <button
-                                    type="button"
-                                    className="button ghost small"
-                                    disabled={!!busy || handoffPending}
-                                    title="このページを画像でAIに見直させ、気づいた点を直して作り直します（直す前に戻せます）"
-                                    aria-label={`${variant.label}のスライド ${index + 1}を画像で見直して作り直す`}
-                                    onClick={() => refineSlide(variant.id, variant.deck.slides[index].id)}
-                                  >
-                                    見直す
-                                  </button>
-                                )}
-                                {variant.deck.slides[index].chart && (
-                                  <button
-                                    type="button"
-                                    className="button ghost small"
-                                    disabled={!!busy || handoffPending}
-                                    aria-label={`${variant.label}のスライド ${index + 1}のグラフを変更`}
-                                    onClick={() => setChartPicker({ variantId: variant.id, index })}
-                                  >
-                                    グラフ
-                                  </button>
-                                )}
-                                {variant.deck.slides[index].sources.length > 0 && (
-                                  <button
-                                    type="button"
-                                    className="button ghost small source-button"
-                                    aria-label={`${variant.label}のスライド ${index + 1}の出典と根拠を確認`}
-                                    onClick={() =>
-                                      setSourcesOpen({ variantId: variant.id, slideId: variant.deck.slides[index].id })
-                                    }
-                                  >
-                                    出典 {variant.deck.slides[index].sources.length}
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  className="icon-button"
-                                  disabled={!!busy || handoffPending}
-                                  aria-label={`${variant.label}のスライド ${index + 1}のデザインを保存`}
-                                  onClick={() =>
-                                    setSaveDesignTarget({
-                                      variantId: variant.id,
-                                      slideId: variant.deck.slides[index].id,
-                                      name: `スライド${index + 1}のデザイン`,
-                                    })
-                                  }
-                                >
-                                  <Icon name="star" size={13} />
-                                </button>
-                                <button
-                                  type="button"
-                                  className="icon-button"
-                                  disabled={!!busy || handoffPending}
-                                  aria-label={`${variant.label}のスライド ${index + 1}を修正`}
-                                  onClick={() => revise(variant, index)}
-                                >
-                                  <Icon name="edit" size={13} />
-                                </button>
-                              </div>
-                            </div>
-                          ),
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className="export-bar">
-                  <p>
-                    {activeRender?.native
-                      ? 'PowerPoint で図形やテキストを編集できます。'
-                      : '表示は概略です。ファイル作成後、PowerPoint で実際の表示を確認できます。'}
-                    {blanksLeft > 0 && <strong className="blank-left"> 記入欄が{blanksLeft}項目残っています。</strong>}
-                  </p>
-                  <div className="preview-actions">
-                    {!activeRender ? (
-                      <button className="button primary" disabled={!!busy} onClick={render}>
-                        <Icon name="slides" size={16} />
-                        PowerPoint ファイルを作成
-                      </button>
-                    ) : (
-                      <>
-                        <a className="button secondary" href={activeRender.pptxUrl} download>
-                          <Icon name="download" size={15} />
-                          保存
-                        </a>
-                        {status?.nativeAvailable && (
-                          <button
-                            className={`button ${officeInsert ? 'secondary' : 'primary'}`}
-                            disabled={!!busy}
-                            onClick={openPowerPoint}
-                          >
-                            <Icon name="slides" size={16} />
-                            {officeInsert ? '別ファイルで開く' : 'PowerPoint で開く'}
-                          </button>
-                        )}
-                        {officeInsert && (
-                          <button className="button primary" disabled={!!busy} onClick={insertIntoDeck}>
-                            <Icon name="plus" size={16} />
-                            この資料に挿入
-                          </button>
-                        )}
-                      </>
-                    )}
-                  </div>
-                </div>
+                <OutputStyle
+                  deck={currentVariant?.deck}
+                  hasTemplate={!!projectTemplate}
+                  busy={!!busy || handoffPending}
+                  onTheme={changeTheme}
+                  onSaveDesign={() =>
+                    currentVariant &&
+                    setSaveDesignTarget({
+                      variantId: currentVariant.id,
+                      name: `${themeName(currentVariant.deck.themeId) ?? 'お気に入り'}のデザイン`,
+                    })
+                  }
+                />
+                {currentVariant && (
+                  <SlideGrid
+                    current={currentVariant}
+                    pair={pair}
+                    compared={variants.length > 1}
+                    busy={!!busy || handoffPending}
+                    renderSlide={renderSlide}
+                    actions={{
+                      onExpand: setCompareIndex,
+                      onLayout: (variantId, index) => setLayoutPicker({ variantId, index }),
+                      onRefine: canRefine ? refineSlide : undefined,
+                      onChart: (variantId, index) => setChartPicker({ variantId, index }),
+                      onSources: (variantId, slideId) => setSourcesOpen({ variantId, slideId }),
+                      onSaveDesign: (variantId, slideId, index) =>
+                        setSaveDesignTarget({ variantId, slideId, name: `スライド${index + 1}のデザイン` }),
+                      onRevise: revise,
+                    }}
+                  />
+                )}
+                <ExportBar
+                  render={activeRender}
+                  nativeAvailable={!!status?.nativeAvailable}
+                  officeInsert={officeInsert}
+                  blanksLeft={blanksLeft}
+                  busy={!!busy}
+                  onRender={render}
+                  onOpen={openPowerPoint}
+                  onInsert={insertIntoDeck}
+                />
                 {hasSources && currentVariant && (
-                  <div className="source-export">
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={!!currentVariant.deck.referencesSlide}
-                        disabled={!!busy || handoffPending}
-                        onChange={event => toggleReferences(event.target.checked)}
-                      />
-                      書き出すファイルの末尾に「出典一覧」を付ける
-                    </label>
-                    <button
-                      className="button ghost small"
-                      onClick={() => setSourcesOpen({ variantId: currentVariant.id })}
-                    >
-                      出典と根拠を確認
-                    </button>
-                  </div>
+                  <SourceExport
+                    referencesSlide={!!currentVariant.deck.referencesSlide}
+                    busy={!!busy || handoffPending}
+                    onReferences={toggleReferences}
+                    onSources={() => setSourcesOpen({ variantId: currentVariant.id })}
+                  />
                 )}
                 {currentVariant && !handoffPending && (
                   <RefreshPanel
@@ -2199,62 +1764,14 @@ export default function App() {
                     onNotice={setNotice}
                   />
                 )}
-                <section className="feedback" aria-label="評価">
-                  <h3>{variants.length > 1 ? `${currentVariant?.label}を評価` : 'この資料は、どうでしたか？'}</h3>
-                  {feedbackSaved ? (
-                    <p className="success-note">
-                      <Icon name="check" size={15} />
-                      評価をこの PC に保存しました。ありがとうございます。
-                    </p>
-                  ) : (
-                    <>
-                      <div className="feedback-row" role="group" aria-label="5段階で評価">
-                        {[1, 2, 3, 4, 5].map(value => (
-                          <button
-                            className={`rating-button ${rating >= value ? 'chosen' : ''}`}
-                            key={value}
-                            onClick={() => setRating(value)}
-                            aria-label={`${value}点：${ratingLabels[value - 1]}`}
-                            aria-pressed={rating === value}
-                          >
-                            <Icon name="star" size={22} />
-                          </button>
-                        ))}
-                        <span className="rating-name">
-                          {rating ? ratingLabels[rating - 1] : '良かった点や、改善したい点を教えてください'}
-                        </span>
-                      </div>
-                      {rating > 0 && (
-                        <>
-                          <div className="feedback-reasons">
-                            {feedbackReasons.map(reason => (
-                              <button
-                                key={reason}
-                                type="button"
-                                className={reasons.includes(reason) ? 'active' : ''}
-                                aria-pressed={reasons.includes(reason)}
-                                onClick={() =>
-                                  setReasons(previous =>
-                                    previous.includes(reason)
-                                      ? previous.filter(item => item !== reason)
-                                      : [...previous, reason],
-                                  )
-                                }
-                              >
-                                {reason}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="feedback-submit">
-                            <button className="button secondary small" onClick={feedback} disabled={!!busy}>
-                              評価を保存
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </>
-                  )}
-                </section>
+                {currentVariant && (
+                  <FeedbackSection
+                    key={`${session.id}-${currentVariant.id}`}
+                    title={variants.length > 1 ? `${currentVariant.label}を評価` : 'この資料は、どうでしたか？'}
+                    busy={!!busy}
+                    onSubmit={feedback}
+                  />
+                )}
               </section>
             )}
           </div>
@@ -2394,121 +1911,28 @@ export default function App() {
         />
       )}
       {transmissionOpen && (
-        <Modal
-          title={isSubscription ? `${aiName}へ送信する内容` : 'AIチャットに渡す指示に含まれる内容'}
+        <TransmissionDialog
+          subscription={isSubscription}
+          aiName={aiName}
+          prompt={prompt}
+          documents={documents}
           onClose={() => setTransmissionOpen(false)}
-        >
-          <p className="modal-prose">
-            {isSubscription
-              ? `構成・作成・修正のため、次の内容を接続した${aiName}のクラウドへ送信します。APIキーは使用せず、ご契約の利用権限と上限が適用されます。`
-              : '次の内容を含む指示を、このPCで組み立てます。AIのチャットへの貼り付けやファイルの添付は、ご自身で行います。このアドインから自動送信はしません。'}
-          </p>
-          <ul className="transmission-list">
-            <li>プロンプトと、その後の会話・修正指示</li>
-            <li>添付資料のファイル名と、抽出した文章・表・数値（上限12万文字）</li>
-            <li>構成案、生成した内容、表示モード</li>
-          </ul>
-          <p className="transmission-prompt">{prompt || 'プロンプトはまだ入力されていません。'}</p>
-          {documents.length > 0 && (
-            <ul className="transmission-list">
-              {documents.map(doc => (
-                <li key={doc.id}>
-                  {doc.name} · 抽出 {doc.characters.toLocaleString()} 文字
-                </li>
-              ))}
-            </ul>
-          )}
-          <p className="modal-prose">
-            {isSubscription
-              ? '月額版もクラウドへ情報を送信します。'
-              : '実際に渡す全文は「AIに渡す指示」から確認できます。月額版のチャットもクラウドへ情報を渡します。'}
-            機密資料には、設定からローカルLLMを選んでください。
-          </p>
-          <div className="settings-actions">
-            <button className="button primary" onClick={() => setTransmissionOpen(false)}>
-              確認しました
-            </button>
-          </div>
-        </Modal>
+        />
       )}
       {compareIndex !== undefined && currentVariant && (
-        <Modal
-          title={variants.length > 1 ? 'スライドを比較' : 'スライドを確認'}
-          wide
+        <CompareDialog
+          index={compareIndex}
+          current={currentVariant}
+          pair={pair}
+          variants={variants}
+          busy={!!busy || handoffPending}
+          letterOf={letterOf}
+          renderSlide={renderSlide}
+          onIndex={setCompareIndex}
+          onSelect={selectVariant}
+          onRevise={revise}
           onClose={() => setCompareIndex(undefined)}
-        >
-          <div className="compare-toolbar">
-            <p>
-              {variants.every(item => item.render?.native)
-                ? 'PowerPoint の描画を表示しています。'
-                : '未書き出しの案はレイアウトの概略です。実際の PowerPoint では表示が変わる場合があります。'}
-            </p>
-            <div className="compare-pages">
-              <button
-                className="icon-button"
-                aria-label="前のスライド"
-                disabled={compareIndex === 0}
-                onClick={() => setCompareIndex(compareIndex - 1)}
-              >
-                <Icon name="chevron" size={16} />
-              </button>
-              <span>
-                {compareIndex + 1} / {currentVariant.deck.slides.length}
-              </span>
-              <button
-                className="icon-button"
-                aria-label="次のスライド"
-                disabled={compareIndex >= currentVariant.deck.slides.length - 1}
-                onClick={() => setCompareIndex(compareIndex + 1)}
-              >
-                <Icon name="chevron" size={16} />
-              </button>
-            </div>
-          </div>
-          <div className={`compare-grid ${variants.length === 1 ? 'single' : ''}`}>
-            {pair.map(variant => (
-              <div key={variant.id}>
-                <div className="compare-variant-label">
-                  <span>
-                    {letterOf(variant)} 案 · {variant.label}
-                  </span>
-                  <div className="preview-actions">
-                    {variants.length > 1 && (
-                      <button
-                        className={`button secondary small ${currentVariant.id === variant.id ? 'active' : ''}`}
-                        onClick={() => selectVariant(variant.id)}
-                      >
-                        {currentVariant.id === variant.id ? (
-                          <>
-                            <Icon name="check" size={12} />
-                            選択中
-                          </>
-                        ) : (
-                          'この案を選ぶ'
-                        )}
-                      </button>
-                    )}
-                    <button
-                      className="button ghost small"
-                      disabled={!!busy || handoffPending}
-                      onClick={() => revise(variant, compareIndex)}
-                    >
-                      <Icon name="edit" size={13} />
-                      修正
-                    </button>
-                  </div>
-                </div>
-                <div className="compare-slide">{renderSlide(variant, compareIndex)}</div>
-                {variant.deck.slides[compareIndex]?.notes && (
-                  <details className="speaker-notes">
-                    <summary>発表者ノート・補足</summary>
-                    <p>{variant.deck.slides[compareIndex].notes}</p>
-                  </details>
-                )}
-              </div>
-            ))}
-          </div>
-        </Modal>
+        />
       )}
     </div>
   );

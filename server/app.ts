@@ -154,20 +154,18 @@ export async function createApp(options: AppOptions) {
   app.use(express.json({ limit: '1mb' }));
   app.get('/api/chat-connector-config', (_req, res) => {
     const projectRoot = path.resolve(options.webRoot, '..', '..');
-    res
-      .attachment('Designer-Extention-Claude-Desktop.json')
-      .json({
-        mcpServers: {
-          'designer-extension': {
-            command: process.execPath,
-            args: [
-              path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
-              path.join(projectRoot, 'server', 'mcp.ts'),
-            ],
-            env: { DESIGNER_CONNECTOR_DATA_DIR: options.dataDir },
-          },
+    res.attachment('Designer-Extention-Claude-Desktop.json').json({
+      mcpServers: {
+        'designer-extension': {
+          command: process.execPath,
+          args: [
+            path.join(projectRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs'),
+            path.join(projectRoot, 'server', 'mcp.ts'),
+          ],
+          env: { DESIGNER_CONNECTOR_DATA_DIR: options.dataDir },
         },
-      });
+      },
+    });
   });
 
   const upload = multer({
