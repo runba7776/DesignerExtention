@@ -133,7 +133,7 @@ export const CONVERT_SCRIPT = String.raw`(function(){
     check(block,Math.min(...glyphs.map(g=>g.t)),Math.max(...glyphs.map(g=>g.b)),left,right,short(text));
     const min=options.minTextSize&&(roleOf(block)==='caption'?options.minTextSize.caption:options.minTextSize.body);
     if(min&&size<min-0.25){kinds.add('small');problems.push('文字が小さすぎます（「'+short(text)+'」、'+round(size)+'px）。この資料では、本文を'+options.minTextSize.body+'px以上、注記（data-role="caption"）を'+options.minTextSize.caption+'px以上にしてください。');}
-    inks.push({size,sample:short(text),glyphs,l:Math.min(...glyphs.map(g=>g.l)),r:Math.max(...glyphs.map(g=>g.r)),t:Math.min(...glyphs.map(g=>g.t)),b:Math.max(...glyphs.map(g=>g.b))});
+    inks.push({size,sample:short(text),glyphs,index:out.length,l:Math.min(...glyphs.map(g=>g.l)),r:Math.max(...glyphs.map(g=>g.r)),t:Math.min(...glyphs.map(g=>g.t)),b:Math.max(...glyphs.map(g=>g.b))});
     if(align!=='l'){left=Math.min(left,content.left+padL);right=Math.max(right,content.right-padR);}
     const top=visible[0].top-(pitch?(pitch-(visible[0].bottom-visible[0].top))/2:0),bottom=pitch?top+pitch*visible.length:Math.max(visible[visible.length-1].bottom,visible[0].top+(measured||size*1.25)*visible.length);
     const slack=(right-left)*.06+2,x=align==='r'?left-slack:align==='c'?left-slack/2:left;
@@ -198,13 +198,25 @@ export const CONVERT_SCRIPT = String.raw`(function(){
     const hit=a.glyphs.some(p=>b.glyphs.some(q=>{const w=Math.min(p.r,q.r)-Math.max(p.l,q.l),h=Math.min(p.b,q.b)-Math.max(p.t,q.t);return w>0&&h>0&&w*h>.25*Math.min((p.r-p.l)*(p.b-p.t),(q.r-q.l)*(q.b-q.t));}));
     if(hit){kinds.add('overlap');problems.push('文字どうしが重なっています（「'+a.sample+'」と「'+b.sample+'」）。位置か大きさを調整してください。');}
   }
+  // Text hidden under a shape drawn after it (later in the page, so on top): a character whose middle is inside an
+  // opaque box or circle. Pages that set z-index are left alone, since the order on screen is then not the page order.
+  const layered=[...section.querySelectorAll('*')].some(el=>{const z=getComputedStyle(el).zIndex;return z!=='auto'&&z!=='0';});
+  if(!layered)for(const a of inks){
+    for(let j=a.index+1;j<out.length;j++){
+      const e=out[j];if(e.t!=='box'||e.fill==='none'||(e.op!==undefined&&e.op<0.6))continue;
+      const under=a.glyphs.some(g=>{const cx=(g.l+g.r)/2-base.left,cy=(g.t+g.b)/2-base.top;
+        if(e.shape==='ellipse'){const rx=e.w/2,ry=e.h/2,dx=(cx-e.x-rx)/rx,dy=(cy-e.y-ry)/ry;return dx*dx+dy*dy<1;}
+        return cx>e.x+1&&cx<e.x+e.w-1&&cy>e.y+1&&cy<e.y+e.h-1;});
+      if(under){kinds.add('covered');problems.push('文字が後ろに置いた図形に隠れています（「'+a.sample+'」）。図形を文字より先に置くか、文字の位置をずらしてください。');break;}
+    }
+  }
   // Lines drawn under cards and labels (connectors) carry the page; a frame with at most three labels
   // in it and nothing drawn inside is an empty figure.
   for(const f of figures){
     const b=f.box,within=out.filter((e,i)=>i!==f.index&&(e.t==='text'||e.t==='box'||e.t==='chart'||e.t==='svg')&&e.x+e.w/2>=b.x&&e.x+e.w/2<=b.x+b.w&&e.y+e.h/2>=b.y&&e.y+e.h/2<=b.y+b.h).length;
     if(within<=3){kinds.add('empty');problems.push('図に中身がありません（線と枠だけの図です）。説明用の目安でも、点・棒・図形・文字など、図が伝える内容を図の中に描いてください。');}
   }
-  return JSON.stringify({background,elements:out,problems:[...new Set(problems)],fit:problems.length>0&&[...kinds].every(k=>k==='bottom'||k==='overlap'),grow:problems.length>0&&[...kinds].every(k=>k==='small')});
+  return JSON.stringify({background,elements:out,problems:[...new Set(problems)],fit:problems.length>0&&[...kinds].every(k=>k==='bottom'||k==='overlap'||k==='covered'),grow:problems.length>0&&[...kinds].every(k=>k==='small')});
 })()`;
 
 /** Makes every text of the page smaller by the given share (line heights given in px too). Boxes,

@@ -144,7 +144,7 @@ const page = (id: string, title: string, extra = '') => ({
 });
 async function fixture(
   patch: Partial<Settings> = {},
-  options: { images?: boolean; fixFails?: boolean; masked?: boolean } = {},
+  options: { images?: boolean; fixFails?: boolean; masked?: boolean; remakeBroken?: boolean } = {},
 ) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-review-'));
   const settings = await new SettingsStore(dir, '').load();
@@ -201,6 +201,19 @@ async function fixture(
           req = content.request;
         if (r.images) {
           reviews.push(r);
+          // The second look, at the remade pages: clean, or (remakeBroken) with a new high problem.
+          if (redos.length && !req.focus)
+            return {
+              text: JSON.stringify({
+                pages: req.pages.map((p: any) => ({
+                  id: p.id,
+                  problems: options.remakeBroken
+                    ? [{ severity: 'high', what: '文字が丸に隠れる', fix: '丸をずらす' }]
+                    : [{ severity: 'low', what: '行間が狭い', fix: '少し広げる' }],
+                })),
+              }),
+              usage,
+            };
           return {
             text: JSON.stringify({
               pages: [
@@ -269,7 +282,12 @@ test('the deck is ready before the look; polishing then remakes the page with a 
       ),
     );
     const polished = await f.engine.polish(session.id);
-    assert.equal(f.reviews.length, 1, 'three pages in one look');
+    assert.equal(f.reviews.length, 2, 'three pages in one look, then the remade page once more');
+    assert.deepEqual(
+      f.reviews[1].images!.map(i => i.data),
+      ['SHOT-slide-2'],
+      'the remade page as drawn',
+    );
     assert.deepEqual(
       f.reviews[0].images!.map(i => i.data),
       ['SHOT-slide-1', 'SHOT-slide-2', 'SHOT-slide-3'],
@@ -289,17 +307,17 @@ test('the deck is ready before the look; polishing then remakes the page with a 
       polished.reviewHints!.map(h => [h.slideId, h.severity, h.what, !!h.unresolved, !!h.fixed]),
       [
         ['slide-2', 'high', '図に中身がない', false, true],
-        ['slide-2', 'low', '余白が偏る', false, false],
+        ['slide-2', 'low', '行間が狭い', false, false],
         ['slide-3', 'medium', '文章が多い', false, false],
       ],
-      'what was remade is listed too',
+      'what was remade is listed too; the remade page has the findings of the second look',
     );
-    assert.deepEqual(polished.reviewReport, { checked: 3, fixed: ['slide-2'], unresolved: [], calls: 2 });
+    assert.deepEqual(polished.reviewReport, { checked: 3, fixed: ['slide-2'], unresolved: [], calls: 3 });
     assert.equal(polished.polish?.state, 'done');
     assert.equal(polished.polish?.versions?.['slide-2'].applied, 'after');
     assert.ok(
       polished.messages.some(m =>
-        /描画した3枚を画像で見直しました。重い問題のあった1枚を作り直しました（「確認のヒント」から直す前に戻せます）。細かな気づき2件/.test(
+        /描画した3枚を画像で見直しました。重い問題のあった1枚を作り直し、作り直したページももう一度確かめました（「確認のヒント」から直す前に戻せます）。細かな気づき2件/.test(
           m.text,
         ),
       ),
@@ -319,6 +337,30 @@ test('the deck is ready before the look; polishing then remakes the page with a 
       text: 'あとで書き換えた',
     } as any;
     await assert.rejects(f.engine.reviewVersion(session.id, 'slide-2', 'before'), /見直しの後に変更されたため/);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test('a remake with a high problem of its own is not used: the page stays as it was and the remake can still be chosen', async () => {
+  const f = await fixture({}, { remakeBroken: true });
+  try {
+    const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
+    await f.engine.generate(session.id);
+    const polished = await f.engine.polish(session.id);
+    assert.equal(f.redos.length, 1);
+    assert.equal(textOf(polished, 1), '問いの地図', 'the earlier page stays');
+    assert.equal(polished.polish?.versions?.['slide-2'].applied, 'before');
+    assert.deepEqual(polished.reviewReport?.fixed, []);
+    assert.deepEqual(polished.reviewReport?.unresolved, ['slide-2']);
+    assert.ok(
+      polished.reviewHints!.some(
+        h => h.slideId === 'slide-2' && h.unresolved && /作り直した版にも重い問題：文字が丸に隠れる/.test(h.what),
+      ),
+      JSON.stringify(polished.reviewHints),
+    );
+    const chosen = await f.engine.reviewVersion(session.id, 'slide-2', 'after');
+    assert.equal(textOf(chosen, 1), '直した問いの地図', 'the user may still take the remake');
   } finally {
     await f.dispose();
   }

@@ -195,6 +195,7 @@ test('the instructions ask for one kind of blank, keep notes off the slides, lis
     json = freeSystemPrompt('generate', { outputMode: 'presentation' });
   for (const prompt of [plan, html, json]) {
     assert.match(prompt, /項目名を全角の角かっこで囲んだ記入欄（例：［実施日］［集合場所］）だけを置きます/);
+    assert.match(prompt, /記入欄は資料全体で8項目程度までにします。同じ事実には同じ項目名を使い/);
     assert.match(
       prompt,
       /作り手向けのメモは、スライドの文字に書きません。確認が必要なことは、notesの最後に「確認事項：」/,
@@ -245,6 +246,43 @@ test(
     );
     assert.ok(!r.elements.some(e => e.t === 'svg'), 'the icon is not also kept as a picture');
     assert.deepEqual(r.problems, []);
+  },
+);
+
+test(
+  'text hidden under a shape drawn after it is reported; a shape drawn first, a faint one or a page with z-index is not',
+  { skip: !findBrowser() },
+  async () => {
+    const theme = paletteTheme({
+      name: '検査',
+      background: '#FFFFFF',
+      text: '#1F2937',
+      muted: '#6B7280',
+      accent: '#225588',
+      accent2: '#AA5522',
+    });
+    const title = '<h1 style="position:absolute;left:56px;top:20px;margin:0;font-size:28px">題名</h1>';
+    const label = '<p style="position:absolute;left:100px;top:150px;margin:0;font-size:18px">集合時間</p>';
+    const circle = (extra = '') =>
+      `<div style="position:absolute;left:110px;top:140px;width:60px;height:60px;border-radius:50%;background:#225588${extra}"></div>`;
+    const read = async (body: string) => {
+      const [r] = await layoutHtmlSlides(
+        [{ id: 'slide-2', html: `<section class="slide">${title}${body}</section>` }],
+        theme,
+      );
+      if ('error' in r) assert.fail(r.error);
+      return r.problems.filter(p => /隠れています/.test(p));
+    };
+    assert.deepEqual(await read(label + circle()), [
+      '文字が後ろに置いた図形に隠れています（「集合時間」）。図形を文字より先に置くか、文字の位置をずらしてください。',
+    ]);
+    assert.deepEqual(await read(circle() + label), [], 'a shape drawn first is under the text');
+    assert.deepEqual(await read(label + circle(';opacity:.3')), [], 'a faint shape does not hide the text');
+    assert.deepEqual(
+      await read(label.replace('position:absolute', 'position:absolute;z-index:2') + circle()),
+      [],
+      'z-index decides',
+    );
   },
 );
 

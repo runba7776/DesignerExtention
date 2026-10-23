@@ -21,11 +21,11 @@ export function ReviewHints({
   pageOf: (slideId: string) => number;
 }) {
   const unresolved = hints.some(h => h.unresolved);
-  // One switch per remade page, on its first finding.
+  // One switch per remade page, on its first finding (also for a remake not used because it had a problem of its own).
   const switchAt = new Set<number>(),
     seen = new Set<string>();
   hints.forEach((hint, index) => {
-    if (hint.fixed && versions?.[hint.slideId] && !seen.has(hint.slideId)) {
+    if ((hint.fixed || hint.unresolved) && versions?.[hint.slideId] && !seen.has(hint.slideId)) {
       seen.add(hint.slideId);
       switchAt.add(index);
     }
@@ -74,7 +74,7 @@ export function ReviewHints({
                       disabled={busy}
                       onClick={() => onSwitch(hint.slideId, reverted ? 'after' : 'before')}
                     >
-                      {reverted ? '直したページに戻す' : '直す前に戻す'}
+                      {reverted ? (hint.unresolved ? '作り直した版を使う' : '直したページに戻す') : '直す前に戻す'}
                     </button>
                   )}
                 </div>

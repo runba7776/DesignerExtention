@@ -23,6 +23,12 @@ import type { SessionEngine } from '../engine.js';
 import type { SessionState } from './session-state.js';
 import { continued, plainOutline } from './helpers.js';
 
+/** A page made again after the look at it, with its picture when it was drawn in a browser. */
+interface RemadePage {
+  slide: SlideSpec;
+  shot?: string;
+}
+
 /** Looking at drawn pages as pictures: samples of the directions, the look after the deck is shown, a page on request. */
 export class ReviewService {
   constructor(private readonly engine: SessionEngine) {}
@@ -41,7 +47,7 @@ export class ReviewService {
     const pages = slides.filter(s => shots[s.id]),
       hints: ReviewHint[] = [],
       severe = new Map<string, ReviewHint[]>(),
-      replaced: Record<string, SlideSpec> = {},
+      replaced: Record<string, RemadePage> = {},
       unresolved: string[] = [];
     // What the app found itself (a note to the maker left on a slide, the same kind of page three in a row) is made again too.
     for (const hint of known) severe.set(hint.slideId, [...(severe.get(hint.slideId) ?? []), hint]);
@@ -95,7 +101,8 @@ export class ReviewService {
     return { checked, hints, severe, replaced, unresolved };
   }
   /** Makes the given pages again with the finding from the look at them. Returns the new versions that
-   * pass the checks; a page missing from the result keeps its earlier version. */
+   * pass the checks, with their pictures when drawn in a browser; a page missing from the result keeps its
+   * earlier version. */
   private async redoPages(
     state: SessionState,
     outline: Outline,
@@ -104,7 +111,7 @@ export class ReviewService {
     detail: string,
     compact: boolean,
     again = true,
-  ): Promise<Record<string, SlideSpec>> {
+  ): Promise<Record<string, RemadePage>> {
     const targetSlides = outline.slides.filter(s => ids.includes(s.id));
     try {
       const response: any = await this.engine.ai.complete(
@@ -128,7 +135,7 @@ export class ReviewService {
       if (!response || response.mode !== outline.mode || !Array.isArray(response.slides)) return {};
       if (this.engine.pages.htmlFor(state))
         await this.engine.pages.layoutPages(state, outline, response.slides.slice(0, targetSlides.length));
-      const done: Record<string, SlideSpec> = {},
+      const done: Record<string, RemadePage> = {},
         refused: { id: string; why: string }[] = [];
       targetSlides.forEach((target, i) => {
         try {
@@ -140,7 +147,8 @@ export class ReviewService {
               `${target.id}：作り手向けのメモか空欄（「${marks[0].sample}」）が残っています。未定の事実は［項目名］の記入欄にし、メモはノートへ移してください。`,
               'INVALID_CONTENT',
             );
-          done[target.id] = slide;
+          const shot = response.slides[i]?.shot;
+          done[target.id] = { slide, ...(typeof shot === 'string' ? { shot } : {}) };
         } catch (error) {
           refused.push({ id: target.id, why: error instanceof Error ? error.message : '検査を通りませんでした' });
         }
@@ -164,6 +172,32 @@ export class ReviewService {
     } catch {
       return {};
     }
+  }
+  /** A second look at remade pages, as pictures: a remake can bring a new problem (text hidden under a shape
+   * that was moved, for example). Returns the findings per page; pages without a picture are not looked at. */
+  private async lookAgain(state: SessionState, pages: { slide: SlideSpec; shot?: string }[]) {
+    const found: Record<string, { severity: 'high' | 'medium' | 'low'; what: string; fix: string }[]> = {};
+    const drawn = pages.filter((p): p is { slide: SlideSpec; shot: string } => !!p.shot);
+    for (let i = 0; i < drawn.length && this.engine.ai.callsLeft(state); i += REVIEW_BATCH_SIZE) {
+      const batch = drawn.slice(i, i + REVIEW_BATCH_SIZE);
+      try {
+        const reply = validateReview(
+          await this.engine.ai.complete(
+            state,
+            'review',
+            { pages: batch.map(p => ({ id: p.slide.id, title: p.slide.title })) },
+            REVIEW_OUTPUT_TOKENS,
+            undefined,
+            batch.map(p => p.shot),
+          ),
+          batch.map(p => p.slide.id),
+        );
+        for (const page of reply) found[page.id] = page.problems;
+      } catch (error) {
+        if (error instanceof AppError && error.code === 'CALL_LIMIT') break;
+      }
+    }
+    return found;
   }
   /** A remade page gets the finishing the deck had (saved design, text fit); undefined when it no longer fits. */
   private finishPage(state: SessionState, deck: DeckSpec, slide: SlideSpec): SlideSpec | undefined {
@@ -211,9 +245,10 @@ export class ReviewService {
         const fixed: string[] = [],
           unresolved = [...result.unresolved],
           versions: NonNullable<PolishState['versions']> = {};
-        for (const [slideId, raw] of Object.entries(result.replaced)) {
+        const remade: { slide: SlideSpec; shot?: string }[] = [];
+        for (const [slideId, page] of Object.entries(result.replaced)) {
           const at = variant.deck.slides.findIndex(s => s.id === slideId),
-            finished = at >= 0 ? this.finishPage(state, variant.deck, raw) : undefined;
+            finished = at >= 0 ? this.finishPage(state, variant.deck, page.slide) : undefined;
           if (!finished) {
             unresolved.push(slideId);
             continue;
@@ -225,11 +260,38 @@ export class ReviewService {
           };
           variant.deck.slides[at] = finished;
           fixed.push(slideId);
+          remade.push({ slide: finished, ...(page.shot ? { shot: page.shot } : {}) });
         }
-        if (fixed.length) delete variant.render;
-        const hints = [...result.hints];
+        // The remade pages are looked at once more; one with a high problem of its own is not used (the user can
+        // still switch to it), and its other findings join the hints.
+        const second = remade.length ? await this.lookAgain(state, remade) : {},
+          secondHints: ReviewHint[] = [];
+        for (const slideId of [...fixed]) {
+          const problems = second[slideId] ?? [],
+            title = variant.deck.slides.find(s => s.id === slideId)!.title;
+          const high = problems.filter(p => p.severity === 'high');
+          if (high.length) {
+            const at = variant.deck.slides.findIndex(s => s.id === slideId);
+            variant.deck.slides[at] = structuredClone(versions[slideId].before);
+            versions[slideId].applied = 'before';
+            fixed.splice(fixed.indexOf(slideId), 1);
+            unresolved.push(slideId);
+            secondHints.push(
+              ...high.map(p => ({
+                slideId,
+                title,
+                ...p,
+                what: `作り直した版にも重い問題：${p.what}`,
+                unresolved: true,
+              })),
+            );
+          } else secondHints.push(...problems.map(p => ({ slideId, title, ...p })));
+        }
+        if (Object.keys(versions).length) delete variant.render;
+        // Findings of the first look at a page that was remade described its old version; the second look replaces them.
+        const hints = [...result.hints.filter(h => !fixed.includes(h.slideId)), ...secondHints];
         for (const slideId of unresolved)
-          hints.push(...result.severe.get(slideId)!.map(h => ({ ...h, unresolved: true })));
+          hints.push(...(result.severe.get(slideId) ?? []).map(h => ({ ...h, unresolved: true })));
         for (const slideId of fixed) hints.push(...result.severe.get(slideId)!.map(h => ({ ...h, fixed: true })));
         const order = (slideId: string) => job.outline.slides.findIndex(s => s.id === slideId),
           rank = { high: 0, medium: 1, low: 2 } as const;
@@ -244,12 +306,12 @@ export class ReviewService {
           variantId: job.variantId,
           pages: result.checked,
           seconds: Math.round((Date.now() - started) / 1000),
-          ...(fixed.length ? { versions } : {}),
+          ...(Object.keys(versions).length ? { versions } : {}),
         };
         if (result.checked)
           state.session.messages.push({
             role: 'assistant',
-            text: `描画した${result.checked}枚を画像で見直しました。${fixed.length ? `重い問題のあった${fixed.length}枚を作り直しました（「確認のヒント」から直す前に戻せます）。` : '作り直しが必要な重い問題はありませんでした。'}${unresolved.length ? `${unresolved.length}枚は自動で直せなかったため、確認のヒントに載せています。` : ''}${notes ? `細かな気づき${notes}件は「確認のヒント」にあります。` : ''}この見直しのAI呼び出しは${calls}回です。`,
+            text: `描画した${result.checked}枚を画像で見直しました。${fixed.length ? `重い問題のあった${fixed.length}枚を作り直し、作り直したページももう一度確かめました（「確認のヒント」から直す前に戻せます）。` : '作り直しが必要な重い問題はありませんでした。'}${unresolved.length ? `${unresolved.length}枚は自動で直せなかったため、確認のヒントに載せています。` : ''}${notes ? `細かな気づき${notes}件は「確認のヒント」にあります。` : ''}この見直しのAI呼び出しは${calls}回です。`,
           });
       } catch {
         state.session.polish = { state: 'failed' };
@@ -376,7 +438,7 @@ export class ReviewService {
           });
           return state.session;
         }
-        const raw = (
+        const page = (
           await this.redoPages(
             state,
             outline,
@@ -386,15 +448,43 @@ export class ReviewService {
             false,
           )
         )[slide.id];
-        const finished = raw && this.finishPage(state, variant.deck, raw),
+        const finished = page && this.finishPage(state, variant.deck, page.slide);
+        const second = finished
+            ? ((await this.lookAgain(state, [{ slide: finished, shot: page.shot }]))[slide.id] ?? [])
+            : [],
+          high = second.filter(p => p.severity === 'high'),
           calls = state.session.usage.calls - startCalls;
-        if (finished) {
+        if (finished && high.length) {
+          // The remake has a high problem of its own: the page stays as it was; the remake can still be chosen.
+          const versions = ((state.session.polish ??= { state: 'done', variantId: variant.id }).versions ??= {});
+          versions[slide.id] = { before: structuredClone(slide), after: structuredClone(finished), applied: 'before' };
+          if (state.session.polish.variantId !== variant.id) state.session.polish.variantId = variant.id;
+          state.session.reviewHints = [
+            ...others,
+            ...findings.map(h => ({ ...h, unresolved: true })),
+            ...high.map(p => ({
+              slideId: slide.id,
+              title: slide.title,
+              ...p,
+              what: `作り直した版にも重い問題：${p.what}`,
+              unresolved: true,
+            })),
+          ];
+          state.session.messages.push({
+            role: 'assistant',
+            text: `${at + 1}枚目を作り直しましたが、作り直した版にも重い問題（${high[0].what}）があったため、元のページのままにしています。「確認のヒント」から作り直した版に切り替えられます。AI呼び出し${calls}回。`,
+          });
+        } else if (finished) {
           const versions = ((state.session.polish ??= { state: 'done', variantId: variant.id }).versions ??= {});
           versions[slide.id] = { before: structuredClone(slide), after: structuredClone(finished), applied: 'after' };
           if (state.session.polish.variantId !== variant.id) state.session.polish.variantId = variant.id;
           variant.deck.slides[at] = finished;
           delete variant.render;
-          state.session.reviewHints = [...others, ...findings.map(h => ({ ...h, fixed: true }))];
+          state.session.reviewHints = [
+            ...others,
+            ...findings.map(h => ({ ...h, fixed: true })),
+            ...second.map(p => ({ slideId: slide.id, title: slide.title, ...p })),
+          ];
           state.session.messages.push({
             role: 'assistant',
             text: `${at + 1}枚目を画像で見直し、${problems.length}点を直して作り直しました（「確認のヒント」から直す前に戻せます）。AI呼び出し${calls}回。`,
