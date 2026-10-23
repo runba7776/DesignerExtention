@@ -3,7 +3,7 @@
  * guidance on AI-like writing (Wikipedia "Signs of AI writing", Japanese, Chinese and German write-ups),
  * slide research (assertion-evidence, the glance test) and Anthropic's prompting guidance.
  * On by default; settings.editorialGuide=false leaves it out. */
-export const EDITORIAL_GUIDE=`【常設指示】人が内容を吟味して作ったと感じられる、実務で使える資料を作る
+export const EDITORIAL_GUIDE = `【常設指示】人が内容を吟味して作ったと感じられる、実務で使える資料を作る
 
 ■ この指示の位置づけ
 この指示は、資料の中身・言葉・組み立ての質を上げるためのものです。構図・配色・書体などの見た目は指定しません。見た目は、内容と読み手に合わせてあなたが決めてください。

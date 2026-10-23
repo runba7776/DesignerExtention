@@ -12,7 +12,9 @@
     "test": "tsx --test tests/*.test.ts",
     "build:native": "powershell -NoProfile -ExecutionPolicy Bypass -File native/Build-Native.ps1",
     "build:hosted": "vite build --config vite.hosted.config.ts && node scripts/build-hosted-manifest.mjs",
-    "serve:hosted": "node scripts/serve-hosted.mjs"
+    "serve:hosted": "node scripts/serve-hosted.mjs",
+    "format": "prettier --write \"server/**/*.ts\" \"shared/**/*.ts\" \"web/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.mjs\" \"vite*.config.ts\"",
+    "format:check": "prettier --check \"server/**/*.ts\" \"shared/**/*.ts\" \"web/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.mjs\" \"vite*.config.ts\""
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^2.1.291",
@@ -38,6 +40,7 @@
     "@types/papaparse": "^5.3.16",
     "@types/react": "^18.3.24",
     "@types/react-dom": "^18.3.7",
+    "prettier": "3.9.10",
     "typescript": "^5.9.2",
     "vite": "^6.4.1"
   }

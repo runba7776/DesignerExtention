@@ -8,7 +8,9 @@ if (taskPaneMode) document.documentElement.classList.add('taskpane');
 
 function mount() {
   ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode><App /></React.StrictMode>,
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
   );
 }
 
@@ -25,7 +27,8 @@ async function bootstrapTaskPane() {
     const heading = document.createElement('h1');
     heading.textContent = 'Designer Extentionを起動できません';
     const message = document.createElement('p');
-    message.textContent = 'PowerPoint用のローカルアプリが起動しているか確認し、Start-DesignerExtension.cmdから開き直してください。';
+    message.textContent =
+      'PowerPoint用のローカルアプリが起動しているか確認し、Start-DesignerExtension.cmdから開き直してください。';
     section.append(heading, message);
     root.append(section);
   }
@@ -36,10 +39,18 @@ async function bootstrapTaskPane() {
 // The pane does not need Office.js to start, so wait only briefly for it.
 function officeReady(timeoutMs: number) {
   const office = (window as Window & { Office?: { onReady?: () => Promise<unknown> } }).Office;
-  return new Promise<void>((resolve) => {
+  return new Promise<void>(resolve => {
     const timer = setTimeout(resolve, timeoutMs);
-    const done = () => { clearTimeout(timer); resolve(); };
-    try { if (office?.onReady) office.onReady().then(done, done); else done(); } catch { done(); }
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    try {
+      if (office?.onReady) office.onReady().then(done, done);
+      else done();
+    } catch {
+      done();
+    }
   });
 }
 

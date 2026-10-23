@@ -7,18 +7,36 @@ import { cp } from 'node:fs/promises';
 // with browser shims; nothing here talks to a local server.
 const shim = (name: string) => path.resolve('web/hosted/shims', name);
 function pdfCharacterMaps(): Plugin {
-  return { name: 'pdfjs-character-maps', apply: 'build', async closeBundle() { await cp(path.resolve('node_modules/pdfjs-dist/cmaps'), path.resolve('dist/hosted/pdfjs/cmaps'), { recursive: true }); } };
+  return {
+    name: 'pdfjs-character-maps',
+    apply: 'build',
+    async closeBundle() {
+      await cp(path.resolve('node_modules/pdfjs-dist/cmaps'), path.resolve('dist/hosted/pdfjs/cmaps'), {
+        recursive: true,
+      });
+    },
+  };
 }
 export default defineConfig({
-  root: path.resolve('web'), base: './', publicDir: path.resolve('web/public'),
+  root: path.resolve('web'),
+  base: './',
+  publicDir: path.resolve('web/public'),
   define: { __HOSTED__: 'true' },
-  resolve: { alias: [
-    { find: /^node:fs\/promises$/, replacement: shim('fs.ts') },
-    { find: /^node:path$/, replacement: shim('path.ts') },
-    { find: /^node:crypto$/, replacement: shim('crypto.ts') },
-    { find: /^node:module$/, replacement: shim('module.ts') },
-  ] },
-  build: { outDir: path.resolve('dist/hosted'), emptyOutDir: true, target: 'es2022', chunkSizeWarningLimit: 4000, rollupOptions: { input: { main: path.resolve('web/index.html'), taskpane: path.resolve('web/taskpane.html') } } },
+  resolve: {
+    alias: [
+      { find: /^node:fs\/promises$/, replacement: shim('fs.ts') },
+      { find: /^node:path$/, replacement: shim('path.ts') },
+      { find: /^node:crypto$/, replacement: shim('crypto.ts') },
+      { find: /^node:module$/, replacement: shim('module.ts') },
+    ],
+  },
+  build: {
+    outDir: path.resolve('dist/hosted'),
+    emptyOutDir: true,
+    target: 'es2022',
+    chunkSizeWarningLimit: 4000,
+    rollupOptions: { input: { main: path.resolve('web/index.html'), taskpane: path.resolve('web/taskpane.html') } },
+  },
   optimizeDeps: { exclude: ['pdfjs-dist'] },
   plugins: [pdfCharacterMaps()],
 });

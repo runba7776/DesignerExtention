@@ -9,9 +9,11 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const raw = process.env.HOSTED_BASE_URL || 'https://localhost:4320/';
 const base = new URL(raw.endsWith('/') ? raw : raw + '/');
-if (base.protocol !== 'https:') throw new Error('HOSTED_BASE_URL must be an https:// URL (Office add-ins require HTTPS).');
-const at = (file) => new URL(file, base).href;
-const escape = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+if (base.protocol !== 'https:')
+  throw new Error('HOSTED_BASE_URL must be an https:// URL (Office add-ins require HTTPS).');
+const at = file => new URL(file, base).href;
+const escape = value =>
+  value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const taskpane = escape(at('taskpane.html?taskpane=1'));
 // A fixed id that differs from the local app's add-in, so both can be installed.
 const id = 'ca97aec5-d992-42b2-9659-1302e358ab69';
@@ -106,4 +108,7 @@ const manifest = `<?xml version="1.0" encoding="UTF-8"?>
 await writeFile(path.join(root, 'dist', 'hosted', 'manifest.xml'), manifest, 'utf8');
 await writeFile(path.join(root, 'dist', 'hosted', '.nojekyll'), '', 'utf8');
 console.log(`Manifest for ${base.href} -> dist/hosted/manifest.xml`);
-if (['localhost', '127.0.0.1', '[::1]'].includes(base.hostname)) console.warn('Note: this manifest points to localhost. It works only in desktop PowerPoint; PowerPoint for the web (Edge/Chrome 142+) blocks localhost add-ins as local network access. Publish to a public HTTPS URL (HOSTED_BASE_URL) for the web.');
+if (['localhost', '127.0.0.1', '[::1]'].includes(base.hostname))
+  console.warn(
+    'Note: this manifest points to localhost. It works only in desktop PowerPoint; PowerPoint for the web (Edge/Chrome 142+) blocks localhost add-ins as local network access. Publish to a public HTTPS URL (HOSTED_BASE_URL) for the web.',
+  );

@@ -1,41 +1,65 @@
-import {spawn} from 'node:child_process';
-import {existsSync} from 'node:fs';
-import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type {IconId,Theme} from '../shared/contracts.js';
-import {themeTokens} from '../shared/free-design.js';
-import {iconCatalog,iconSvg} from '../shared/icons.js';
+import type { IconId, Theme } from '../shared/contracts.js';
+import { themeTokens } from '../shared/free-design.js';
+import { iconCatalog, iconSvg } from '../shared/icons.js';
 
 /** One AI-written HTML page, read back as free-design elements. Problems are the
  * app's findings (text outside the slide, in the footer or clipped), sent with a retry. */
 /** fitted: the share (0.85-0.95) the text was made smaller to keep it above the footer, without asking the AI.
  * grown: text below the smallest size was made that size (the page still fitted), without asking the AI.
  * shot: the drawn page as a 960x540 PNG (base64), when asked for. */
-export type HtmlPageLayout={background?:string;elements:Record<string,unknown>[];problems:string[];fitted?:number;grown?:boolean;shot?:string}|{error:string};
+export type HtmlPageLayout =
+  | {
+      background?: string;
+      elements: Record<string, unknown>[];
+      problems: string[];
+      fitted?: number;
+      grown?: boolean;
+      shot?: string;
+    }
+  | { error: string };
 /** minTextSize: body text, and text marked data-role="caption", drawn smaller than this (px = pt) is reported. */
-export interface HtmlLayoutOptions {minTextSize?:{body:number;caption:number};screenshot?:boolean}
-export type HtmlLayout=(pages:{id:string;html:string}[],theme:Theme,options?:HtmlLayoutOptions)=>Promise<HtmlPageLayout[]>;
+export interface HtmlLayoutOptions {
+  minTextSize?: { body: number; caption: number };
+  screenshot?: boolean;
+}
+export type HtmlLayout = (
+  pages: { id: string; html: string }[],
+  theme: Theme,
+  options?: HtmlLayoutOptions,
+) => Promise<HtmlPageLayout[]>;
 
 /** Removes anything that could run code or load from outside. The page also has a
  * CSP that blocks scripts and network access, and script execution is disabled. */
-export function sanitizeHtml(html:string){
-  return html.replace(/<\s*(script|iframe|object|embed|form|textarea|select|video|audio|foreignObject|noscript|template|title|head)\b[\s\S]*?<\/\s*\1\s*>/gi,'')
-    .replace(/<\s*\/?\s*(script|iframe|object|embed|link|meta|base|form|input|button|textarea|select|img|image|video|audio|source|foreignObject|noscript|template|html|body|head|title)\b[^>]*>/gi,'')
-    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'')
-    .replace(/\s(href|src|xlink:href|srcset|action|formaction|background)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi,'')
-    .replace(/url\s*\(([^)]*)\)/gi,'none')
-    .replace(/@import[^;]*;?/gi,'')
-    .replace(/expression\s*\(/gi,'(');
+export function sanitizeHtml(html: string) {
+  return html
+    .replace(
+      /<\s*(script|iframe|object|embed|form|textarea|select|video|audio|foreignObject|noscript|template|title|head)\b[\s\S]*?<\/\s*\1\s*>/gi,
+      '',
+    )
+    .replace(
+      /<\s*\/?\s*(script|iframe|object|embed|link|meta|base|form|input|button|textarea|select|img|image|video|audio|source|foreignObject|noscript|template|html|body|head|title)\b[^>]*>/gi,
+      '',
+    )
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s(href|src|xlink:href|srcset|action|formaction|background)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/url\s*\(([^)]*)\)/gi, 'none')
+    .replace(/@import[^;]*;?/gi, '')
+    .replace(/expression\s*\(/gi, '(');
 }
 
 /** The page the AI's HTML is drawn in: its slide size, the deck's colours and fonts as
  * CSS variables (defaults the AI may override; the fonts the browser actually used are
  * read back so PowerPoint draws the same lines). Features the converter cannot carry are switched off,
  * so what the browser shows is what PowerPoint gets. */
-export function slidePage(html:string,theme:Theme){
-  const t=themeTokens(theme),font=(name:string|undefined)=>`"${(name??theme.font).replace(/"/g,'')}"`;
-  const vars=`--bg:${t.bg};--ink:${t.ink};--muted:${t.muted};--accent:${t.accent};--accent2:${t.accent2};--surface:${t.surface};--rule:${t.rule};--negative:${t.negative};--on-accent:${t.onAccent};--heading-font:${font(theme.headingFont)};--body-font:${font(theme.font)};--number-font:${font(theme.numberFont)}`;
+export function slidePage(html: string, theme: Theme) {
+  const t = themeTokens(theme),
+    font = (name: string | undefined) => `"${(name ?? theme.font).replace(/"/g, '')}"`;
+  const vars = `--bg:${t.bg};--ink:${t.ink};--muted:${t.muted};--accent:${t.accent};--accent2:${t.accent2};--surface:${t.surface};--rule:${t.rule};--negative:${t.negative};--on-accent:${t.onAccent};--heading-font:${font(theme.headingFont)};--body-font:${font(theme.font)};--number-font:${font(theme.numberFont)}`;
   // lang="ja" + auto-phrase: Japanese lines break between phrases (確かめる, 素数は) as in the app's JSON method.
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'">
 <style>:root{${vars}}html,body{margin:0;padding:0;background:#FFFFFF}section.slide{background:var(--bg);color:var(--ink);word-break:auto-phrase;line-break:strict;font-family:var(--body-font)}section.slide :is(h1,[data-role="title"]){font-family:var(--heading-font)}section.slide [data-role="number"]{font-family:var(--number-font),var(--body-font)}</style></head><body>${sanitizeHtml(html)}
@@ -46,7 +70,7 @@ section.slide *::before,section.slide *::after{content:none!important}</style></
 
 /** Runs inside the page (scripts of the page itself are disabled). Reads the browser's
  * layout of <section class="slide"> and returns free-design elements. */
-export const CONVERT_SCRIPT=String.raw`(function(){
+export const CONVERT_SCRIPT = String.raw`(function(){
   const round=v=>Math.round(v*10)/10;
   const color=value=>{const m=/rgba?\(([^)]+)\)/.exec(value||'');if(!m)return {hex:null,a:0};const p=m[1].split(/[\s,/]+/).filter(Boolean).map(Number),a=p.length>3?p[3]:1;return {hex:'#'+p.slice(0,3).map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('').toUpperCase(),a};};
   const firstGradientColor=image=>{const m=/rgba?\([^)]+\)/.exec(image||'');return m?color(m[0]):{hex:null,a:0};};
@@ -185,25 +209,28 @@ export const CONVERT_SCRIPT=String.raw`(function(){
 
 /** Makes every text of the page smaller by the given share (line heights given in px too). Boxes,
  * gaps and figures keep their size, so the composition stays; only the text takes less room. */
-const fitScript=(share:number)=>`(function(){const s=document.querySelector('section.slide');if(!s)return 0;
+const fitScript = (share: number) => `(function(){const s=document.querySelector('section.slide');if(!s)return 0;
 const list=[s,...s.querySelectorAll('*')].filter(e=>!(e instanceof SVGElement)),sizes=list.map(e=>{const cs=getComputedStyle(e);return [parseFloat(cs.fontSize),cs.lineHeight];});
 list.forEach((e,i)=>{const [size,lh]=sizes[i];e.style.setProperty('font-size',(size*${share})+'px','important');if(lh.endsWith('px'))e.style.setProperty('line-height',(parseFloat(lh)*${share})+'px','important');});return list.length;})()`;
 /** Makes text drawn below the smallest size of the mode (body, or a caption) that size, so a page whose only
  * problem is small text can be kept without asking the AI again when it still fits. */
-const growScript=(min:{body:number;caption:number})=>`(function(){const s=document.querySelector('section.slide');if(!s)return 0;let n=0;
+const growScript = (min: {
+  body: number;
+  caption: number;
+}) => `(function(){const s=document.querySelector('section.slide');if(!s)return 0;let n=0;
 for(const e of [s,...s.querySelectorAll('*')]){if(e instanceof SVGElement||![...e.childNodes].some(c=>c.nodeType===3&&c.textContent.trim()))continue;
 const cs=getComputedStyle(e),size=parseFloat(cs.fontSize),m=e.closest('[data-role]'),min=m&&m.getAttribute('data-role')==='caption'?${min.caption}:${min.body};
 if(size>=min-0.25)continue;e.style.setProperty('font-size',min+'px','important');if(cs.lineHeight.endsWith('px'))e.style.setProperty('line-height',(parseFloat(cs.lineHeight)*min/size)+'px','important');n++;}return n;})()`;
 /** The app's icons (data-icon) drawn into the page before it is read, so the layout and the picture show
  * them; an unknown id is left empty. Each becomes one editable icon when read. */
-const ICON_SCRIPT=`(function(){const map=${JSON.stringify(Object.fromEntries(Object.keys(iconCatalog).map(id=>[id,iconSvg(id as IconId)])))},s=document.querySelector('section.slide');if(!s)return 0;let n=0;
+const ICON_SCRIPT = `(function(){const map=${JSON.stringify(Object.fromEntries(Object.keys(iconCatalog).map(id => [id, iconSvg(id as IconId)])))},s=document.querySelector('section.slide');if(!s)return 0;let n=0;
 for(const e of s.querySelectorAll('[data-icon]')){const svg=map[e.getAttribute('data-icon')];if(!svg)continue;
 const cs=getComputedStyle(e);if(cs.display==='inline')e.style.setProperty('display','inline-block','important');
 const r=e.getBoundingClientRect();if(r.width<4||r.height<4){const size=Math.max(16,parseFloat(cs.fontSize)*1.5)+'px';e.style.setProperty('width',size,'important');e.style.setProperty('height',size,'important');}
 e.innerHTML=svg;const g=e.firstElementChild;g.setAttribute('width','100%');g.setAttribute('height','100%');g.style.display='block';e.setAttribute('data-de-icon','1');n++;}return n;})()`;
 /** For the picture only (after the page was read): each chart place gets a plain sketch of its data,
  * since the real chart is drawn later by PowerPoint and the place would otherwise look empty. */
-const CHART_SKETCH_SCRIPT=String.raw`(function(){
+const CHART_SKETCH_SCRIPT = String.raw`(function(){
   const ns='http://www.w3.org/2000/svg',palette=['#4E79A7','#F28E2B','#59A14F'];
   for(const el of document.querySelectorAll('section.slide [data-chart]')){
     let c;try{c=JSON.parse(el.dataset.chart);}catch(e){continue;}
@@ -229,106 +256,257 @@ const CHART_SKETCH_SCRIPT=String.raw`(function(){
 /** Text that only runs a little past the bottom, or into another text below it, is made smaller in these steps
  * before the AI is asked again. Made smaller this way, body text may go 2px (a caption 1px) below the smallest
  * size of the mode: a page a little too full is kept instead of stopping the deck. */
-const FIT_STEPS=[0.95,0.9,0.85];
-const fitFloor=(min:{body:number;caption:number})=>({body:min.body-2,caption:min.caption-1});
+const FIT_STEPS = [0.95, 0.9, 0.85];
+const fitFloor = (min: { body: number; caption: number }) => ({ body: min.body - 2, caption: min.caption - 1 });
 
-const japanese=/Gothic|Mincho|Meiryo|游|ゴシック|明朝|メイリオ|BIZ|UD |Kyokasho|教科書|Noto (Sans|Serif) (JP|CJK)|Hiragino|Yu |MS P?(Gothic|Mincho)|Source Han|源ノ/i;
+const japanese =
+  /Gothic|Mincho|Meiryo|游|ゴシック|明朝|メイリオ|BIZ|UD |Kyokasho|教科書|Noto (Sans|Serif) (JP|CJK)|Hiragino|Yu |MS P?(Gothic|Mincho)|Source Han|源ノ/i;
 /** The fonts the browser actually drew each text with (an installed fallback when the
  * AI named a font this PC lacks): Japanese and Latin, as PowerPoint sets them. */
-async function usedFonts(send:(method:string,params?:Record<string,unknown>)=>Promise<any>,elements:Record<string,unknown>[]){
-  await send('DOM.enable');await send('CSS.enable');
-  const root=(await send('DOM.getDocument',{depth:0})).result?.root?.nodeId;if(!root)return;
-  const nodes:number[]=(await send('DOM.querySelectorAll',{nodeId:root,selector:'[data-de-text]'})).result?.nodeIds??[];
-  for(const nodeId of nodes){
-    const attributes:string[]=(await send('DOM.getAttributes',{nodeId})).result?.attributes??[];
-    const indexes=(attributes[attributes.indexOf('data-de-text')+1]??'').split(' ').map(Number).filter(n=>Number.isInteger(n));
-    let fonts:{familyName:string;glyphCount:number}[]=(await send('CSS.getPlatformFontsForNode',{nodeId})).result?.fonts??[];
-    if(!fonts.length)for(const child of ((await send('DOM.querySelectorAll',{nodeId,selector:'*'})).result?.nodeIds??[]).slice(0,6)){fonts=(await send('CSS.getPlatformFontsForNode',{nodeId:child})).result?.fonts??[];if(fonts.length)break;}
-    if(!fonts.length)continue;
-    const sorted=[...fonts].sort((a,b)=>b.glyphCount-a.glyphCount),farEast=sorted.find(f=>japanese.test(f.familyName))?.familyName??sorted[0].familyName,latin=sorted.find(f=>!japanese.test(f.familyName))?.familyName??farEast;
-    for(const i of indexes){const e=elements[i];if(e&&e.t==='text'){e.font=latin;e.fontFarEast=farEast;}}
+async function usedFonts(
+  send: (method: string, params?: Record<string, unknown>) => Promise<any>,
+  elements: Record<string, unknown>[],
+) {
+  await send('DOM.enable');
+  await send('CSS.enable');
+  const root = (await send('DOM.getDocument', { depth: 0 })).result?.root?.nodeId;
+  if (!root) return;
+  const nodes: number[] =
+    (await send('DOM.querySelectorAll', { nodeId: root, selector: '[data-de-text]' })).result?.nodeIds ?? [];
+  for (const nodeId of nodes) {
+    const attributes: string[] = (await send('DOM.getAttributes', { nodeId })).result?.attributes ?? [];
+    const indexes = (attributes[attributes.indexOf('data-de-text') + 1] ?? '')
+      .split(' ')
+      .map(Number)
+      .filter(n => Number.isInteger(n));
+    let fonts: { familyName: string; glyphCount: number }[] =
+      (await send('CSS.getPlatformFontsForNode', { nodeId })).result?.fonts ?? [];
+    if (!fonts.length)
+      for (const child of ((await send('DOM.querySelectorAll', { nodeId, selector: '*' })).result?.nodeIds ?? []).slice(
+        0,
+        6,
+      )) {
+        fonts = (await send('CSS.getPlatformFontsForNode', { nodeId: child })).result?.fonts ?? [];
+        if (fonts.length) break;
+      }
+    if (!fonts.length) continue;
+    const sorted = [...fonts].sort((a, b) => b.glyphCount - a.glyphCount),
+      farEast = sorted.find(f => japanese.test(f.familyName))?.familyName ?? sorted[0].familyName,
+      latin = sorted.find(f => !japanese.test(f.familyName))?.familyName ?? farEast;
+    for (const i of indexes) {
+      const e = elements[i];
+      if (e && e.t === 'text') {
+        e.font = latin;
+        e.fontFarEast = farEast;
+      }
+    }
   }
 }
-const browsers=()=>[
-  path.join(process.env['ProgramFiles(x86)']??'C:/Program Files (x86)','Microsoft/Edge/Application/msedge.exe'),
-  path.join(process.env.ProgramFiles??'C:/Program Files','Microsoft/Edge/Application/msedge.exe'),
-  path.join(process.env.LOCALAPPDATA??'','Microsoft/Edge/Application/msedge.exe'),
-  path.join(process.env.ProgramFiles??'C:/Program Files','Google/Chrome/Application/chrome.exe'),
-  path.join(process.env['ProgramFiles(x86)']??'C:/Program Files (x86)','Google/Chrome/Application/chrome.exe'),
+const browsers = () => [
+  path.join(process.env['ProgramFiles(x86)'] ?? 'C:/Program Files (x86)', 'Microsoft/Edge/Application/msedge.exe'),
+  path.join(process.env.ProgramFiles ?? 'C:/Program Files', 'Microsoft/Edge/Application/msedge.exe'),
+  path.join(process.env.LOCALAPPDATA ?? '', 'Microsoft/Edge/Application/msedge.exe'),
+  path.join(process.env.ProgramFiles ?? 'C:/Program Files', 'Google/Chrome/Application/chrome.exe'),
+  path.join(process.env['ProgramFiles(x86)'] ?? 'C:/Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
 ];
-export function findBrowser(){return browsers().find(file=>existsSync(file));}
+export function findBrowser() {
+  return browsers().find(file => existsSync(file));
+}
 
 /** Colours the deck's theme defines become their names, so a later theme change
  * recolours them. */
-function tokenize<T extends {background?:string;elements:Record<string,unknown>[]}>(page:T,theme:Theme):T{
-  const byHex=new Map<string,string>();for(const [name,hex] of Object.entries(themeTokens(theme)))if(!byHex.has(hex.toUpperCase()))byHex.set(hex.toUpperCase(),name);
-  const name=(v:unknown)=>typeof v==='string'&&byHex.get(v.toUpperCase())||v;
-  for(const e of page.elements){for(const key of ['color','fill','line'])if(key in e)e[key]=name(e[key]);if(Array.isArray(e.runs))for(const run of e.runs as Record<string,unknown>[])if(run.color)run.color=name(run.color);}
-  if(page.background)page.background=name(page.background) as string;
+function tokenize<T extends { background?: string; elements: Record<string, unknown>[] }>(page: T, theme: Theme): T {
+  const byHex = new Map<string, string>();
+  for (const [name, hex] of Object.entries(themeTokens(theme)))
+    if (!byHex.has(hex.toUpperCase())) byHex.set(hex.toUpperCase(), name);
+  const name = (v: unknown) => (typeof v === 'string' && byHex.get(v.toUpperCase())) || v;
+  for (const e of page.elements) {
+    for (const key of ['color', 'fill', 'line']) if (key in e) e[key] = name(e[key]);
+    if (Array.isArray(e.runs))
+      for (const run of e.runs as Record<string, unknown>[]) if (run.color) run.color = name(run.color);
+  }
+  if (page.background) page.background = name(page.background) as string;
   return page;
 }
 
 /** Draws each page in a headless Edge (no window; the user's screen is untouched) and
  * reads the layout. DESIGNER_HTML_DEBUG=<folder> keeps each page and a screenshot. */
-export const layoutHtmlSlides:HtmlLayout=async(pages,theme,options={})=>{
-  if(!pages.length)return [];
-  const browser=findBrowser();
-  if(!browser)throw new Error('HTML方式の変換に使うMicrosoft Edgeが見つかりません。');
-  const profile=await mkdtemp(path.join(tmpdir(),'de-html-'));
-  const child=spawn(browser,['--headless=new','--disable-gpu','--hide-scrollbars','--no-first-run','--no-default-browser-check','--disable-extensions','--disable-background-networking','--disable-sync','--disable-component-update','--mute-audio','--remote-debugging-port=0',`--user-data-dir=${profile}`,'about:blank'],{stdio:'ignore',windowsHide:true});
-  let ws:WebSocket|undefined;
-  try{
-    let port:number|undefined;
-    for(let i=0;i<150&&!port;i++){await new Promise(r=>setTimeout(r,100));try{port=Number((await readFile(path.join(profile,'DevToolsActivePort'),'utf8')).split('\n')[0])||undefined;}catch{/* starting */}}
-    if(!port)throw new Error('HTML方式の変換に使うMicrosoft Edgeを起動できませんでした。');
-    let target:{type:string;webSocketDebuggerUrl:string}|undefined;
-    for(let i=0;i<50&&!target;i++){try{target=((await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as any[]).find(t=>t.type==='page');}catch{/* starting */}if(!target)await new Promise(r=>setTimeout(r,100));}
-    if(!target)throw new Error('HTML方式の変換に使うMicrosoft Edgeに接続できませんでした。');
-    const socket=ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve);socket.addEventListener('error',reject);});
-    let id=0;const pending=new Map<number,(m:any)=>void>();
-    socket.addEventListener('message',event=>{const m=JSON.parse(String(event.data));if(m.id&&pending.has(m.id)){pending.get(m.id)!(m);pending.delete(m.id);}});
-    const send=(method:string,params:Record<string,unknown>={})=>new Promise<any>((resolve,reject)=>{const i=++id;const timer=setTimeout(()=>{pending.delete(i);reject(new Error(`${method} timed out`));},20_000);pending.set(i,m=>{clearTimeout(timer);resolve(m);});socket.send(JSON.stringify({id:i,method,params}));});
-    await send('Page.enable');await send('Runtime.enable');
-    await send('Emulation.setDeviceMetricsOverride',{width:960,height:540,deviceScaleFactor:1,mobile:false});
-    await send('Emulation.setScriptExecutionDisabled',{value:true});
-    const debug=process.env.DESIGNER_HTML_DEBUG;if(debug)await mkdir(debug,{recursive:true});
-    const results:HtmlPageLayout[]=[];
-    for(const page of pages){
-      try{
-        const doc=slidePage(page.html,theme);
+export const layoutHtmlSlides: HtmlLayout = async (pages, theme, options = {}) => {
+  if (!pages.length) return [];
+  const browser = findBrowser();
+  if (!browser) throw new Error('HTML方式の変換に使うMicrosoft Edgeが見つかりません。');
+  const profile = await mkdtemp(path.join(tmpdir(), 'de-html-'));
+  const child = spawn(
+    browser,
+    [
+      '--headless=new',
+      '--disable-gpu',
+      '--hide-scrollbars',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-sync',
+      '--disable-component-update',
+      '--mute-audio',
+      '--remote-debugging-port=0',
+      `--user-data-dir=${profile}`,
+      'about:blank',
+    ],
+    { stdio: 'ignore', windowsHide: true },
+  );
+  let ws: WebSocket | undefined;
+  try {
+    let port: number | undefined;
+    for (let i = 0; i < 150 && !port; i++) {
+      await new Promise(r => setTimeout(r, 100));
+      try {
+        port = Number((await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]) || undefined;
+      } catch {
+        /* starting */
+      }
+    }
+    if (!port) throw new Error('HTML方式の変換に使うMicrosoft Edgeを起動できませんでした。');
+    let target: { type: string; webSocketDebuggerUrl: string } | undefined;
+    for (let i = 0; i < 50 && !target; i++) {
+      try {
+        target = ((await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()) as any[]).find(
+          t => t.type === 'page',
+        );
+      } catch {
+        /* starting */
+      }
+      if (!target) await new Promise(r => setTimeout(r, 100));
+    }
+    if (!target) throw new Error('HTML方式の変換に使うMicrosoft Edgeに接続できませんでした。');
+    const socket = (ws = new WebSocket(target.webSocketDebuggerUrl));
+    await new Promise((resolve, reject) => {
+      socket.addEventListener('open', resolve);
+      socket.addEventListener('error', reject);
+    });
+    let id = 0;
+    const pending = new Map<number, (m: any) => void>();
+    socket.addEventListener('message', event => {
+      const m = JSON.parse(String(event.data));
+      if (m.id && pending.has(m.id)) {
+        pending.get(m.id)!(m);
+        pending.delete(m.id);
+      }
+    });
+    const send = (method: string, params: Record<string, unknown> = {}) =>
+      new Promise<any>((resolve, reject) => {
+        const i = ++id;
+        const timer = setTimeout(() => {
+          pending.delete(i);
+          reject(new Error(`${method} timed out`));
+        }, 20_000);
+        pending.set(i, m => {
+          clearTimeout(timer);
+          resolve(m);
+        });
+        socket.send(JSON.stringify({ id: i, method, params }));
+      });
+    await send('Page.enable');
+    await send('Runtime.enable');
+    await send('Emulation.setDeviceMetricsOverride', { width: 960, height: 540, deviceScaleFactor: 1, mobile: false });
+    await send('Emulation.setScriptExecutionDisabled', { value: true });
+    const debug = process.env.DESIGNER_HTML_DEBUG;
+    if (debug) await mkdir(debug, { recursive: true });
+    const results: HtmlPageLayout[] = [];
+    for (const page of pages) {
+      try {
+        const doc = slidePage(page.html, theme);
         // Draws the page afresh (optionally with smaller text) and reads it.
-        const read=async(share?:number,grow=false)=>{
-          await send('Page.navigate',{url:'data:text/html;charset=utf-8;base64,'+Buffer.from(doc,'utf8').toString('base64')});
-          for(let i=0;i<100;i++){const state=await send('Runtime.evaluate',{expression:'document.readyState',returnByValue:true});if(state.result?.result?.value==='complete')break;await new Promise(r=>setTimeout(r,50));}
-          await send('Runtime.evaluate',{expression:'document.fonts.ready.then(()=>true)',awaitPromise:true});
-          await send('Runtime.evaluate',{expression:`window.__deOptions=${JSON.stringify({minTextSize:share&&options.minTextSize?fitFloor(options.minTextSize):options.minTextSize})}`});
-          await send('Runtime.evaluate',{expression:ICON_SCRIPT});
-          if(share)await send('Runtime.evaluate',{expression:fitScript(share)});
-          if(grow&&options.minTextSize)await send('Runtime.evaluate',{expression:growScript(options.minTextSize)});
-          const value=(await send('Runtime.evaluate',{expression:CONVERT_SCRIPT,returnByValue:true})).result?.result?.value;
-          return typeof value==='string'?JSON.parse(value):{error:'HTMLを読み取れませんでした。'};
+        const read = async (share?: number, grow = false) => {
+          await send('Page.navigate', {
+            url: 'data:text/html;charset=utf-8;base64,' + Buffer.from(doc, 'utf8').toString('base64'),
+          });
+          for (let i = 0; i < 100; i++) {
+            const state = await send('Runtime.evaluate', { expression: 'document.readyState', returnByValue: true });
+            if (state.result?.result?.value === 'complete') break;
+            await new Promise(r => setTimeout(r, 50));
+          }
+          await send('Runtime.evaluate', { expression: 'document.fonts.ready.then(()=>true)', awaitPromise: true });
+          await send('Runtime.evaluate', {
+            expression: `window.__deOptions=${JSON.stringify({ minTextSize: share && options.minTextSize ? fitFloor(options.minTextSize) : options.minTextSize })}`,
+          });
+          await send('Runtime.evaluate', { expression: ICON_SCRIPT });
+          if (share) await send('Runtime.evaluate', { expression: fitScript(share) });
+          if (grow && options.minTextSize)
+            await send('Runtime.evaluate', { expression: growScript(options.minTextSize) });
+          const value = (await send('Runtime.evaluate', { expression: CONVERT_SCRIPT, returnByValue: true })).result
+            ?.result?.value;
+          return typeof value === 'string' ? JSON.parse(value) : { error: 'HTMLを読み取れませんでした。' };
         };
-        let parsed=await read(),fitted:number|undefined,grown=false;
-        if(!parsed.error&&parsed.fit){
-          for(const share of FIT_STEPS){const next=await read(share);if(!next.error&&!next.problems.length){parsed=next;fitted=share;break;}}
+        let parsed = await read(),
+          fitted: number | undefined,
+          grown = false;
+        if (!parsed.error && parsed.fit) {
+          for (const share of FIT_STEPS) {
+            const next = await read(share);
+            if (!next.error && !next.problems.length) {
+              parsed = next;
+              fitted = share;
+              break;
+            }
+          }
           // The page in the browser must be the one whose elements are kept (fonts are read from it).
-          if(fitted===undefined)parsed=await read();
-        }else if(!parsed.error&&parsed.grow){
-          const next=await read(undefined,true);
-          if(!next.error&&!next.problems.length){parsed=next;grown=true;}else parsed=await read();
+          if (fitted === undefined) parsed = await read();
+        } else if (!parsed.error && parsed.grow) {
+          const next = await read(undefined, true);
+          if (!next.error && !next.problems.length) {
+            parsed = next;
+            grown = true;
+          } else parsed = await read();
         }
         // The fonts are read before the chart sketches are added, from the page as it was read.
-        if(!parsed.error)await usedFonts(send,parsed.elements);
-        if(options.screenshot&&!parsed.error)await send('Runtime.evaluate',{expression:CHART_SKETCH_SCRIPT});
-        const shot=debug||options.screenshot?(await send('Page.captureScreenshot',{format:'png',clip:{x:0,y:0,width:960,height:540,scale:1}})).result?.data as string|undefined:undefined;
-        if(debug){const stamp=`${Date.now()}-${page.id}`;await writeFile(path.join(debug,`${stamp}.html`),doc,'utf8');if(shot)await writeFile(path.join(debug,`${stamp}.png`),Buffer.from(shot,'base64'));}
-        results.push(parsed.error?{error:parsed.error}:tokenize({...(parsed.background?{background:parsed.background}:{}),elements:parsed.elements,problems:parsed.problems,...(fitted?{fitted}:{}),...(grown?{grown}:{}),...(options.screenshot&&shot?{shot}:{})},theme) as HtmlPageLayout);
-      }catch{results.push({error:'HTMLを読み取れませんでした。<section class="slide">…</section>の形で書いてください。'});}
+        if (!parsed.error) await usedFonts(send, parsed.elements);
+        if (options.screenshot && !parsed.error) await send('Runtime.evaluate', { expression: CHART_SKETCH_SCRIPT });
+        const shot =
+          debug || options.screenshot
+            ? ((
+                await send('Page.captureScreenshot', {
+                  format: 'png',
+                  clip: { x: 0, y: 0, width: 960, height: 540, scale: 1 },
+                })
+              ).result?.data as string | undefined)
+            : undefined;
+        if (debug) {
+          const stamp = `${Date.now()}-${page.id}`;
+          await writeFile(path.join(debug, `${stamp}.html`), doc, 'utf8');
+          if (shot) await writeFile(path.join(debug, `${stamp}.png`), Buffer.from(shot, 'base64'));
+        }
+        results.push(
+          parsed.error
+            ? { error: parsed.error }
+            : (tokenize(
+                {
+                  ...(parsed.background ? { background: parsed.background } : {}),
+                  elements: parsed.elements,
+                  problems: parsed.problems,
+                  ...(fitted ? { fitted } : {}),
+                  ...(grown ? { grown } : {}),
+                  ...(options.screenshot && shot ? { shot } : {}),
+                },
+                theme,
+              ) as HtmlPageLayout),
+        );
+      } catch {
+        results.push({ error: 'HTMLを読み取れませんでした。<section class="slide">…</section>の形で書いてください。' });
+      }
     }
     return results;
-  }finally{
-    try{ws?.close();}catch{/* closed */}
+  } finally {
+    try {
+      ws?.close();
+    } catch {
+      /* closed */
+    }
     child.kill();
-    setTimeout(()=>{rm(profile,{recursive:true,force:true}).catch(()=>{/* Edge may still hold files */});},1500);
+    setTimeout(() => {
+      rm(profile, { recursive: true, force: true }).catch(() => {
+        /* Edge may still hold files */
+      });
+    }, 1500);
   }
 };
