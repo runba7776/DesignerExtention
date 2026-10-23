@@ -73,6 +73,14 @@ export class PlanningService {
         '設定から月額サービスのアカウントに接続してから作成してください。',
         'SUBSCRIPTION_CONNECTION_REQUIRED',
       );
+    // Manual chat: what the instruction carries, as is or with names and numbers masked (the project's choice
+    // when not given here). The design-only way needs a local LLM, so it is not offered for a chat.
+    const chatScope =
+      settings.provider === 'chat' && (input.sendScope === 'full' || input.sendScope === 'masked')
+        ? input.sendScope
+        : undefined;
+    if (settings.provider === 'chat' && input.sendScope !== undefined && !chatScope)
+      throw new AppError(400, '手動チャット連携で選べる送る内容は、そのまま送るか伏せ字にするかです。');
     documentContext(documents);
     this.engine.reserveSession();
     const session: Session = {
@@ -80,6 +88,7 @@ export class PlanningService {
       provider: settings.provider,
       projectId: project.id,
       ...(choice ? { targets: choice.targets, sendScope: choice.scope } : {}),
+      ...(chatScope ? { sendScope: chatScope } : {}),
       ...(settings.provider === 'subscription'
         ? { subscriptionService: settings.subscriptionService ?? 'chatgpt' }
         : {}),
@@ -91,6 +100,7 @@ export class PlanningService {
     };
     const state: SessionState = {
       ...(choice ? { targets: choice.targets, sendScope: choice.scope, bindings: choice.bindings } : {}),
+      ...(chatScope ? { sendScope: chatScope } : {}),
       ...(settings.provider === 'chat' && input.oneShot === true ? { oneShot: true } : {}),
       session,
       documents,

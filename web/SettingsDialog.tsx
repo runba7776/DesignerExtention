@@ -11,6 +11,30 @@ import { SubscriptionConnectionPanel } from './SubscriptionConnectionPanel';
 import { inWebPowerPoint } from './office';
 import { AiSetupDialog, type AiKit } from './AiSetupDialog';
 
+/** The settings with another processing place, keeping what the user set for each place before (the model of
+ * the monthly service, the local LLM's model and endpoint, the chat service). */
+export function withProvider(previous: Settings, value: ProviderKind): Settings {
+  return {
+    ...previous,
+    provider: value,
+    model:
+      value === 'subscription'
+        ? previous.provider === 'subscription'
+          ? previous.model
+          : 'auto'
+        : value === 'chat'
+          ? 'manual-chat'
+          : value === 'demo'
+            ? 'demo'
+            : previous.provider === 'local'
+              ? previous.model
+              : (previous.localModel ?? ''),
+    subscriptionService: previous.subscriptionService ?? 'chatgpt',
+    chatService: previous.chatService ?? 'chatgpt',
+    endpoint: previous.endpoint || 'http://127.0.0.1:11434/v1',
+  };
+}
+
 export function SettingsDialog({
   settings,
   template,
@@ -50,26 +74,7 @@ export function SettingsDialog({
   const linkState = !chatLink ? 'none' : kitVersion && chatLink.kitVersion !== kitVersion ? 'stale' : 'ready';
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const provider = (value: ProviderKind) =>
-    setDraft(previous => ({
-      ...previous,
-      provider: value,
-      model:
-        value === 'subscription'
-          ? previous.provider === 'subscription'
-            ? previous.model
-            : 'auto'
-          : value === 'chat'
-            ? 'manual-chat'
-            : value === 'demo'
-              ? 'demo'
-              : previous.provider === 'local'
-                ? previous.model
-                : (previous.localModel ?? ''),
-      subscriptionService: previous.subscriptionService ?? 'chatgpt',
-      chatService: previous.chatService ?? 'chatgpt',
-      endpoint: previous.endpoint || 'http://127.0.0.1:11434/v1',
-    }));
+  const provider = (value: ProviderKind) => setDraft(previous => withProvider(previous, value));
   async function save() {
     setSaving(true);
     setError('');

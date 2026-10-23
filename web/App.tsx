@@ -23,7 +23,7 @@ import { SourcesDialog } from './SourcesDialog';
 import { AddinGuide } from './AddinGuide';
 import { deckRehearsalSlides } from '../shared/rehearsal';
 import { Icon, Modal, Spinner } from './ui';
-import { SettingsDialog } from './SettingsDialog';
+import { SettingsDialog, withProvider } from './SettingsDialog';
 import { SlidePreview } from './SlidePreview';
 import { themes, TEMPLATE_THEME_ID } from '../shared/themes';
 import { AI_THEME_ID } from '../shared/ai-theme';
@@ -38,7 +38,16 @@ import { subscriptionNames } from './SubscriptionConnectionPanel';
 import { ProjectDialog } from './ProjectDialog';
 import { CombinePanel } from './CombinePanel';
 import { RefreshPanel, RefreshResult, refreshMarks } from './RefreshPanel';
-import { AiPicker, availableTargets, defaultChoice, targetNames, type AiChoice } from './AiPicker';
+import {
+  RoutePanel,
+  availableTargets,
+  defaultChoice,
+  routeOf,
+  routeSummary,
+  targetNames,
+  type AiChoice,
+  type Route,
+} from './RoutePanel';
 import { ProposalPicker } from './ProposalPicker';
 import { ReviewHints } from './ReviewHints';
 import { BlankFields, OpenFactsForm } from './BlankFields';
@@ -145,6 +154,8 @@ export default function App() {
   const [showMarks, setShowMarks] = useState(true);
   const [connections, setConnections] = useState<SubscriptionStatus>();
   const [aiChoice, setAiChoice] = useState<AiChoice>();
+  // Manual chat: whether the instruction carries the material as it is or masked (the project's choice by default).
+  const [chatScope, setChatScope] = useState<'full' | 'masked'>('full');
   // The samples of the offered directions are made in the background, one card after another.
   const [previewing, setPreviewing] = useState<number>();
   // Answers to the facts the outline needs but the request does not give, typed before the pages are made.
@@ -497,6 +508,7 @@ export default function App() {
               cloudConsent: needsConsent && cloudConsent,
               ...(pickerActive && aiChoice ? { targets: aiChoice.targets, sendScope: aiChoice.scope } : {}),
               ...(isChat && oneShot ? { oneShot: true } : {}),
+              ...(isChat ? { sendScope: chatScope } : {}),
             }),
             signal,
           });
@@ -596,6 +608,42 @@ export default function App() {
     })
       .then(setSettings)
       .catch(() => {});
+  }
+  useEffect(() => {
+    setChatScope(activeProject?.privacy?.mode === 'masked' ? 'masked' : 'full');
+  }, [activeProject?.id, activeProject?.privacy?.mode]);
+  /** Switches the way of making a deck. Automatic making needs a connected service or a local LLM; without one,
+   * the settings open where they are set up. */
+  async function chooseRoute(route: Route) {
+    if (routeOf(settings.provider) === route) return;
+    const service = available.claude ? 'claude' : available.chatgpt ? 'chatgpt' : undefined;
+    const provider =
+      route === 'chat'
+        ? 'chat'
+        : route === 'demo'
+          ? 'demo'
+          : !__HOSTED__ && service
+            ? 'subscription'
+            : available.local
+              ? 'local'
+              : undefined;
+    if (!provider) {
+      setNotice('自動で作るには、設定でClaude・ChatGPTの月額版に接続するか、ローカルLLMを登録してください。');
+      setSettingsOpen(true);
+      return;
+    }
+    const { apiKey: unusedKey, hasKey: unusedHasKey, ...safeSettings } = withProvider(settings, provider);
+    const next = {
+      ...safeSettings,
+      ...(provider === 'subscription' && service ? { subscriptionService: service } : {}),
+    };
+    try {
+      setSettings(await api<Settings>('/settings', { method: 'PUT', body: JSON.stringify(next) }));
+      setCloudConsent(false);
+      setNotice('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '作り方を切り替えられませんでした。');
+    }
   }
   async function ensureSubscription(signal: AbortSignal) {
     const connections = await api<SubscriptionStatus>('/subscriptions', { signal }),
@@ -1165,6 +1213,25 @@ export default function App() {
 
   const composer = (
     <>
+      {!session && (
+        <RoutePanel
+          route={routeOf(settings.provider)}
+          hosted={__HOSTED__}
+          available={available}
+          choice={pickerActive ? aiChoice : undefined}
+          chatScope={chatScope}
+          maskedTerms={activeProject?.privacy?.terms.length ?? 0}
+          disabled={!!busy || loading}
+          onRoute={route => void chooseRoute(route)}
+          onChoice={chooseAi}
+          onChatScope={scope => {
+            if (scope !== 'design') setChatScope(scope);
+            setCloudConsent(false);
+          }}
+          onSettings={() => setSettingsOpen(true)}
+          onProject={() => setProjectsOpen(true)}
+        />
+      )}
       <div
         className={`editor ${dropActive ? 'drop-active' : ''}`}
         onDragOver={event => {
@@ -1337,15 +1404,6 @@ export default function App() {
           </label>
         </div>
       )}
-      {pickerActive && aiChoice && (
-        <AiPicker
-          choice={aiChoice}
-          available={available}
-          disabled={!!busy || loading}
-          onChange={chooseAi}
-          onSetup={() => setSettingsOpen(true)}
-        />
-      )}
       {((!session && needsConsent) || session?.cloudConsentRequired) && (
         <div className="consent">
           <input
@@ -1367,29 +1425,21 @@ export default function App() {
           </label>
         </div>
       )}
-      {isDemo && (
-        <div className="demo-note">
-          <Icon name="info" size={14} />
-          <span>
-            サンプル体験です。実際にAIで作った記録を再生します（AIは呼び出しません）。入力や資料は使いません。
-            <button type="button" className="text-link" onClick={() => setSettingsOpen(true)}>
-              設定で処理先を変更
-            </button>
-          </span>
-        </div>
-      )}
-      {!session && !isDemo && (
-        <p className="workspace-note">
-          {settings.provider === 'local'
-            ? '資料はこの PC で読み取り、ローカル LLM で処理します。'
-            : isSubscription
-              ? `資料はこのPCで読み取り、接続した${aiName}で自動作成します。APIキーは不要で、月額版の利用権限と上限が適用されます。`
-              : '資料はこの PC で読み取ります。AIチャットには、ご自身で指示をコピーして渡します。有料APIは使いません。'}
-        </p>
-      )}
     </>
   );
 
+  const sessionRoute =
+    session &&
+    routeSummary(routeOf(session.provider ?? settings.provider), {
+      cloud: (
+        session.targets ?? (session.provider === 'subscription' ? [session.subscriptionService ?? 'chatgpt'] : [])
+      )
+        .filter(t => t !== 'local')
+        .map(t => targetNames[t]),
+      scope: session.sendScope ?? (activeProject?.privacy?.mode === 'masked' ? 'masked' : 'full'),
+      local: session.provider === 'local' || !!session.targets?.includes('local'),
+      hosted: __HOSTED__,
+    });
   const conversation = session && session.messages.length > 0 && (
     <div className="conversation">
       {session.messages.map((message, index) => (
@@ -1759,6 +1809,18 @@ export default function App() {
                         : '履歴の保存状況を確認してください')}
                   </span>
                 </div>
+              )}
+              {sessionRoute && (
+                <p className="route-summary compact" aria-label="この資料の送り先">
+                  <span>
+                    <strong>送り先</strong>
+                    {sessionRoute.to}
+                  </span>
+                  <span>
+                    <strong>渡すもの</strong>
+                    {sessionRoute.what}
+                  </span>
+                </p>
               )}
               {isChat ? (
                 <p className="workspace-note">

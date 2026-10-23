@@ -503,6 +503,24 @@ const offer = {
   reason: '理由',
 };
 
+test('manual chat can mask names and numbers chosen at creation; the design-only way is not offered there', async () => {
+  const f = await engineWith({ provider: 'chat', model: 'manual-chat' }, () => ({}));
+  try {
+    const masked = await f.engine.create(
+      { prompt: 'カゲロウ精機の売上1,520億円を説明する3枚', sendScope: 'masked' },
+      [],
+    );
+    assert.equal(masked.sendScope, 'masked');
+    assert.match(masked.chatHandoff!.instruction, /## 伏せ字について/);
+    assert.doesNotMatch(masked.chatHandoff!.instruction, /1,520億円/, 'numbers are masked in what is copied');
+    const plain = await f.engine.create({ prompt: '売上1,520億円を説明する3枚', sendScope: 'full' }, []);
+    assert.match(plain.chatHandoff!.instruction, /1,520億円/);
+    await assert.rejects(f.engine.create({ prompt: '3枚', sendScope: 'design' }, []), /そのまま送るか伏せ字にするか/);
+  } finally {
+    await f.dispose();
+  }
+});
+
 test('manual chat offers the three directions too; the cards wait for no samples', async () => {
   const f = await engineWith({ provider: 'chat', model: 'manual-chat', outlineProposals: true }, () => ({}));
   try {
