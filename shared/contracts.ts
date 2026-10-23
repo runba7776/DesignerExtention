@@ -20,7 +20,7 @@ export type AiTarget = 'claude' | 'chatgpt' | 'local';
 /** What leaves this PC for a cloud AI in one creation: everything, names and numbers
  * masked, or only the design skeleton (the content is written by the local LLM). */
 export type SendScope = 'full' | 'masked' | 'design';
-export const APP_VERSION = '0.13.0';
+export const APP_VERSION = '0.14.0';
 export const MAX_PROMPT_CHARACTERS = 60_000;
 export const MAX_SLIDES = 30;
 export const GENERATION_BATCH_SIZE = 6;
