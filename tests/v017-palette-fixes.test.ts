@@ -150,6 +150,10 @@ test('with おまかせ the deck is coloured with the palette the AI chose; it c
     assert.equal((pack.designs[0] as any).palette.background, '#14161C');
     const reopened = await engine.restoreHistory(session.historyId!);
     assert.equal(reopened.session.variants[0].deck.aiTheme!.secondary, '#F2B33D');
+    // Pages made again in the reopened deck are drawn and asked for in the AI colours, not a built-in theme's.
+    const state = engine.states.get(reopened.session.id)!;
+    assert.equal(engine.pages.designOptions(state, state.session.outline).theme!.accent, '#E4002B');
+    assert.equal(engine.pages.stylePreferences(state).themeId, 'auto');
     // A theme chosen explicitly in settings wins over the AI palette.
     await settings.update({ themeId: 'paper' });
     const explicit = await engine.create({ prompt: '2枚で' }, []);

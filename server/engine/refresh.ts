@@ -6,6 +6,7 @@ import { emptyUsage } from '../providers.js';
 import { validateDeck } from '../validation.js';
 import { fitProblems } from '../text-fit.js';
 import { applyRefresh, planRefresh, RefreshInputError } from '../../shared/refresh.js';
+import { AI_THEME_ID } from '../../shared/ai-theme.js';
 import type { SessionEngine } from '../engine.js';
 import type { SessionState } from './session-state.js';
 
@@ -107,7 +108,8 @@ export class RefreshService {
         const settings = this.engine.options.settings.get();
         settings.mode = deck.mode;
         settings.slideCount = deck.slides.length;
-        settings.themeId = deck.themeId;
+        // The AI's palette is not a setting: it came from おまかせ, which takes it again from the outline.
+        settings.themeId = deck.themeId === AI_THEME_ID ? 'auto' : deck.themeId;
         settings.typographyId = deck.typographyId ?? 'auto';
         const summary: RefreshSummary = {
           at: new Date().toISOString(),

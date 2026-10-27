@@ -14,6 +14,7 @@ import { documentSummary } from '../document-model.js';
 import { AppError, requireText } from '../errors.js';
 import { emptyUsage } from '../providers.js';
 import { themes } from '../../shared/themes.js';
+import { AI_THEME_ID } from '../../shared/ai-theme.js';
 import { assertTextFits } from '../text-fit.js';
 import { listLayouts } from '../../shared/layouts.js';
 import { applySavedDesign } from '../design-application.js';
@@ -167,7 +168,8 @@ export class LibraryService {
       deck = record.session.variants[0].deck;
     settings.mode = deck.mode;
     settings.slideCount = deck.slides.length;
-    settings.themeId = deck.themeId;
+    // The AI's palette is not a setting: it came from おまかせ, which takes it again from the outline.
+    settings.themeId = deck.themeId === AI_THEME_ID ? 'auto' : deck.themeId;
     settings.typographyId = deck.typographyId ?? 'auto';
     const session: Session = {
       ...record.session,
