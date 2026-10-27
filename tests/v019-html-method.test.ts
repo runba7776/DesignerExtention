@@ -11,7 +11,7 @@ import { findBrowser, layoutHtmlSlides, type HtmlLayout } from '../server/html-l
 import { freeSystemPrompt } from '../server/free-prompts.js';
 import { paletteTheme } from '../shared/ai-theme.js';
 import { compileDeck } from '../shared/layouts.js';
-import { validateSlide } from '../server/validation.js';
+import { sanitizeSvg, validateSlide } from '../server/validation.js';
 
 const usage = { ...emptyUsage(), calls: 1 };
 const palette = {
@@ -328,3 +328,62 @@ test(
     );
   },
 );
+
+test(
+  'arrowheads and gradients drawn in an SVG survive to the slide; references outside the page do not',
+  { skip: !findBrowser() },
+  async () => {
+    const [r] = await layoutHtmlSlides(
+      [
+        {
+          id: 'slide-2',
+          html: `<section class="slide"><h1 style="position:absolute;left:56px;top:20px;margin:0;font-size:28px">題名</h1><svg style="position:absolute;left:56px;top:100px" width="600" height="300" viewBox="0 0 600 300"><defs><marker id="ah" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="#D9534F"/></marker><linearGradient id="g"><stop offset="0" stop-color="#D9534F"/><stop offset="1" stop-color="#1E8282"/></linearGradient></defs><path d="M10 10 C 60 10 60 120 200 120" stroke="#333" stroke-width="3" fill="none" marker-end="url(#ah)"/><line x1="10" y1="200" x2="300" y2="200" stroke="#333" style="marker-start:url('#ah')"/><rect x="400" y="20" width="150" height="80" fill="url(#g)"/><rect x="400" y="150" width="150" height="80" fill="url(https://example.com/a.svg#g)"/></svg></section>`,
+        },
+      ],
+      paletteTheme(palette),
+    );
+    if ('error' in r) assert.fail(r.error);
+    const slide = validateSlide(
+      { id: 'slide-2', title: '題名', layoutId: 'free', notes: '', sources: [], design: { elements: r.elements } },
+      'slide-2',
+    );
+    const svg = (slide.design!.elements.find(e => e.t === 'svg') as { svg: string }).svg;
+    assert.match(svg, /<marker id="ah"/);
+    assert.match(svg, /<path d="M10 10[^>]*marker-end="url\((&quot;)?#ah(&quot;)?\)"/);
+    assert.match(svg, /<line [^>]*marker-start="url\((&quot;)?#ah(&quot;)?\)"/);
+    assert.match(svg, /<rect x="400" y="20"[^>]*fill="url\((&quot;)?#g(&quot;)?\)"/);
+    assert.doesNotMatch(svg, /example\.com/);
+  },
+);
+
+test(
+  'the picture of a page shows moves inside an SVG as PowerPoint draws them (a mirrored shape)',
+  { skip: !findBrowser() },
+  async () => {
+    const page = (shape: string) => ({
+      id: 'slide-2',
+      html: `<section class="slide"><svg style="position:absolute;left:100px;top:100px" width="400" height="200" viewBox="0 0 400 200">${shape}</svg></section>`,
+    });
+    const [moved, plain] = await layoutHtmlSlides(
+      [
+        page(
+          '<g transform="translate(300,0) scale(-1,1)"><rect x="0" y="0" width="100" height="100" fill="#D9534F"/></g>',
+        ),
+        page('<rect x="200" y="0" width="100" height="100" fill="#D9534F"/>'),
+      ],
+      paletteTheme(palette),
+      { screenshot: true },
+    );
+    if ('error' in moved || 'error' in plain) assert.fail('not drawn');
+    assert.ok(moved.shot && moved.shot === plain.shot);
+  },
+);
+
+test('SVG references inside the SVG stay however they are quoted; references outside are removed', () => {
+  const svg = sanitizeSvg(
+    `<svg><path marker-end="url(#a)"/><path marker-end="url(&quot;#a&quot;)"/><rect fill="url('#g')"/><rect fill="url(&quot;https://example.com/x#g&quot;)"/><rect fill="url(https://example.com/x)"/></svg>`,
+    'x',
+  );
+  assert.equal(svg.match(/url\(/g)?.length, 3);
+  assert.doesNotMatch(svg, /example\.com/);
+});

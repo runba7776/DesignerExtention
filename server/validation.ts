@@ -428,7 +428,8 @@ const elementFont = (value: unknown) =>
   typeof value === 'string' && value.trim() && !/[\u0000-\u001f<>"]/.test(value)
     ? value.trim().slice(0, 60)
     : undefined;
-/** SVG artwork read from a page's HTML: no scripts, external references or embedded documents. */
+/** SVG artwork read from a page's HTML: no scripts, external references or embedded documents.
+ * References inside the SVG stay (an arrowhead, a gradient); the browser writes them as url(&quot;#id&quot;). */
 export function sanitizeSvg(value: unknown, field: string) {
   if (typeof value !== 'string' || value.length > 150_000 || !/^\s*<svg[\s>]/i.test(value))
     bad(`${field}のSVGが正しくありません`);
@@ -437,7 +438,7 @@ export function sanitizeSvg(value: unknown, field: string) {
     .replace(/<\s*\/?\s*(script|foreignObject|iframe|image|a)\b[^>]*>/gi, '')
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/\s(href|xlink:href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/url\(\s*["']?(?!#)[^)]*\)/gi, 'none')
+    .replace(/url\((?!\s*(?:["']|&quot;|&#0*39;|&apos;)?#)[^)]*\)/gi, 'none')
     .replace(/<!ENTITY[^>]*>|<!DOCTYPE[^>]*>/gi, '');
 }
 /** An AI-designed slide. Positions, shapes and colours are the AI's; the app only

@@ -33,8 +33,9 @@ export type HtmlLayout = (
   options?: HtmlLayoutOptions,
 ) => Promise<HtmlPageLayout[]>;
 
-/** Removes anything that could run code or load from outside. The page also has a
- * CSP that blocks scripts and network access, and script execution is disabled. */
+/** Removes anything that could run code or load from outside; url() stays only as a reference
+ * inside the page (an SVG arrowhead, a gradient). The page also has a CSP that blocks scripts
+ * and network access, and script execution is disabled. */
 export function sanitizeHtml(html: string) {
   return html
     .replace(
@@ -47,7 +48,7 @@ export function sanitizeHtml(html: string) {
     )
     .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/\s(href|src|xlink:href|srcset|action|formaction|background)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
-    .replace(/url\s*\(([^)]*)\)/gi, 'none')
+    .replace(/url\s*\((?!\s*(?:["']|&quot;|&#0*39;|&apos;)?#)[^)]*\)/gi, 'none')
     .replace(/@import[^;]*;?/gi, '')
     .replace(/expression\s*\(/gi, '(');
 }
@@ -61,10 +62,12 @@ export function slidePage(html: string, theme: Theme) {
     font = (name: string | undefined) => `"${(name ?? theme.font).replace(/"/g, '')}"`;
   const vars = `--bg:${t.bg};--ink:${t.ink};--muted:${t.muted};--accent:${t.accent};--accent2:${t.accent2};--surface:${t.surface};--rule:${t.rule};--negative:${t.negative};--on-accent:${t.onAccent};--heading-font:${font(theme.headingFont)};--body-font:${font(theme.font)};--number-font:${font(theme.numberFont)}`;
   // lang="ja" + auto-phrase: Japanese lines break between phrases (確かめる, 素数は) as in the app's JSON method.
+  // Moves inside an SVG stay (a mirrored hand): PowerPoint draws them, so the picture the AI reviews must show them too.
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'">
 <style>:root{${vars}}html,body{margin:0;padding:0;background:#FFFFFF}section.slide{background:var(--bg);color:var(--ink);word-break:auto-phrase;line-break:strict;font-family:var(--body-font)}section.slide :is(h1,[data-role="title"]){font-family:var(--heading-font)}section.slide [data-role="number"]{font-family:var(--number-font),var(--body-font)}</style></head><body>${sanitizeHtml(html)}
 <style>section.slide{width:960px!important;height:540px!important;position:relative!important;overflow:hidden!important;box-sizing:border-box!important;margin:0!important}
-section.slide,section.slide *{letter-spacing:normal!important;word-spacing:normal!important;text-shadow:none!important;box-shadow:none!important;transform:none!important;filter:none!important;writing-mode:horizontal-tb!important;list-style:none!important}
+section.slide,section.slide *{letter-spacing:normal!important;word-spacing:normal!important;text-shadow:none!important;box-shadow:none!important;filter:none!important;writing-mode:horizontal-tb!important;list-style:none!important}
+section.slide,section.slide :not(svg *){transform:none!important}
 section.slide *::before,section.slide *::after{content:none!important}</style></body></html>`;
 }
 
@@ -85,7 +88,7 @@ export const CONVERT_SCRIPT = String.raw`(function(){
   function radius(cs,w,h){const v=cs.borderTopLeftRadius;if(!v||v.startsWith('0'))return 0;const n=parseFloat(v);return v.includes('%')?n/100*Math.min(w,h):n;}
   function svgMarkup(svg,r){
     const clone=svg.cloneNode(true),source=[svg,...svg.querySelectorAll('*')],target=[clone,...clone.querySelectorAll('*')];
-    source.forEach((el,i)=>{const cs=getComputedStyle(el),t=target[i];for(const p of ['fill','stroke','stroke-width','opacity','fill-opacity','stroke-opacity','stroke-linecap','stroke-linejoin','stroke-dasharray','font-size','font-weight'])t.setAttribute(p,cs.getPropertyValue(p));if(el.tagName==='text'||el.tagName==='tspan')t.setAttribute('font-family',cs.fontFamily);t.removeAttribute('class');t.removeAttribute('style');});
+    source.forEach((el,i)=>{const cs=getComputedStyle(el),t=target[i];for(const p of ['fill','stroke','stroke-width','opacity','fill-opacity','stroke-opacity','stroke-linecap','stroke-linejoin','stroke-dasharray','font-size','font-weight','marker-start','marker-mid','marker-end'])t.setAttribute(p,cs.getPropertyValue(p));if(el.tagName==='text'||el.tagName==='tspan')t.setAttribute('font-family',cs.fontFamily);t.removeAttribute('class');t.removeAttribute('style');});
     clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width',String(round(r.width)));clone.setAttribute('height',String(round(r.height)));
     if(!clone.getAttribute('viewBox'))clone.setAttribute('viewBox','0 0 '+round(r.width)+' '+round(r.height));
     return new XMLSerializer().serializeToString(clone);
