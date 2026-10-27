@@ -79,7 +79,7 @@ test('a rejected page is asked again alone; the valid pages after it in the same
               mode: 'presentation',
               id: 'd',
               title: '5枚',
-              slides: ids.map((id: string) => page(id, batches.length === 1 && id === 'slide-2')),
+              slides: ids.map((id: string) => page(id, batches.length === 2 && id === 'slide-3')),
             }),
             usage,
           };
@@ -91,14 +91,14 @@ test('a rejected page is asked again alone; the valid pages after it in the same
     assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
     assert.deepEqual(
       batches,
-      [['slide-1', 'slide-2', 'slide-3'], ['slide-2'], ['slide-4', 'slide-5']],
-      'slide-3 from the first reply is kept',
+      [['slide-1', 'slide-2'], ['slide-3', 'slide-4'], ['slide-3'], ['slide-5']],
+      'slide-4 from the second reply is kept',
     );
     assert.deepEqual(
       session.variants[0].deck.slides.map(s => s.id),
       ['slide-1', 'slide-2', 'slide-3', 'slide-4', 'slide-5'],
     );
-    assert.equal(session.usage.calls, 4);
+    assert.equal(session.usage.calls, 5);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

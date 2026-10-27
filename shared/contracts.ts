@@ -45,7 +45,10 @@ export const CHAT_GENERATION_BATCH_SIZE = 10;
 export const CHAT_READING_BATCH_SIZE = 8;
 /** AI-designed slides carry every element's position, so a reply holds fewer pages. */
 export const FREE_CHAT_BATCH_SIZE = 4;
-export const FREE_GENERATION_BATCH_SIZE = 3;
+/** Two pages per call: three ran into the answer limit (16,000), and then the whole reply was lost. */
+export const FREE_GENERATION_BATCH_SIZE = 2;
+/** Design-only requests send no text and get short replies; three a call keeps 30 pages within 12 calls. */
+export const FREE_DESIGN_BATCH_SIZE = 3;
 export const GENERATION_OUTPUT_TOKENS = 16_000;
 export const PLAN_OUTPUT_TOKENS = 16_000;
 export const PLAN_RETRY_OUTPUT_TOKENS = 20_000;

@@ -3,7 +3,7 @@ import { appendFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   FREE_CHAT_BATCH_SIZE,
-  FREE_GENERATION_BATCH_SIZE,
+  FREE_DESIGN_BATCH_SIZE,
   GENERATION_OUTPUT_TOKENS,
   type ChatService,
   type SendRecord,
@@ -305,7 +305,7 @@ export class DesignRequestService {
       protectedTexts = this.protectedTexts(state, deck),
       done: SlideSpec[] = [];
     let issues: string[] | undefined,
-      batchSize = FREE_GENERATION_BATCH_SIZE;
+      batchSize = FREE_DESIGN_BATCH_SIZE;
     while (done.length < ids.length) {
       const batch = ids.filter(id => !done.some(s => s.id === id)).slice(0, batchSize),
         { packet } = designRequest(deck, batch, level, topic);
@@ -350,7 +350,7 @@ export class DesignRequestService {
         );
         done.push(...fillDesign(raw, packet, contents, deck));
         issues = undefined;
-        if (batchSize < FREE_GENERATION_BATCH_SIZE) batchSize++;
+        if (batchSize < FREE_DESIGN_BATCH_SIZE) batchSize++;
       } catch (error) {
         const reason = repairReason(error);
         if (

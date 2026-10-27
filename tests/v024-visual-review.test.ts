@@ -144,7 +144,7 @@ const page = (id: string, title: string, extra = '') => ({
 });
 async function fixture(
   patch: Partial<Settings> = {},
-  options: { images?: boolean; fixFails?: boolean; masked?: boolean; remakeBroken?: boolean } = {},
+  options: { images?: boolean; fixFails?: boolean; masked?: boolean; remakeBroken?: boolean; bothHigh?: boolean } = {},
 ) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-review-'));
   const settings = await new SettingsStore(dir, '').load();
@@ -225,7 +225,12 @@ async function fixture(
                     { severity: 'low', what: '余白が偏る', fix: '左右をそろえる' },
                   ],
                 },
-                { id: 'slide-3', problems: [{ severity: 'medium', what: '文章が多い', fix: '3つにまとめる' }] },
+                {
+                  id: 'slide-3',
+                  problems: [
+                    { severity: options.bothHigh ? 'high' : 'medium', what: '文章が多い', fix: '3つにまとめる' },
+                  ],
+                },
               ],
             }),
             usage,
@@ -361,6 +366,23 @@ test('a remake with a high problem of its own is not used: the page stays as it 
     );
     const chosen = await f.engine.reviewVersion(session.id, 'slide-2', 'after');
     assert.equal(textOf(chosen, 1), '直した問いの地図', 'the user may still take the remake');
+  } finally {
+    await f.dispose();
+  }
+});
+
+test('pages with a high problem are made again one per call, so one long answer cannot lose them all', async () => {
+  const f = await fixture({}, { bothHigh: true });
+  try {
+    const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
+    await f.engine.generate(session.id);
+    const polished = await f.engine.polish(session.id);
+    assert.deepEqual(
+      f.redos.map(r => r.targetSlides.map((s: any) => s.id)),
+      [['slide-2'], ['slide-3']],
+    );
+    assert.match(f.redos[1].repair.detail, /^slide-3：文章が多い。3つにまとめる$/);
+    assert.deepEqual(polished.reviewReport?.fixed, ['slide-2', 'slide-3']);
   } finally {
     await f.dispose();
   }

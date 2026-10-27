@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
-  FREE_GENERATION_BATCH_SIZE,
   GENERATION_OUTPUT_TOKENS,
   REVIEW_BATCH_SIZE,
   REVIEW_OUTPUT_TOKENS,
@@ -80,23 +79,20 @@ export class ReviewService {
         );
       }
     }
-    const ids = [...severe.keys()];
-    for (let i = 0; i < ids.length; i += FREE_GENERATION_BATCH_SIZE) {
-      const group = ids.slice(i, i + FREE_GENERATION_BATCH_SIZE);
+    // One page per call: several pages remade at once can run past the answer limit, and then all of them are lost.
+    for (const [id, found] of severe) {
       const done = this.engine.ai.callsLeft(state)
         ? await this.redoPages(
             state,
             outline,
             slides,
-            group,
-            group.flatMap(id => severe.get(id)!.map(h => `${id}：${h.what}。${h.fix}`)).join(' '),
+            [id],
+            found.map(h => `${id}：${h.what}。${h.fix}`).join(' '),
             compact,
           )
         : {};
-      for (const id of group) {
-        if (done[id]) replaced[id] = done[id];
-        else unresolved.push(id);
-      }
+      if (done[id]) replaced[id] = done[id];
+      else unresolved.push(id);
     }
     return { checked, hints, severe, replaced, unresolved };
   }

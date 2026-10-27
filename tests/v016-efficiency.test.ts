@@ -186,19 +186,16 @@ test('an 11-page AI-designed deck: a broken reply keeps its finished pages, batc
           budgets.push(r.maxTokens);
           const reply = (slides: unknown[]) =>
             JSON.stringify({ mode: 'presentation', themeId: 'business', id: 'd', title: '11枚', slides });
-          // The second batch breaks off inside its third page.
-          if (targets.length === 2)
-            return { text: reply(ids.slice(0, 2).map(page)).slice(0, -2) + ',{"id":"slide-6","title":"途', usage };
-          // One page of a later batch has two text boxes on top of each other.
-          if (ids[0] === 'slide-7' && ids.length === 2)
+          // One page of the second batch has two text boxes on top of each other.
+          if (ids[0] === 'slide-3' && ids.length === 2)
             return {
               text: reply([
-                page('slide-7'),
+                page('slide-3'),
                 {
-                  ...page('slide-8'),
+                  ...page('slide-4'),
                   design: {
                     elements: [
-                      t(56, 28, 848, 52, 'slide-8の題名', 28, 'title'),
+                      t(56, 28, 848, 52, 'slide-4の題名', 28, 'title'),
                       t(56, 120, 400, 60, '重なる本文A', 18),
                       t(60, 124, 400, 60, '重なる本文B', 18),
                     ],
@@ -207,6 +204,9 @@ test('an 11-page AI-designed deck: a broken reply keeps its finished pages, batc
               ]),
               usage,
             };
+          // A later batch breaks off inside its second page.
+          if (ids[0] === 'slide-7' && ids.length === 2)
+            return { text: reply([page('slide-7')]).slice(0, -2) + ',{"id":"slide-8","title":"途', usage };
           return { text: reply(ids.map(page)), usage };
         },
       }),
@@ -215,33 +215,38 @@ test('an 11-page AI-designed deck: a broken reply keeps its finished pages, batc
     await engine.generate(session.id);
     assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
     assert.equal(session.variants[0].deck.slides.length, 11);
+    // After a rejected page the batch grows back; after a cut reply it stays below the size that was cut.
     assert.deepEqual(targets, [
-      ['slide-1', 'slide-2', 'slide-3'],
-      ['slide-4', 'slide-5', 'slide-6'],
-      ['slide-6'],
+      ['slide-1', 'slide-2'],
+      ['slide-3', 'slide-4'],
+      ['slide-4'],
+      ['slide-5', 'slide-6'],
       ['slide-7', 'slide-8'],
       ['slide-8'],
-      ['slide-9', 'slide-10'],
+      ['slide-9'],
+      ['slide-10'],
       ['slide-11'],
     ]);
-    assert.equal(session.usage.calls, 8, 'one plan and seven generation calls (the old path used eleven)');
+    assert.equal(session.usage.calls, 10, 'one plan and nine generation calls');
     // Retries carry the app's finding with the page; the model's own words are not echoed back.
-    assert.equal(repairs[2].reason, 'INVALID_MODEL_JSON');
-    assert.equal(repairs[2].detail, undefined);
-    assert.match(repairs[4].detail, /^slide-8：文字の枠が重なっています/);
-    assert.ok(!repairs[4].detail.includes('重なる本文'));
+    assert.match(repairs[2].detail, /^slide-4：文字の枠が重なっています/);
+    assert.ok(!repairs[2].detail.includes('重なる本文'));
+    assert.equal(repairs[5].reason, 'INVALID_MODEL_JSON');
+    assert.equal(repairs[5].detail, undefined);
     // Each batch receives the documents its pages name in the outline.
     assert.deepEqual(documents, [
       ['決算短信.txt'],
       ['決算短信.txt'],
       ['決算短信.txt'],
+      ['決算短信.txt'],
+      ['KPI.txt'],
       ['KPI.txt'],
       ['KPI.txt'],
       ['KPI.txt'],
       ['KPI.txt'],
     ]);
     assert.ok(budgets.every(n => n <= 16_000));
-    assert.equal(budgets[0], 15_000);
+    assert.equal(budgets[0], 11_000);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
