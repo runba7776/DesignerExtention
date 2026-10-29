@@ -33,6 +33,8 @@ export class OutputLimitError extends AppError {
   }
 }
 
+const LOCAL_TIMEOUT_MS = 10 * 60_000;
+
 /** This factory only calls a private/local inference server. Subscription clients
  * are created by SubscriptionManager after an explicit account connection. */
 export function createProvider(settings: Settings, apiKey?: string, fetcher: typeof fetch = fetch): Provider {
@@ -59,24 +61,41 @@ export function createProvider(settings: Settings, apiKey?: string, fetcher: typ
   return {
     async complete(request) {
       const url = `${base.replace(/\/chat\/completions$/, '')}/chat/completions`;
-      let response: Response;
-      try {
-        response = await fetcher(url, {
+      const plain = {
+        model: settings.model,
+        temperature: 0.25,
+        max_tokens: request.maxTokens,
+        messages: [
+          { role: 'system', content: request.system },
+          { role: 'user', content: request.content },
+        ],
+      };
+      const send = (body: object) =>
+        fetcher(url, {
           method: 'POST',
           redirect: 'error',
-          signal: AbortSignal.timeout(180_000),
+          // A PC's GPU writes far slower than a cloud service.
+          signal: AbortSignal.timeout(LOCAL_TIMEOUT_MS),
           headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-          body: JSON.stringify({
-            model: settings.model,
-            temperature: 0.25,
-            max_tokens: request.maxTokens,
-            messages: [
-              { role: 'system', content: request.system },
-              { role: 'user', content: request.content },
-            ],
-          }),
+          body: JSON.stringify(body),
         });
-      } catch {
+      let response: Response;
+      try {
+        // A thinking model (gemma4 on Ollama thinks unless told not to) spent 20,000 tokens on a plan and ran
+        // out of time. A server that refuses the option is asked once more without it. (Forcing JSON with
+        // response_format made gemma4 ask questions instead of planning, so it is not used.)
+        response = await send({ ...plain, reasoning_effort: 'none' });
+        if (response.status === 400) {
+          await response.body?.cancel();
+          response = await send(plain);
+        }
+      } catch (error) {
+        if ((error as Error)?.name === 'TimeoutError')
+          throw new AppError(
+            504,
+            `ローカルLLMの返答が${LOCAL_TIMEOUT_MS / 60_000}分以内に終わりませんでした。より小さいモデルにするか、枚数や資料を減らしてください。外部APIへの切り替えは行っていません。`,
+            'PROVIDER_TIMEOUT',
+          );
         throw new AppError(
           502,
           'ローカルLLMに接続できません。起動状態・接続先・モデル名を確認してください。外部APIへの切り替えは行っていません。',

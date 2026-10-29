@@ -385,3 +385,35 @@ test('HTTP boundary requires bootstrap cookie + same-origin writes; demo upload 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('local provider asks the model not to think; a server refusing the option gets the plain request once; a time-out says so', async () => {
+  const bodies: any[] = [];
+  const reply = () =>
+    new Response(JSON.stringify({ choices: [{ message: { content: '{"kind":"questions","message":"?"}' } }] }), {
+      status: 200,
+    });
+  const local = (fetcher: typeof fetch) =>
+    createProvider(
+      { provider: 'local', model: 'gemma4:12b', mode: 'presentation', endpoint: 'http://127.0.0.1:11434/v1' },
+      undefined,
+      fetcher,
+    );
+  await local(async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return reply();
+  }).complete({ system: 's', content: 'c', maxTokens: 100 });
+  assert.equal(bodies[0].reasoning_effort, 'none');
+  bodies.length = 0;
+  await local(async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return bodies.length === 1 ? new Response('{"error":"unknown field reasoning_effort"}', { status: 400 }) : reply();
+  }).complete({ system: 's', content: 'c', maxTokens: 100 });
+  assert.equal(bodies.length, 2);
+  assert.equal(bodies[1].reasoning_effort, undefined);
+  await assert.rejects(
+    local(async () => {
+      throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+    }).complete({ system: 's', content: 'c', maxTokens: 100 }),
+    /10分以内に終わりませんでした/,
+  );
+});

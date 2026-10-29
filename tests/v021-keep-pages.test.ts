@@ -110,3 +110,46 @@ test('the chart limits the app checks are stated in both methods, and the HTML p
   assert.match(html, /項目は1〜8個・系列は1〜3個/);
   assert.match(html, /上から470px程度までに収めて余裕を残し/);
 });
+
+test('asked for one page, the page itself is taken as the answer, its layoutId given by its place (gemma4 answers so)', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'de-bare-page-'));
+  try {
+    const settings = await new SettingsStore(dir, '').load();
+    await settings.update({ provider: 'local', model: 'mock', slideCount: 2, mode: 'presentation' });
+    const outline = {
+      title: '2枚',
+      mode: 'presentation',
+      assumptions: [],
+      slides: [
+        { id: 'slide-1', title: '表紙', intent: '表紙', layoutId: 'cover', keyPoints: [] },
+        { id: 'slide-2', title: 'slide-2の題名', intent: '説明', layoutId: 'free', keyPoints: [] },
+      ],
+    } as Outline;
+    let pages = 0;
+    const engine = new SessionEngine({
+      settings,
+      dataDir: dir,
+      render: async () => ({ artifactId: 'x', pptxUrl: 'x', thumbnails: [], warnings: [], native: false }),
+      providerFactory: () => ({
+        complete: async (r: CompletionRequest) => {
+          const req = JSON.parse(r.content).request;
+          if (!req.targetSlides) return { text: JSON.stringify({ kind: 'outline', outline }), usage };
+          pages++;
+          // The first reply breaks slide-2; asked again for it alone, the model answers with the bare page, without layoutId.
+          const text =
+            pages === 1
+              ? { mode: 'presentation', slides: [page('slide-1'), page('slide-2', true)] }
+              : (({ layoutId, ...bare }) => ({ mode: 'presentation', ...bare }))(page('slide-2'));
+          return { text: JSON.stringify(text), usage };
+        },
+      }),
+    });
+    const session = await engine.create({ prompt: '2枚' }, []);
+    await engine.generate(session.id);
+    assert.equal(session.phase, 'ready');
+    assert.equal(pages, 2, 'no call is spent on the missing wrapper');
+    assert.equal(session.variants[0].deck.slides[1].title, 'slide-2の題名');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

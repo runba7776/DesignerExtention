@@ -241,7 +241,7 @@ export class GenerationService {
       baseBatch = this.baseBatch(state, outline);
     if (state.settings.designMode === 'html' && !html && !state.session.warnings.some(w => w.startsWith('HTML方式')))
       state.session.warnings.push(
-        'HTML方式（試験）は、月額版の自動作成でインストール版を使うときだけ使えます。この資料は座標の方式で作成しました。',
+        'HTML方式は、月額版の自動作成でインストール版を使うときだけ使えます。この資料は座標の方式で作成しました。',
       );
     /** One returned page, checked on its own: a later page's problem never discards an earlier valid page. */
     const accept = (
@@ -288,6 +288,17 @@ export class GenerationService {
               ),
           run,
         );
+        // Asked for one page, a model may answer with the page itself instead of {mode, slides: [page]}
+        // (gemma4 on Ollama did so on every one-page repair); it is the asked page, so it is taken as one.
+        if (
+          response &&
+          !Array.isArray(response.slides) &&
+          targetSlides.length === 1 &&
+          response.id === targetSlides[0].id
+        ) {
+          const { mode, ...page } = response;
+          response = { mode, slides: [page] };
+        }
         if (!response || response.mode !== outline.mode || !Array.isArray(response.slides))
           throw new AppError(422, '指定したページ数・モードで応答されませんでした。', 'INVALID_CONTENT');
         if (start === 0 && knownTheme(response.themeId)) draft.themeId = response.themeId;

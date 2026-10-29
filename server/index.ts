@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { createApp } from './app';
 import { createRenderBridge } from './render-bridge';
+import { protectedHistoryCipher } from './history-cipher';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const runtime = path.join(projectRoot, 'runtime');
@@ -24,6 +25,7 @@ const app = await createApp({
   dataDir: runtime,
   webRoot: path.join(projectRoot, 'dist', 'web'),
   ...bridge,
+  historyCipher: process.platform === 'win32' ? protectedHistoryCipher(runtime) : undefined,
 });
 const tlsDirectory = path.join(runtime, 'office-taskpane');
 // "localhost" resolves to ::1 or 127.0.0.1 depending on the client. Office,

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { AppError } from './errors.js';
 
 /** Only this application's credentials are stored here. No other app's login
@@ -75,13 +76,22 @@ export class ProtectedCredentialStorage implements CredentialStorage {
   }
 }
 
-/** Windows DPAPI binds ciphertext to the current Windows user. Stdin/stdout
- * transport is bounded and is never printed or passed on the command line. */
-function dpapi(action: 'encrypt' | 'decrypt', bytes: Buffer): Promise<Buffer> {
-  const method = action === 'encrypt' ? 'Protect' : 'Unprotect';
-  const code = `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Security; $inputBytes=[Convert]::FromBase64String([Console]::In.ReadToEnd()); $result=[System.Security.Cryptography.ProtectedData]::${method}($inputBytes,$null,[System.Security.Cryptography.DataProtectionScope]::CurrentUser); [Console]::Out.Write([Convert]::ToBase64String($result))`;
+const helper = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'native',
+  'bin',
+  'DesignerExtension.Renderer.exe',
+);
+/** Windows DPAPI binds ciphertext to the current Windows user. The app's own native helper does it (no
+ * PowerShell). Stdin/stdout transport is bounded and is never printed or passed on the command line. */
+export function dpapi(
+  action: 'encrypt' | 'decrypt',
+  bytes: Buffer,
+  failure = 'Windowsでログイン情報を保護できませんでした。認証情報は平文で保存していません。',
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', code], {
+    const child = spawn(helper, [action === 'encrypt' ? '--protect' : '--unprotect'], {
       windowsHide: true,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -96,15 +106,7 @@ function dpapi(action: 'encrypt' | 'decrypt', bytes: Buffer): Promise<Buffer> {
       if (complete) return;
       complete = true;
       clearTimeout(timer);
-      result
-        ? resolve(result)
-        : reject(
-            new AppError(
-              500,
-              'Windowsでログイン情報を保護できませんでした。認証情報は平文で保存していません。',
-              'AUTH_STORAGE',
-            ),
-          );
+      result ? resolve(result) : reject(new AppError(500, failure, 'AUTH_STORAGE'));
     };
     child.stdout.on('data', chunk => {
       output += chunk.toString();

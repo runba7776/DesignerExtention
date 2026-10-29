@@ -25,7 +25,7 @@ $rendererBinary = Join-Path $bin 'DesignerExtension.Renderer.exe'
 $rendererSources = @($rendererSource, (Join-Path $nativeRoot 'ChartIntegrity.cs'))
 if (Test-NeedsBuild $rendererBinary $rendererSources) {
     Assert-Writable $rendererBinary 'The PowerPoint renderer is in use. Wait for slide creation to finish, then run setup again.'
-    & $compiler /nologo /optimize+ /target:exe /platform:anycpu /reference:Microsoft.CSharp.dll /reference:System.Drawing.dll /reference:System.Web.Extensions.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "/out:$rendererBinary" $rendererSources
+    & $compiler /nologo /optimize+ /target:exe /platform:anycpu /reference:Microsoft.CSharp.dll /reference:System.Drawing.dll /reference:System.Security.dll /reference:System.Web.Extensions.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "/out:$rendererBinary" $rendererSources
     if ($LASTEXITCODE -ne 0) { throw 'PowerPoint renderer build failed.' }
 }
 $addinSource = Join-Path $nativeRoot 'AddIn.cs'

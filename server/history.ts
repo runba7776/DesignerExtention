@@ -28,7 +28,15 @@ export interface HistoryRecord {
 const validId = (id: unknown): id is string =>
   typeof id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id);
 const MAX_HISTORY_BYTES = 6 * 1024 * 1024,
-  MAX_VERSIONS = 20;
+  MAX_VERSIONS = 20,
+  SEAL_OVERHEAD = 64;
+/** Encrypts history files at rest (history-cipher.ts). Without one (tests, the browser version) they are plain JSON. */
+export interface HistoryCipher {
+  seal(plain: Buffer): Promise<Buffer>;
+  open(stored: Buffer): Promise<Buffer>;
+}
+// Every record is a JSON object; a sealed file never starts with "{".
+const plainJson = (stored: Buffer) => stored[0] === 0x7b;
 function preservedText(value: unknown, label: string, max: number) {
   requireText(value, label, max);
   return value as string;
@@ -239,7 +247,10 @@ function contentKey(record: HistoryRecord) {
 export class HistoryStore {
   private directory: string;
   private queue: Promise<unknown> = Promise.resolve();
-  constructor(dataDir: string) {
+  constructor(
+    dataDir: string,
+    private cipher?: HistoryCipher,
+  ) {
     this.directory = path.resolve(dataDir, 'presentations');
   }
   private file(id: string) {
@@ -277,10 +288,13 @@ export class HistoryStore {
       if (error.code === 'ENOENT') throw new AppError(404, '保存した履歴が見つかりません。');
       throw error;
     }
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_HISTORY_BYTES)
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_HISTORY_BYTES + SEAL_OVERHEAD)
       throw new AppError(422, '履歴ファイルを読み取れません。', 'INVALID_HISTORY');
     try {
-      const record = checked(JSON.parse(await readFile(name, 'utf8')));
+      const stored = Buffer.from(await readFile(name));
+      // A file saved before encryption stays plain JSON until sealExisting encrypts it.
+      const plain = this.cipher && !plainJson(stored) ? await this.cipher.open(stored) : stored;
+      const record = checked(JSON.parse(plain.toString('utf8')));
       if (record.id !== id || (revision !== undefined && record.revision !== revision)) throw new Error('ID/revision');
       return record;
     } catch (error) {
@@ -407,6 +421,30 @@ export class HistoryStore {
       await this.removeRegular(name);
     });
   }
+  /** Encrypts the records and past versions saved before encryption was turned on. Returns how many. */
+  sealExisting() {
+    return this.serial(async () => {
+      let sealed = 0;
+      if (!this.cipher || !(await this.safeDirectory())) return sealed;
+      const seal = async (name: string) => {
+        const stat = await lstat(name);
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_HISTORY_BYTES) return;
+        const stored = await readFile(name);
+        if (!plainJson(stored)) return;
+        await this.atomicWrite(name, stored.toString('utf8'));
+        sealed++;
+      };
+      for (const name of await readdir(this.directory))
+        if (name.endsWith('.json') && validId(name.slice(0, -5))) await seal(path.join(this.directory, name));
+      if (await this.safeDirectory(['versions']))
+        for (const id of (await readdir(path.join(this.directory, 'versions'))).filter(validId)) {
+          if (!(await this.safeDirectory(['versions', id]))) continue;
+          for (const name of await readdir(path.join(this.directory, 'versions', id)))
+            if (/^[1-9]\d{0,15}\.json$/.test(name)) await seal(path.join(this.directory, 'versions', id, name));
+        }
+      return sealed;
+    });
+  }
   private async atomicWrite(name: string, data: string) {
     try {
       const stat = await lstat(name);
@@ -416,8 +454,9 @@ export class HistoryStore {
       if (error.code !== 'ENOENT') throw error;
     }
     const temporary = path.join(path.dirname(name), path.basename(name) + '.' + randomUUID() + '.tmp');
+    const stored = this.cipher ? await this.cipher.seal(Buffer.from(data, 'utf8')) : data;
     try {
-      await writeFile(temporary, data, { mode: 0o600, flag: 'wx' });
+      await writeFile(temporary, stored, { mode: 0o600, flag: 'wx' });
       await rename(temporary, name);
     } finally {
       await unlink(temporary).catch(() => {});

@@ -56,14 +56,37 @@ namespace DesignerExtension.Native
             string nativeDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             // The DLL resides in native/bin. Resolve only our known launcher.
             string projectDirectory = Path.GetFullPath(Path.Combine(nativeDirectory, "..", ".."));
-            string launcher = Path.Combine(projectDirectory, "Start-DesignerExtension.ps1");
+            string launcher = Path.Combine(projectDirectory, "scripts", "launch.mjs");
             if (!File.Exists(launcher)) throw new FileNotFoundException("起動ファイルが見つかりません。アドインを再インストールしてください。", launcher);
-            var start = new ProcessStartInfo("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + launcher + "\"" + (openBrowser ? "" : " -NoOpen"));
+            // Node.js runs the launcher itself: no PowerShell, and no script policy is changed.
+            var start = new ProcessStartInfo(NodeExecutable(), "\"" + launcher + "\"");
             start.WorkingDirectory = projectDirectory;
             start.UseShellExecute = false;
             start.CreateNoWindow = true;
-            start.WindowStyle = ProcessWindowStyle.Hidden;
-            Process.Start(start);
+            start.RedirectStandardOutput = true;
+            var process = Process.Start(start);
+            // The launcher prints the app's address once it answers; wait for it off PowerPoint's thread.
+            var wait = new System.Threading.Thread(() =>
+            {
+                string url = process.StandardOutput.ReadToEnd().Trim();
+                process.WaitForExit();
+                if (openBrowser && process.ExitCode == 0 && url.StartsWith("http://127.0.0.1:", StringComparison.Ordinal)) Process.Start(url);
+            });
+            wait.IsBackground = true;
+            wait.Start();
+        }
+        static string NodeExecutable()
+        {
+            // PowerPoint may keep a PATH from before Node.js was installed.
+            string path = Environment.GetEnvironmentVariable("Path") + ";" + Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.Machine) + ";" + Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.User) + ";" + Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "nodejs");
+            foreach (string entry in path.Split(';'))
+            {
+                string directory = Environment.ExpandEnvironmentVariables(entry.Trim().Trim('"'));
+                if (directory.Length == 0 || directory.IndexOfAny(Path.GetInvalidPathChars()) >= 0) continue;
+                string candidate = Path.Combine(directory, "node.exe");
+                if (File.Exists(candidate)) return candidate;
+            }
+            throw new FileNotFoundException("Node.jsが見つかりません。Node.js 22以降を入れてから、Setup-DesignerExtension.cmdをもう一度実行してください。");
         }
     }
 }

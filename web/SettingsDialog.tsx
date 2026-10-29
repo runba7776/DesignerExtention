@@ -331,15 +331,15 @@ export function SettingsDialog({
         <span>スライドの作り方</span>
         <select
           disabled={activeSession || saving}
-          value={draft.designMode ?? 'free'}
+          value={draft.designMode ?? 'html'}
           onChange={event => setDraft({ ...draft, designMode: event.target.value as Settings['designMode'] })}
         >
-          <option value="free">AIの能力に任せる — 構図・図形・配置をAIが決める（既定）</option>
-          <option value="html">HTML/CSSで書かせる（試験） — AIがWebページとして書き、アプリが図形に変換</option>
+          <option value="html">HTML/CSSで書かせる — AIがWebページとして書き、アプリが図形に変換（既定）</option>
+          <option value="free">座標で書かせる — AIが図形の位置と大きさを数値で決める</option>
           <option value="template">型に当てはめる — 121種類の配置から選ぶ</option>
         </select>
         <small>
-          既定では、デザインの型や見本をAIに渡しません。AIが図形・アイコン・グラフの位置と色まで自分で決め、アプリは数値・出典・文字のはみ出し・重なり・読みやすさだけを確認して、編集できるPowerPointの図形にします。
+          どちらの書かせ方でも、デザインの型や見本はAIに渡しません。AIが構図・図形・アイコン・グラフの位置と色まで自分で決め、アプリは数値・出典・文字のはみ出し・重なり・読みやすさだけを確認して、編集できるPowerPointの図形にします。HTML/CSSで書かせるのは、インストール版で月額版の自動作成を使うときだけです。それ以外では自動で座標で書かせます。
         </small>
       </label>
       {draft.designMode !== 'template' && (
@@ -358,7 +358,7 @@ export function SettingsDialog({
           </small>
         </label>
       )}
-      {draft.designMode === 'html' && draft.provider === 'subscription' && (
+      {(draft.designMode ?? 'html') === 'html' && draft.provider === 'subscription' && (
         <label className="field auto-repair-setting">
           <span>
             <input

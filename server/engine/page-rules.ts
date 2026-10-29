@@ -65,19 +65,19 @@ export class PageRules {
   }
   /** Style hints for the model. A company template is applied by the app, so the
    * model only learns its palette/fonts and keeps choosing a built-in theme id. */
-  /** free (default): the AI designs every page with its own ability. Template layouts
+  /** The AI designs every page with its own ability (HTML or coordinates). Template layouts
    * remain only for the demo and when the user chooses them in settings. */
   freeDesign(state: SessionState) {
-    return state.settings.provider !== 'demo' && (state.settings.designMode ?? 'free') !== 'template';
+    return state.settings.provider !== 'demo' && (state.settings.designMode ?? 'html') !== 'template';
   }
-  /** HTML method (trial): an AI of a monthly plan writes the pages as HTML and the installed app's
+  /** HTML method (default): an AI of a monthly plan writes the pages as HTML and the installed app's
    * browser reads them. Elsewhere (browser version, local LLM, manual chat, content kept on this PC)
    * the JSON method is used. */
   htmlFor(state: SessionState, run?: AiRun) {
     const settings = run ? this.engine.ai.targetSettings(state, run.target) : state.settings;
     return (
       this.freeDesign(state) &&
-      state.settings.designMode === 'html' &&
+      (state.settings.designMode ?? 'html') === 'html' &&
       !!this.engine.options.htmlLayout &&
       settings.provider === 'subscription' &&
       state.sendScope !== 'design'
@@ -230,6 +230,9 @@ export class PageRules {
         `${expected}がありません。生成したページの識別子・順序を構成と一致させてください。`,
         'INVALID_CONTENT',
       );
+    // An AI-designed page is the cover or a free page by its place, so one left without it is not asked again
+    // (gemma4 left it out of single pages).
+    if (raw.layoutId === undefined && this.freeDesign(state)) raw.layoutId = expected === 'slide-1' ? 'cover' : 'free';
     const warnings = [...state.session.warnings];
     try {
       if (typeof raw.htmlProblem === 'string') throw new AppError(422, raw.htmlProblem, 'INVALID_CONTENT');

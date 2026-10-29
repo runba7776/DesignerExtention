@@ -15,6 +15,7 @@ import { DEFAULT_PROJECT_ID, ProjectStore } from './projects.js';
 import { AssistService } from './assist.js';
 import { apiRoutes } from './routes.js';
 import { layoutHtmlSlides } from './html-layout.js';
+import type { HistoryCipher } from './history.js';
 
 export interface AppOptions {
   authToken: string;
@@ -32,6 +33,7 @@ export interface AppOptions {
     'status' | 'connect' | 'refresh' | 'disconnect' | 'binding' | 'createProvider'
   >;
   environmentKey?: string;
+  historyCipher?: HistoryCipher;
 }
 
 const asyncRoute =
@@ -63,7 +65,14 @@ export async function createApp(options: AppOptions) {
     htmlLayout: layoutHtmlSlides,
     showcase: () => readFile(path.join(options.webRoot, 'showcase', 'showcase.json'), 'utf8').then(JSON.parse),
     subscriptionBinding: service => subscriptions.binding(service),
+    historyCipher: options.historyCipher,
   });
+  // History saved before encryption was turned on is encrypted once, in the background.
+  engine.history.sealExisting().then(
+    count => count && console.log(`Encrypted ${count} saved history files.`),
+    error =>
+      console.error(`Saved history could not be encrypted yet: ${error instanceof Error ? error.message : error}`),
+  );
   const assist = new AssistService({ settings, projects, providerFactory, render: options.render });
   await engine.loadPreferences();
   const documents = new Map<string, { document: ParsedDocument; createdAt: number }>();

@@ -126,10 +126,9 @@ export interface Settings {
   localModel?: string;
   targets?: AiTarget[];
 }
-/** free: the AI designs each slide (positions, shapes, colours). template: the AI
- * picks one of the registered layouts and the app places everything. */
-/** free: the AI places elements by coordinates (JSON). html (trial): the AI writes each page as HTML/CSS and
- * the app reads the browser's layout. template: the app's layout catalogue. */
+/** html (default): the AI writes each page as HTML/CSS and the app reads the browser's layout; where no
+ * browser or monthly plan does it, the AI places elements by coordinates. free: always by coordinates (JSON).
+ * template: the app's layout catalogue. */
 export type DesignMode = 'free' | 'template' | 'html';
 export interface AppStatus {
   provider: ProviderKind;

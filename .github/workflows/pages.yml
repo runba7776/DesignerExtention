@@ -27,7 +27,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
+      # A failing check stops the deploy; the site keeps the last good build.
+      # Tests that need Edge skip themselves here (the runner has no Edge).
       - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm test
       - name: Site URL
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"

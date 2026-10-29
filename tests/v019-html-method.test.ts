@@ -72,7 +72,7 @@ const fakeLayout: HtmlLayout = async pages =>
     };
   });
 
-async function fixture(provider: 'subscription' | 'local') {
+async function fixture(provider: 'subscription' | 'local', patch: { designMode?: 'html' } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-html-'));
   const settings = await new SettingsStore(dir, '').load();
   await settings.update({
@@ -80,7 +80,7 @@ async function fixture(provider: 'subscription' | 'local') {
     ...(provider === 'subscription' ? { subscriptionService: 'claude' as const } : { model: 'mock' }),
     slideCount: 2,
     mode: 'presentation',
-    designMode: 'html',
+    ...patch,
   });
   const systems: string[] = [],
     repairs: any[] = [];
@@ -108,7 +108,7 @@ async function fixture(provider: 'subscription' | 'local') {
   return { engine, systems, repairs, dispose: () => rm(dir, { recursive: true, force: true }) };
 }
 
-test('HTML method: pages written as HTML become the deck; a page with text in the footer is asked again with the finding', async () => {
+test('HTML method (the default): pages written as HTML become the deck; a page with text in the footer is asked again with the finding', async () => {
   const f = await fixture('subscription');
   try {
     const session = await f.engine.create({ prompt: '2枚', cloudConsent: true }, []);
@@ -134,15 +134,21 @@ test('HTML method: pages written as HTML become the deck; a page with text in th
   }
 });
 
-test('HTML method falls back to the JSON method where it is not available (local LLM), with a notice', async () => {
-  const f = await fixture('local');
-  try {
-    const session = await f.engine.create({ prompt: '2枚' }, []);
-    await f.engine.generate(session.id).catch(() => undefined);
-    assert.doesNotMatch(f.systems[1] ?? '', /<section class="slide">/);
-    assert.ok(session.warnings.some(w => w.startsWith('HTML方式')));
-  } finally {
-    await f.dispose();
+test('HTML method falls back to the JSON method where it is not available (local LLM); a notice only when it was chosen', async () => {
+  for (const patch of [{ designMode: 'html' as const }, {}]) {
+    const f = await fixture('local', patch);
+    try {
+      const session = await f.engine.create({ prompt: '2枚' }, []);
+      await f.engine.generate(session.id).catch(() => undefined);
+      assert.doesNotMatch(f.systems[1] ?? '', /<section class="slide">/);
+      assert.equal(
+        session.warnings.some(w => w.startsWith('HTML方式')),
+        !!patch.designMode,
+        JSON.stringify(patch),
+      );
+    } finally {
+      await f.dispose();
+    }
   }
 });
 

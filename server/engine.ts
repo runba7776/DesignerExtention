@@ -8,7 +8,7 @@ import type {
   Settings,
   SubscriptionService,
 } from '../shared/contracts.js';
-import { HistoryStore } from './history.js';
+import { HistoryStore, type HistoryCipher } from './history.js';
 import { AppError } from './errors.js';
 import type { Provider } from './providers.js';
 import { SettingsStore } from './settings.js';
@@ -37,12 +37,14 @@ export interface EngineOptions {
   render: (deck: DeckSpec, variantId: string) => Promise<RenderResult>;
   open?: (artifactId: string) => Promise<void>;
   providerFactory?: (settings: Settings, key?: string) => Provider;
-  /** HTML method (trial): draws AI-written HTML pages in a browser and reads their layout. */
+  /** HTML method: draws AI-written HTML pages in a browser and reads their layout. */
   htmlLayout?: HtmlLayout;
   /** The recorded creation the sample experience replays (see showcase.ts); without it the plain sample is used. */
   showcase?: () => Promise<unknown>;
   subscriptionBinding?: (service: SubscriptionService) => string | undefined;
   artifactRoot?: string;
+  /** Encrypts saved history (the installed app on Windows); without it history is plain JSON. */
+  historyCipher?: HistoryCipher;
 }
 
 /** One open presentation per session: the public operations used by the routes, carried out by the parts in
@@ -148,7 +150,7 @@ export class SessionEngine {
   readonly refreshApply = this.refresh.refreshApply.bind(this.refresh);
 
   constructor(readonly options: EngineOptions) {
-    this.history = new HistoryStore(options.dataDir);
+    this.history = new HistoryStore(options.dataDir, options.historyCipher);
     this.designs = new DesignLibraryStore(options.dataDir);
     this.projects = options.projects ?? new ProjectStore(options.dataDir);
   }

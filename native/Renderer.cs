@@ -3,10 +3,13 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
+using System.Xml;
 
 namespace DesignerExtension.Native
 {
@@ -27,6 +30,7 @@ namespace DesignerExtension.Native
             Console.OutputEncoding = new UTF8Encoding(false);
             if (args.Length == 1 && args[0] == "--load-addin") return LoadAddIn();
             if (args.Length == 2 && args[0] == "--open") return OpenPresentation(args[1]);
+            if (args.Length == 1 && (args[0] == "--protect" || args[0] == "--unprotect")) return Protect(args[0] == "--protect");
             if (args.Length == 3 && args[0] == "--verify-charts")
             {
                 try { ChartIntegrity.Verify(args[2], args[1]); Console.WriteLine("Chart values verified."); return 0; }
@@ -119,6 +123,8 @@ namespace DesignerExtension.Native
                 // Close only our new deck, verify its embedded cells, synchronize caches,
                 // and reopen it so previews use exactly the delivered PPTX.
                 presentation.Close(); Release((object)presentation); presentation = null;
+                Stage = "作成者情報の消去";
+                ReplaceAuthor(pptx);
                 Stage = "編集可能なグラフデータの組み立て";
                 ChartIntegrity.WriteGeneratedData(pptx, input);
                 Stage = "グラフ表示キャッシュの同期";
@@ -156,6 +162,43 @@ namespace DesignerExtension.Native
                 Release((object)app);
                 OleMessageFilter.Revoke();
                 GC.Collect(); GC.WaitForPendingFinalizers();
+            }
+        }
+
+        // DPAPI for the app's keys (the history key, the ChatGPT login): only this Windows user can
+        // unwrap them. Base64 comes in on stdin and goes out on stdout, never on the command line.
+        private static int Protect(bool protect)
+        {
+            try
+            {
+                byte[] input = Convert.FromBase64String(Console.In.ReadToEnd().Trim());
+                byte[] result = protect
+                    ? ProtectedData.Protect(input, null, DataProtectionScope.CurrentUser)
+                    : ProtectedData.Unprotect(input, null, DataProtectionScope.CurrentUser);
+                Console.Out.Write(Convert.ToBase64String(result));
+                return 0;
+            }
+            catch (Exception ex) { Console.Error.WriteLine(ex.GetType().Name); return 1; }
+        }
+
+        // Office saves the signed-in account's name as author and last editor. A deck
+        // made here goes out under the app's name, as the no-install version's does.
+        private static void ReplaceAuthor(string pptx)
+        {
+            using (var zip = ZipFile.Open(pptx, ZipArchiveMode.Update))
+            {
+                var entry = zip.GetEntry("docProps/core.xml");
+                if (entry == null) return;
+                var doc = new XmlDocument { XmlResolver = null };
+                using (var stream = entry.Open())
+                using (var reader = XmlReader.Create(stream, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null })) doc.Load(reader);
+                foreach (string name in new[] { "creator", "lastModifiedBy" })
+                    foreach (XmlNode node in doc.GetElementsByTagName(name, "*")) node.InnerText = "Designer Extention";
+                using (var stream = entry.Open())
+                {
+                    stream.SetLength(0);
+                    using (var writer = XmlWriter.Create(stream, new XmlWriterSettings { Encoding = new UTF8Encoding(false) })) doc.Save(writer);
+                }
             }
         }
 
