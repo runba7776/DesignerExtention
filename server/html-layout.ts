@@ -11,6 +11,7 @@ import { iconCatalog, iconSvg } from '../shared/icons.js';
  * app's findings (text outside the slide, in the footer or clipped), sent with a retry. */
 /** fitted: the share (0.85-0.95) the text was made smaller to keep it above the footer, without asking the AI.
  * grown: text below the smallest size was made that size (the page still fitted), without asking the AI.
+ * keptSmall: text a little below the smallest size was kept as written (made larger, it did not fit).
  * shot: the drawn page as a 960x540 PNG (base64), when asked for. */
 export type HtmlPageLayout =
   | {
@@ -19,13 +20,17 @@ export type HtmlPageLayout =
       problems: string[];
       fitted?: number;
       grown?: boolean;
+      keptSmall?: boolean;
       shot?: string;
     }
   | { error: string };
-/** minTextSize: body text, and text marked data-role="caption", drawn smaller than this (px = pt) is reported. */
+/** minTextSize: body text, and text marked data-role="caption", drawn smaller than this (px = pt) is reported.
+ * keepSmall: text that cannot be made that size is kept down to the fitting floor instead (a local model
+ * rarely fixed 14px text when asked, and the deck stopped). */
 export interface HtmlLayoutOptions {
   minTextSize?: { body: number; caption: number };
   screenshot?: boolean;
+  keepSmall?: boolean;
 }
 export type HtmlLayout = (
   pages: { id: string; html: string }[],
@@ -213,6 +218,9 @@ export const CONVERT_SCRIPT = String.raw`(function(){
       if(under){kinds.add('covered');problems.push('文字が後ろに置いた図形に隠れています（「'+a.sample+'」）。図形を文字より先に置くか、文字の位置をずらしてください。');break;}
     }
   }
+  // A shape stopping partway into the footer lies across the sources and page number the app draws there
+  // (a closing band hid the page number); one reaching the slide's bottom edge is a band they are drawn on.
+  if(out.some(e=>e.t==='box'&&e.fill!=='none'&&e.w>40&&e.y+e.h>501&&e.y+e.h<539)){kinds.add('bottom');problems.push('図形が下端の出典・ページ番号の欄（y=496以降）にかかっています。図形の下端をy=496より上にするか、スライドの下端まで伸ばしてください。');}
   // Lines drawn under cards and labels (connectors) carry the page; a frame with at most three labels
   // in it and nothing drawn inside is an empty figure.
   for(const f of figures){
@@ -431,8 +439,8 @@ export const layoutHtmlSlides: HtmlLayout = async (pages, theme, options = {}) =
     for (const page of pages) {
       try {
         const doc = slidePage(page.html, theme);
-        // Draws the page afresh (optionally with smaller text) and reads it.
-        const read = async (share?: number, grow = false) => {
+        // Draws the page afresh (optionally with smaller text, or checked against the fitting floor) and reads it.
+        const read = async (share?: number, grow = false, floor = !!share) => {
           await send('Page.navigate', {
             url: 'data:text/html;charset=utf-8;base64,' + Buffer.from(doc, 'utf8').toString('base64'),
           });
@@ -443,7 +451,7 @@ export const layoutHtmlSlides: HtmlLayout = async (pages, theme, options = {}) =
           }
           await send('Runtime.evaluate', { expression: 'document.fonts.ready.then(()=>true)', awaitPromise: true });
           await send('Runtime.evaluate', {
-            expression: `window.__deOptions=${JSON.stringify({ minTextSize: share && options.minTextSize ? fitFloor(options.minTextSize) : options.minTextSize })}`,
+            expression: `window.__deOptions=${JSON.stringify({ minTextSize: floor && options.minTextSize ? fitFloor(options.minTextSize) : options.minTextSize })}`,
           });
           await send('Runtime.evaluate', { expression: ICON_SCRIPT });
           if (share) await send('Runtime.evaluate', { expression: fitScript(share) });
@@ -455,7 +463,8 @@ export const layoutHtmlSlides: HtmlLayout = async (pages, theme, options = {}) =
         };
         let parsed = await read(),
           fitted: number | undefined,
-          grown = false;
+          grown = false,
+          keptSmall = false;
         if (!parsed.error && parsed.fit) {
           for (const share of FIT_STEPS) {
             const next = await read(share);
@@ -472,7 +481,10 @@ export const layoutHtmlSlides: HtmlLayout = async (pages, theme, options = {}) =
           if (!next.error && !next.problems.length) {
             parsed = next;
             grown = true;
-          } else parsed = await read();
+          } else {
+            parsed = await read(undefined, false, options.keepSmall);
+            keptSmall = !!options.keepSmall && !parsed.error && !parsed.problems.length;
+          }
         }
         // The fonts are read before the chart sketches are added, from the page as it was read.
         if (!parsed.error) await usedFonts(send, parsed.elements);
@@ -501,6 +513,7 @@ export const layoutHtmlSlides: HtmlLayout = async (pages, theme, options = {}) =
                   problems: parsed.problems,
                   ...(fitted ? { fitted } : {}),
                   ...(grown ? { grown } : {}),
+                  ...(keptSmall ? { keptSmall } : {}),
                   ...(options.screenshot && shot ? { shot } : {}),
                 },
                 theme,

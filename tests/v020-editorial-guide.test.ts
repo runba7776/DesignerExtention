@@ -49,7 +49,13 @@ test('the app sends the standing instruction by default and leaves it out when t
   const dir = await mkdtemp(path.join(tmpdir(), 'de-editorial-'));
   try {
     const settings = await new SettingsStore(dir, '').load();
-    await settings.update({ provider: 'local', model: 'mock', slideCount: 2, mode: 'presentation' });
+    await settings.update({
+      provider: 'local',
+      designMode: 'free',
+      model: 'mock',
+      slideCount: 2,
+      mode: 'presentation',
+    });
     assert.equal(settings.get().editorialGuide, true);
     await assert.rejects(settings.update({ editorialGuide: 'yes' }), /オン・オフ/);
     const systems: string[] = [];

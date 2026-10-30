@@ -55,7 +55,7 @@ test('free-design instructions carry no design preference: no themes, fonts, cha
 async function fixture(reply: (req: any) => unknown, outline: Outline) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-neutral-'));
   const settings = await new SettingsStore(dir, '').load();
-  await settings.update({ provider: 'local', model: 'mock', slideCount: 2, mode: 'presentation' });
+  await settings.update({ provider: 'local', designMode: 'free', model: 'mock', slideCount: 2, mode: 'presentation' });
   const requests: any[] = [];
   const engine = new SessionEngine({
     settings,
@@ -147,7 +147,7 @@ test('おまかせ without a palette from the AI: the deck is still made, with a
   }
 });
 
-test('fonts an AI names are kept (Japanese names of standard fonts become Windows names); a typography chosen by the user wins', () => {
+test('fonts an AI names are kept (Japanese names of standard fonts become Windows names, a CSS list its first family); a typography chosen by the user wins', () => {
   assert.equal(resolveFont('游ゴシック', 'x'), 'Yu Gothic');
   assert.equal(resolveFont('BIZ UDPゴシック', 'x'), 'BIZ UDPGothic');
   assert.equal(resolveFont('UDデジタル教科書体', 'x'), 'UD Digi Kyokasho NP');
@@ -155,6 +155,10 @@ test('fonts an AI names are kept (Japanese names of standard fonts become Window
   assert.equal(resolveFont('Noto Sans JP', 'Yu Gothic'), 'Noto Sans JP');
   assert.equal(resolveFont('源ノ明朝', 'x'), '源ノ明朝');
   assert.equal(resolveFont(' ', 'Yu Gothic'), 'Yu Gothic');
+  // A CSS font list names its first family; a generic family alone leaves the fallback.
+  assert.equal(resolveFont('Yu Gothic, sans-serif', 'x'), 'Yu Gothic');
+  assert.equal(resolveFont('"游明朝", serif', 'x'), 'Yu Mincho');
+  assert.equal(resolveFont('sans-serif', 'Yu Gothic'), 'Yu Gothic');
   assert.equal(paletteTheme(palette, 'accessible').font, 'BIZ UDPGothic');
   assert.equal(paletteTheme({ ...palette, headingFont: undefined, bodyFont: undefined }).font, 'Yu Gothic Medium');
 });

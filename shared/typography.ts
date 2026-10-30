@@ -140,9 +140,14 @@ const byKey = new Map(standardFonts.map(name => [fontKey(name), name]));
 /** A font name the AI chose, kept free: Japanese names of standard fonts become the
  * names Windows uses (游ゴシック → Yu Gothic); any other name is kept as written. The
  * PowerPoint step uses it when this PC has it, otherwise the nearest installed font of
- * the same style (明朝 for a serif). */
+ * the same style (明朝 for a serif). A CSS list ("Yu Gothic, sans-serif", written by
+ * gemma4:26b) names its first family; whole, PowerPoint drew it in a Mincho font. */
 export function resolveFont(name: string | undefined, fallback: string) {
-  if (!name || !name.trim()) return fallback;
+  name = name
+    ?.split(',')
+    .map(family => family.trim().replace(/^["']|["']$/g, ''))
+    .find(family => family && !/^(serif|sans-serif|monospace|cursive|fantasy|system-ui|ui-[a-z-]+)$/i.test(family));
+  if (!name) return fallback;
   const key = fontKey(name),
     exact = byKey.get(key);
   if (exact) return exact;

@@ -13,6 +13,30 @@ import type { RepairOperation, AiRun, SessionState } from './session-state.js';
 import { OPERATION_CALL_LIMIT, SESSION_CALL_LIMIT } from './session-state.js';
 import { chatServiceName, targetLabel, settingsFor } from './helpers.js';
 
+/** The answer of a page request: one object with exactly the asked number of pages (each page's own fields
+ * are free, so the HTML, coordinate and layout methods share it). */
+const pagesSchema = (pages: number) => ({
+  type: 'object',
+  properties: {
+    mode: { type: 'string', enum: ['presentation', 'reading'] },
+    slides: {
+      type: 'array',
+      minItems: pages,
+      maxItems: pages,
+      items: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: true },
+    },
+  },
+  required: ['mode', 'slides'],
+});
+/** The answer of a plan: one JSON object of any of its kinds, its content free (gemma4:26b broke the syntax
+ * of the outline, "intent："、"…", in two plans of three). */
+const PLAN_SCHEMA = {
+  type: 'object',
+  properties: { kind: { type: 'string', enum: ['questions', 'outline', 'proposals', 'deck'] } },
+  required: ['kind'],
+  additionalProperties: true,
+};
+
 /** Every call to an AI goes through here: where the material may go, the call limits, masking, automatic retries and usage. */
 export class AiCalls {
   constructor(private readonly engine: SessionEngine) {}
@@ -83,7 +107,10 @@ export class AiCalls {
       const response = await provider.complete({
         system:
           systemPrompt(task, selected ? candidateLayoutIds(selected) : undefined, {
-            ...this.engine.pages.designOptions(state, request.outline, run),
+            // A page with a layout id in an AI-designed deck (a local model's substitute) keeps to layouts.
+            ...(selected?.every((id: unknown) => typeof id === 'string' && id !== 'free' && id !== 'cover')
+              ? {}
+              : this.engine.pages.designOptions(state, request.outline, run)),
             ...(task === 'plan' && request.proposals ? { proposals: request.proposals } : {}),
           }) +
           (masker
@@ -110,6 +137,11 @@ export class AiCalls {
         ),
         maxTokens,
         ...(images?.length ? { images: images.map(data => ({ mediaType: 'image/png' as const, data })) } : {}),
+        ...(task === 'generate' && request.targetSlides?.length
+          ? { schema: pagesSchema(request.targetSlides.length) }
+          : task === 'plan'
+            ? { schema: PLAN_SCHEMA }
+            : {}),
       });
       this.addUsage(state.session.usage, response.usage);
       return this.unmask(state, parseJsonResponse(response.text));
@@ -198,12 +230,18 @@ export class AiCalls {
   private operationCalls(state: SessionState) {
     return state.session.usage.calls - (state.repairOperation?.startedCalls ?? 0);
   }
+  /** Automatic retries of one operation: a local model designing its own pages costs no quota and slips
+   * more often, so it has four. */
+  repairs(state: SessionState, settings: Settings) {
+    if (this.engine.options.settings.get().autoRepair === false) return 0;
+    return settings.provider === 'local' && this.engine.pages.freeDesign(state) ? 4 : 2;
+  }
   newRun(state: SessionState, target: AiTarget): AiRun {
     return {
       target,
       label: targetLabel(target),
       repair: {
-        remaining: this.engine.options.settings.get().autoRepair !== false ? 2 : 0,
+        remaining: this.repairs(state, this.targetSettings(state, target)),
         startedCalls: state.session.usage.calls,
       },
       calls: 0,
@@ -246,7 +284,7 @@ export class AiCalls {
   }
   async withRepairs<T>(state: SessionState, operation: () => Promise<T>): Promise<T> {
     const context: RepairOperation = {
-      remaining: this.engine.options.settings.get().autoRepair !== false ? 2 : 0,
+      remaining: this.repairs(state, state.settings),
       startedCalls: state.session.usage.calls,
     };
     state.repairOperation = context;

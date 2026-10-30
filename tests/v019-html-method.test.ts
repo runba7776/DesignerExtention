@@ -72,7 +72,7 @@ const fakeLayout: HtmlLayout = async pages =>
     };
   });
 
-async function fixture(provider: 'subscription' | 'local', patch: { designMode?: 'html' } = {}) {
+async function fixture(provider: 'subscription' | 'local', patch: { designMode?: 'html' } = {}, browser = true) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-html-'));
   const settings = await new SettingsStore(dir, '').load();
   await settings.update({
@@ -83,18 +83,20 @@ async function fixture(provider: 'subscription' | 'local', patch: { designMode?:
     ...patch,
   });
   const systems: string[] = [],
-    repairs: any[] = [];
+    repairs: any[] = [],
+    schemas: unknown[] = [];
   let pages = 0;
   const engine = new SessionEngine({
     settings,
     dataDir: dir,
-    htmlLayout: fakeLayout,
+    ...(browser ? { htmlLayout: fakeLayout } : {}),
     subscriptionBinding: () => 'account',
     render: async () => ({ artifactId: 'x', pptxUrl: 'x', thumbnails: [], warnings: [], native: false }),
     providerFactory: () => ({
       complete: async (r: CompletionRequest) => {
         const req = JSON.parse(r.content).request;
         systems.push(r.system);
+        schemas.push(r.schema);
         if (!req.targetSlides) return { text: JSON.stringify({ kind: 'outline', outline }), usage };
         repairs.push(req.repair);
         pages++;
@@ -105,7 +107,7 @@ async function fixture(provider: 'subscription' | 'local', patch: { designMode?:
       },
     }),
   });
-  return { engine, systems, repairs, dispose: () => rm(dir, { recursive: true, force: true }) };
+  return { engine, systems, repairs, schemas, dispose: () => rm(dir, { recursive: true, force: true }) };
 }
 
 test('HTML method (the default): pages written as HTML become the deck; a page with text in the footer is asked again with the finding', async () => {
@@ -118,6 +120,7 @@ test('HTML method (the default): pages written as HTML become the deck; a page w
     assert.match(generate, /<section class="slide">/);
     assert.match(generate, /var\(--accent\)=?|--accent=#/);
     assert.doesNotMatch(generate, /Element = Text\|Box|"t":"icon"/);
+    assert.doesNotMatch(generate, /企業の資料の組み方/, 'the layout guide is for local models only');
     assert.match(f.repairs[1].detail, /^slide-2：文字が下端の出典欄/);
     const slide = session.variants[0].deck.slides[1],
       title = slide.design!.elements[1] as any;
@@ -134,15 +137,28 @@ test('HTML method (the default): pages written as HTML become the deck; a page w
   }
 });
 
-test('HTML method falls back to the JSON method where it is not available (local LLM); a notice only when it was chosen', async () => {
+test('a local LLM writes HTML on the installed app with the business layout guide, its plan and pages held to their shape; without the browser it fills layouts, with a notice only when HTML was chosen', async () => {
+  const f = await fixture('local');
+  try {
+    const session = await f.engine.create({ prompt: '2枚' }, []);
+    await f.engine.generate(session.id);
+    assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
+    assert.match(f.systems[1], /<section class="slide">/);
+    assert.match(f.systems[1], /企業の資料の組み方（ローカルLLM向け）[\s\S]*上から120〜470px/);
+    assert.deepEqual((f.schemas[0] as any).properties.kind.enum, ['questions', 'outline', 'proposals', 'deck']);
+    assert.deepEqual((f.schemas[1] as any).properties.slides.minItems, 2);
+  } finally {
+    await f.dispose();
+  }
   for (const patch of [{ designMode: 'html' as const }, {}]) {
-    const f = await fixture('local', patch);
+    const f = await fixture('local', patch, false);
     try {
       const session = await f.engine.create({ prompt: '2枚' }, []);
       await f.engine.generate(session.id).catch(() => undefined);
       assert.doesNotMatch(f.systems[1] ?? '', /<section class="slide">/);
+      assert.match(f.systems[1] ?? '', /利用できる文法/);
       assert.equal(
-        session.warnings.some(w => w.startsWith('HTML方式')),
+        session.warnings.some(w => w.startsWith('HTML方式') && w.endsWith('型の方式で作成しました。')),
         !!patch.designMode,
         JSON.stringify(patch),
       );

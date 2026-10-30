@@ -65,13 +65,19 @@ export class PageRules {
   }
   /** Style hints for the model. A company template is applied by the app, so the
    * model only learns its palette/fonts and keeps choosing a built-in theme id. */
-  /** The AI designs every page with its own ability (HTML or coordinates). Template layouts
-   * remain only for the demo and when the user chooses them in settings. */
+  /** The AI designs every page with its own ability (HTML or coordinates). Template layouts remain for the
+   * demo, when the user chooses them in settings, and for a local model where HTML cannot be read (it wrote
+   * coordinates poorly: most pages of a 12B model broke or did not finish in a comparison). */
   freeDesign(state: SessionState) {
-    return state.settings.provider !== 'demo' && (state.settings.designMode ?? 'html') !== 'template';
+    const mode = state.settings.designMode ?? 'html';
+    return (
+      state.settings.provider !== 'demo' &&
+      mode !== 'template' &&
+      !(mode === 'html' && state.settings.provider === 'local' && !this.engine.options.htmlLayout)
+    );
   }
-  /** HTML method (default): an AI of a monthly plan writes the pages as HTML and the installed app's
-   * browser reads them. Elsewhere (browser version, local LLM, manual chat, content kept on this PC)
+  /** HTML method (default): an AI of a monthly plan or a local model writes the pages as HTML and the
+   * installed app's browser reads them. Elsewhere (browser version, manual chat, content kept on this PC)
    * the JSON method is used. */
   htmlFor(state: SessionState, run?: AiRun) {
     const settings = run ? this.engine.ai.targetSettings(state, run.target) : state.settings;
@@ -79,7 +85,7 @@ export class PageRules {
       this.freeDesign(state) &&
       (state.settings.designMode ?? 'html') === 'html' &&
       !!this.engine.options.htmlLayout &&
-      settings.provider === 'subscription' &&
+      (settings.provider === 'subscription' || settings.provider === 'local') &&
       state.sendScope !== 'design'
     );
   }
@@ -102,6 +108,7 @@ export class PageRules {
         {
           minTextSize: MIN_TEXT_SIZE[state.settings.mode === 'reading' ? 'reading' : 'presentation'],
           screenshot: !run && this.wantsReview(state),
+          keepSmall: (run ? this.engine.ai.targetSettings(state, run.target) : state.settings).provider === 'local',
         },
       );
     } catch (error) {
@@ -120,10 +127,15 @@ export class PageRules {
       }
       raw.design = { ...(result.background ? { background: result.background } : {}), elements: result.elements };
       if (result.shot) raw.shot = result.shot;
+      const name = `「${typeof raw.title === 'string' ? raw.title.slice(0, 40) : raw.id}」`;
       if (result.problems.length) raw.htmlProblem = result.problems.slice(0, 3).join(' ');
       else if (result.fitted)
         state.session.warnings.push(
-          `「${typeof raw.title === 'string' ? raw.title.slice(0, 40) : raw.id}」は文字が下端に少しはみ出したため、文字を${Math.round(result.fitted * 100)}%に縮めて収めました（AIは呼び出していません）。`,
+          `${name}は文字が下端に少しはみ出したため、文字を${Math.round(result.fitted * 100)}%に縮めて収めました（AIは呼び出していません）。`,
+        );
+      else if (result.keptSmall)
+        state.session.warnings.push(
+          `${name}は一部の文字を既定より少し小さいまま（本文は最大2px）作成しました。大きくすると収まらないためです（AIは呼び出していません）。`,
         );
     });
   }
@@ -145,6 +157,7 @@ export class PageRules {
     return {
       design: 'free' as const,
       format,
+      local: (run ? this.engine.ai.targetSettings(state, run.target) : state.settings).provider === 'local',
       editorial: state.settings.editorialGuide !== false,
       outputMode: state.settings.mode,
       theme: ai

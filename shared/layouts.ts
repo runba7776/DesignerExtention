@@ -900,7 +900,14 @@ export function compileDeck(deck: DeckSpec): RenderDocument {
       );
     }
     if (deck.pageNumbers !== false)
-      c.text(`${i + 1} / ${deck.slides.length}`, { x: 837, y: 505, w: 67, h: 22 }, 10, footerColor, false, 'right');
+      c.text(
+        `${i + 1} / ${deck.slides.length}`,
+        { x: 837, y: 505, w: 67, h: 22 },
+        10,
+        slide.design ? footerInk(theme, slide.design, 890) : footerColor,
+        false,
+        'right',
+      );
     if (slide.sources.length)
       c.scene.notes +=
         '\n\n出典:\n' +

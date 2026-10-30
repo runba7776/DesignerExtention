@@ -386,7 +386,7 @@ test('HTTP boundary requires bootstrap cookie + same-origin writes; demo upload 
   }
 });
 
-test('local provider asks the model not to think; a server refusing the option gets the plain request once; a time-out says so', async () => {
+test('local provider asks the model not to think and holds pages to their shape; a server refusing the options gets the plain request once; a time-out says so', async () => {
   const bodies: any[] = [];
   const reply = () =>
     new Response(JSON.stringify({ choices: [{ message: { content: '{"kind":"questions","message":"?"}' } }] }), {
@@ -403,13 +403,17 @@ test('local provider asks the model not to think; a server refusing the option g
     return reply();
   }).complete({ system: 's', content: 'c', maxTokens: 100 });
   assert.equal(bodies[0].reasoning_effort, 'none');
+  assert.equal(bodies[0].response_format, undefined);
   bodies.length = 0;
+  const schema = { type: 'object', properties: { slides: { type: 'array' } }, required: ['slides'] };
   await local(async (_url, init) => {
     bodies.push(JSON.parse(String(init?.body)));
     return bodies.length === 1 ? new Response('{"error":"unknown field reasoning_effort"}', { status: 400 }) : reply();
-  }).complete({ system: 's', content: 'c', maxTokens: 100 });
+  }).complete({ system: 's', content: 'c', maxTokens: 100, schema });
+  assert.deepEqual(bodies[0].response_format, { type: 'json_schema', json_schema: { name: 'answer', schema } });
   assert.equal(bodies.length, 2);
   assert.equal(bodies[1].reasoning_effort, undefined);
+  assert.equal(bodies[1].response_format, undefined);
   await assert.rejects(
     local(async () => {
       throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });

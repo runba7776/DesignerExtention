@@ -308,8 +308,23 @@ export function drawDesign(c: LayoutContext, design: FreeDesign, helpers: Helper
     }
   }
 }
-/** Light ink for footers on a dark designed background. */
-export function footerInk(theme: Theme, design: FreeDesign | undefined) {
-  const ground = designBackground(theme, design);
+/** Light ink for footers on a dark designed background, or on a dark band the design laid under the footer
+ * at x (a band down to the slide's bottom edge would hide the page number in the theme's grey). */
+export function footerInk(theme: Theme, design: FreeDesign | undefined, x = SLIDE_W / 2) {
+  const band = [...(design?.elements ?? [])]
+    .reverse()
+    .find(
+      e =>
+        e.t === 'box' &&
+        e.fill !== 'none' &&
+        !e.rot &&
+        (e.op ?? 1) >= 0.5 &&
+        e.x <= x &&
+        e.x + e.w >= x &&
+        e.y <= 516 &&
+        e.y + e.h >= 516,
+    );
+  const ground =
+    band?.t === 'box' ? resolveColor(theme, band.fill, themeTokens(theme).surface) : designBackground(theme, design);
   return isDarkColor(ground) ? mixColor(readableColor('#FFFFFF', ground), ground, 0.62) : theme.muted;
 }

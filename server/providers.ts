@@ -2,12 +2,14 @@ import type { Settings, Usage } from '../shared/contracts.js';
 import { AppError } from './errors.js';
 import { validateLocalEndpoint } from './settings.js';
 
-/** images: pictures sent with the text (drawn slides); only a provider with images:true takes them. */
+/** images: pictures sent with the text (drawn slides); only a provider with images:true takes them.
+ * schema: the answer's JSON shape; a local server holds the model to it (structured output). */
 export interface CompletionRequest {
   system: string;
   content: string;
   maxTokens: number;
   images?: { mediaType: 'image/png'; data: string }[];
+  schema?: object;
 }
 export interface Completion {
   text: string;
@@ -82,9 +84,17 @@ export function createProvider(settings: Settings, apiKey?: string, fetcher: typ
       let response: Response;
       try {
         // A thinking model (gemma4 on Ollama thinks unless told not to) spent 20,000 tokens on a plan and ran
-        // out of time. A server that refuses the option is asked once more without it. (Forcing JSON with
-        // response_format made gemma4 ask questions instead of planning, so it is not used.)
-        response = await send({ ...plain, reasoning_effort: 'none' });
+        // out of time. Answers are held to their JSON shape (the caller's schema): gemma4 otherwise put each page
+        // in its own block, broke the escaping of the HTML inside, or (26B) the syntax of an outline. Plain JSON
+        // mode had made a plan ask questions instead; a schema that names the kinds of answer does not.
+        // A server that refuses the options is asked once more without them.
+        response = await send({
+          ...plain,
+          reasoning_effort: 'none',
+          ...(request.schema
+            ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', schema: request.schema } } }
+            : {}),
+        });
         if (response.status === 400) {
           await response.body?.cancel();
           response = await send(plain);
@@ -152,8 +162,10 @@ export function createProvider(settings: Settings, apiKey?: string, fetcher: typ
 
 /** The reply's JSON. A model sometimes adds a sentence before or after it, or a
  * fenced block in the middle; the complete JSON object inside is accepted as is
- * (nothing is added or closed). An unreadable reply keeps its text privately so
- * the caller can recover finished pages from it. */
+ * (nothing is added or closed). Pages written one per fenced block are taken as
+ * one answer, and a backslash JSON does not allow (a line of HTML ended with one)
+ * is dropped. An unreadable reply keeps its text privately so the caller can
+ * recover finished pages from it. */
 export function parseJsonResponse(text: string): unknown {
   const cleaned = text
     .trim()
@@ -164,18 +176,13 @@ export function parseJsonResponse(text: string): unknown {
   } catch {
     /* Look for the JSON inside the reply. */
   }
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text)?.[1],
-    start = text.indexOf('{'),
+  const blocks = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map(m => readObject(m[1]));
+  if (blocks.length > 1 && blocks.every(b => typeof b?.id === 'string'))
+    return { mode: blocks[0]!.mode, slides: blocks.map(({ mode: _mode, ...page }: any) => page) };
+  const start = text.indexOf('{'),
     end = text.lastIndexOf('}');
-  for (const candidate of [fenced, start >= 0 && end > start ? text.slice(start, end + 1) : undefined]) {
-    if (!candidate) continue;
-    try {
-      const value = JSON.parse(candidate);
-      if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-    } catch {
-      /* Try the next form. */
-    }
-  }
+  for (const candidate of [blocks[0], start >= 0 && end > start ? readObject(text.slice(start, end + 1)) : undefined])
+    if (candidate) return candidate;
   throw Object.assign(
     new AppError(
       422,
@@ -184,6 +191,21 @@ export function parseJsonResponse(text: string): unknown {
     ),
     { partialText: text },
   );
+}
+/** One JSON object, read as written or with the escapes JSON does not allow dropped. */
+function readObject(text: string): Record<string, any> | undefined {
+  const loose = () =>
+    text.replace(/\\(\r?\n|[\s\S])/g, (all, c: string) =>
+      '"\\/bfnrtu'.includes(c) ? all : c.endsWith('\n') ? '\\n' : c,
+    );
+  for (const read of [() => text, loose])
+    try {
+      const value = JSON.parse(read());
+      if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+    } catch {
+      /* Try the next form. */
+    }
+  return undefined;
 }
 const number = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0);
 async function boundedResponse(response: Response) {

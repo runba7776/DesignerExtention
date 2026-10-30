@@ -84,6 +84,8 @@ export interface FreePromptOptions {
   format?: 'json' | 'html';
   editorial?: boolean;
   proposals?: number;
+  /** A local model: HTML pages also get the business layout guide. */
+  local?: boolean;
 }
 
 /** HTML method (trial): the AI writes each page as HTML/CSS; the browser lays it out and
@@ -103,7 +105,7 @@ const figureGuide =
   '- 図は中身まで描きます。軸や枠だけの図にせず、説明用の位置の目安でも、点・棒・図形・文字など図が伝える内容を図の中に置きます。';
 const htmlGuide = (mode: 'presentation' | 'reading') => `## スライドの作り方（HTML）
 デザイン（構図・図形・色・文字の大きさ・配置）はすべてあなたに任せます。アプリ側に型（テンプレート）や見本はありません。
-各ページを1つのHTMLとして書きます。アプリはブラウザでHTMLを描画し、要素の位置・大きさ・色・文字の折り返しをそのまま読み取って、PowerPointで編集できる文字枠・図形・グラフにします。下端（y=${FOOTER_TOP}以降）には、アプリが出典とページ番号を入れます。
+各ページを1つのHTMLとして書きます。アプリはブラウザでHTMLを描画し、要素の位置・大きさ・色・文字の折り返しをそのまま読み取って、PowerPointで編集できる文字枠・図形・グラフにします。下端（y=${FOOTER_TOP}以降）には、アプリが出典とページ番号を入れます。囲みや帯はy=${FOOTER_TOP}より上で終えるか、スライドの下端まで伸ばします。
 - ルート要素は<section class="slide">（幅${SLIDE_W}px×高さ${SLIDE_H}px、position:relative、overflow:hidden。1px＝1pt）。内容はすべてこの中に置きます。
 - 使えるもの：div・p・span・h1〜h4・ul・ol・li・table・strong・em・br、style属性と<style>要素、flexbox・grid・position:absolute、背景色、枠線、border-radius、opacity、インラインSVG（PowerPointでは画像になります）。
 - 取り除くもの：script・イベント属性・画像ファイル・外部URL・Webフォント。表示しないもの：::before・::afterの内容、box-shadow、transform、letter-spacing、箇条書きの記号（list-style）。グラデーションは最初の色の単色になります。記号や番号が必要なら文字として書きます。
@@ -124,6 +126,22 @@ ${figureGuide}
 - 実在する会社・製品のロゴを再現しない。
 - グラフのデータ：円・ドーナツは1系列で、同じ全体の重複しない内訳（負の値なし）。積み上げは足し合わせられる値（負の値なし）。滝グラフは1系列で、categoriesの先頭が起点・末尾が終点・途中が増減（起点＋増減の合計＝終点）。
 - 文字の色が下の背景と区別しにくい場合は、アプリが読める色に変えます。`;
+/** For a local model writing HTML: how business slides are laid out, from slide-making guidance in Japanese,
+ * English, German, Chinese, Korean and French (consulting decks, the glance test, university and public-sector
+ * guides) that agrees on a fixed grid and margins, few points, white space with tight groups, left-aligned text
+ * and little decoration. gemma4:12b stacked boxes like a web page until pages were 600-850px tall, so the
+ * canvas and its regions are given in px. */
+const LOCAL_LAYOUT_GUIDE = `## 企業の資料の組み方（ローカルLLM向け）
+コンサルティング会社や各国の資料作成の手引きで共通する基本です。中身の決まり（題名は結論の一文・1ページに主役1つ）は上の指示のとおりです。
+- 画面は横${SLIDE_W}×縦${SLIDE_H}pxで、Webページのように下へ伸ばせません。左右の余白は56px以上（スライドの端から1〜2cm）。題名は上から32〜100pxに1行（28文字程度まで）。本文と図はすべて上から120〜470px（高さ350px）の中に収めます。
+- 本文は横に並べるのが基本です。2列（データの多いページは3列）にし、縦に積むのは2段まで。4項目なら2×2にします。
+- 1ページの要点は3つまで（多くても5つ）。各要点は短い見出し（15文字程度）と説明1〜2行（40文字程度）。載らない詳しい内容はノートへ移します。
+- 文字：本文16〜20px、要点の見出し20〜24px、注記12〜14px（data-role="caption"）。行の高さは1.4〜1.5。
+- 余白で区切ります。囲みの内側は16〜24px、囲みどうしは24px前後。同じまとまりの中は狭く、別のまとまりとは広く空けます。
+- 本文は左揃えにし（中央揃えは表紙と短い数値だけ）、列の上端と左端をそろえます。
+- 影・二重の枠・意味のない色やアイコンを足さず、強調の色は1つに絞ります。3秒で要点が伝わるかを確かめます。
+- 枠の例（配置・列の数・大きさは内容に合わせて変えます）：<section class="slide"><h1 style="position:absolute;left:56px;top:32px;width:848px;margin:0;font-size:30px">結論の一文</h1><div style="position:absolute;left:56px;top:120px;width:848px;height:350px;display:grid;grid-template-columns:1fr 1fr;gap:24px">…</div></section>
+- 書き終えたら、いちばん下の要素の下端が470px以内か確かめます。収まらなければ、要点か説明を減らします（文字を小さくして詰め込みません）。`;
 const HTML_CONTRACT = `
 DeckSpec = {id:string,title:string,mode:"presentation"|"reading",slides:SlideSpec[]}
 SlideSpec = {id:string,title:string,layoutId:"cover"|"free",notes:string,sources:[{documentId:string,locator:string,quote?:string}],html:string}
@@ -172,7 +190,7 @@ ${options.editorial ? `\n${EDITORIAL_GUIDE}\n` : ''}`;
   if (task === 'generate' && options.format === 'html')
     return `${intro}
 ${htmlGuide(mode)}
-${catalogs}${htmlThemeLine(options.theme)}
+${options.local ? `${LOCAL_LAYOUT_GUIDE}\n` : ''}${catalogs}${htmlThemeLine(options.theme)}
 型定義:
 ${HTML_CONTRACT}
 承認済みのoutline全体とoutline.visualStyleを参照し、今回のtargetSlidesに指定されたページだけを作ります。id・枚数・並び・mode・layoutIdを変えません。continuedFromは作成済みのページ（題名と構図の要約）で、資料全体の統一に使えます。${SAME_LAYOUT}

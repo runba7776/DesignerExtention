@@ -148,7 +148,13 @@ test('an 11-page AI-designed deck: a broken reply keeps its finished pages, batc
   const dir = await mkdtemp(path.join(tmpdir(), 'de-efficiency-'));
   try {
     const settings = await new SettingsStore(dir, '').load();
-    await settings.update({ provider: 'local', model: 'mock', slideCount: 11, mode: 'presentation' });
+    await settings.update({
+      provider: 'local',
+      designMode: 'free',
+      model: 'mock',
+      slideCount: 11,
+      mode: 'presentation',
+    });
     const a = doc('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', '決算短信.txt'),
       b = doc('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'KPI.txt');
     const outline: Outline = {

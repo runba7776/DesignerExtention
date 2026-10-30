@@ -50,7 +50,13 @@ test('a rejected page is asked again alone; the valid pages after it in the same
   const dir = await mkdtemp(path.join(tmpdir(), 'de-keep-'));
   try {
     const settings = await new SettingsStore(dir, '').load();
-    await settings.update({ provider: 'local', model: 'mock', slideCount: 5, mode: 'presentation' });
+    await settings.update({
+      provider: 'local',
+      designMode: 'free',
+      model: 'mock',
+      slideCount: 5,
+      mode: 'presentation',
+    });
     const outline: Outline = {
       title: '5枚',
       mode: 'presentation',
@@ -115,7 +121,13 @@ test('asked for one page, the page itself is taken as the answer, its layoutId g
   const dir = await mkdtemp(path.join(tmpdir(), 'de-bare-page-'));
   try {
     const settings = await new SettingsStore(dir, '').load();
-    await settings.update({ provider: 'local', model: 'mock', slideCount: 2, mode: 'presentation' });
+    await settings.update({
+      provider: 'local',
+      designMode: 'free',
+      model: 'mock',
+      slideCount: 2,
+      mode: 'presentation',
+    });
     const outline = {
       title: '2枚',
       mode: 'presentation',

@@ -45,6 +45,8 @@ export interface GenerationDraft {
   pending?: Record<string, SlideSpec>;
   /** The drawn pages (PNG, base64), kept for the look at them after the deck is shown. */
   shots?: Record<string, string>;
+  /** Pages a local model could not make, kept or made by the app, shown to the user to check. */
+  hints?: ReviewHint[];
 }
 
 export interface RevisionDraft {

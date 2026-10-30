@@ -196,7 +196,7 @@ export class GenerationService {
         state.session.phase = 'ready';
         // The drawn pages are looked at after the deck is shown (polish), so the user can read it meanwhile.
         const shots = state.draft?.shots,
-          findings = deckFindings(main.deck.slides);
+          findings = [...(state.draft?.hints ?? []), ...deckFindings(main.deck.slides)];
         if (shots && Object.keys(shots).length && this.engine.pages.wantsReview(state)) {
           state.polish = { shots, outline, compact: state.draft!.compact, variantId: main.id, findings };
           state.session.polish = { state: 'pending', pages: Object.keys(shots).length };
@@ -238,10 +238,11 @@ export class GenerationService {
   ): Promise<{ canRetry: boolean } | undefined> {
     const free = this.engine.pages.freeDesign(state),
       html = this.engine.pages.htmlFor(state, run),
+      local = (run ? this.engine.ai.targetSettings(state, run.target) : state.settings).provider === 'local',
       baseBatch = this.baseBatch(state, outline);
     if (state.settings.designMode === 'html' && !html && !state.session.warnings.some(w => w.startsWith('HTML方式')))
       state.session.warnings.push(
-        'HTML方式は、月額版の自動作成でインストール版を使うときだけ使えます。この資料は座標の方式で作成しました。',
+        `HTML方式は、インストール版で月額版の自動作成かローカルLLMを使うときだけ使えます。この資料は${free ? '座標' : '型'}の方式で作成しました。`,
       );
     /** One returned page, checked on its own: a later page's problem never discards an earlier valid page. */
     const accept = (
@@ -367,7 +368,10 @@ export class GenerationService {
             );
           continue;
         }
+        // A local model asked again for one page alone rarely fixed it a second time (0 of 3), so it gives way.
+        const giveWay = local && free && draft.singleFailures > 0;
         if (
+          !giveWay &&
           draft.singleFailures < 2 &&
           this.engine.ai.tryRepair(
             state,
@@ -378,10 +382,81 @@ export class GenerationService {
           )
         )
           continue;
+        if (local && free) {
+          await this.substitute(state, outline, draft, response?.slides?.[draft.slides.length - start], accept, run);
+          continue;
+        }
         return { canRetry: draft.singleFailures < 2 };
       }
     }
     return undefined;
+  }
+  /** A local model designing its own pages is not asked without end, and the deck is finished: the page it
+   * could not make is kept as last written when only the reading of its HTML found slips, else asked once
+   * with the app's layouts (with layouts it finished every time), else made from the outline with a layout.
+   * A hint asks the user to check it. */
+  private async substitute(
+    state: SessionState,
+    outline: Outline,
+    draft: GenerationDraft,
+    raw: any,
+    accept: (raw: any, expected: string) => void,
+    run?: AiRun,
+  ) {
+    const target = outline.slides[draft.slides.length];
+    let what: string;
+    try {
+      if (!raw?.design || typeof raw.htmlProblem !== 'string') throw new Error('no page to keep');
+      what = `AIが直しきれなかった点があります（${raw.htmlProblem.replace(/「[^」]*」/g, '（該当の文字）').slice(0, 120)}）`;
+      delete raw.htmlProblem;
+      accept(raw, target.id);
+    } catch {
+      try {
+        if (target.id === 'slide-1') throw new Error('a cover is made from the outline');
+        // A page asked with a layout id gets the layout instructions (the points layouts).
+        const response: any = await this.engine.ai.complete(
+          state,
+          'generate',
+          {
+            outline,
+            targetSlides: [{ ...target, layoutId: 'summary' }],
+            messages: state.session.messages,
+            compactOutput: true,
+            continuedFrom: draft.slides.map(continued),
+          },
+          6500,
+          run,
+        );
+        const page = response?.slides?.[0];
+        // gemma4 once returned the layout with no items: an empty page is not kept.
+        if (!page?.items?.length && !page?.body && !page?.chart && !page?.table) throw new Error('an empty page');
+        accept(page, target.id);
+        what = 'AIのデザインが崩れたため、型に当てはめて作りました';
+      } catch {
+        what = 'AIが作れなかったため、構成案の要点から型で仮に作りました';
+        accept(
+          {
+            id: target.id,
+            title: target.title,
+            layoutId: target.id === 'slide-1' ? 'cover' : 'summary',
+            items: (target.keyPoints.length || target.id === 'slide-1' ? target.keyPoints : [target.intent]).map(
+              label => ({ label }),
+            ),
+            notes: '',
+            sources: [],
+          },
+          target.id,
+        );
+      }
+    }
+    (draft.hints ??= []).push({
+      slideId: target.id,
+      title: target.title,
+      severity: 'high',
+      what,
+      fix: 'このページを選んで修正を指示するか、PowerPointで整える',
+    });
+    draft.singleFailures = 0;
   }
   /** Other AIs chosen at creation write their own drafts of the same outline while the
    * main draft is written. A failed one is reported and never stops the main draft. */

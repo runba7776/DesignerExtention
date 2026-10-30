@@ -74,7 +74,14 @@ test('with おまかせ the deck is coloured with the palette the AI chose; it c
   const dir = await mkdtemp(path.join(tmpdir(), 'de-palette-'));
   try {
     const settings = await new SettingsStore(dir, '').load();
-    await settings.update({ provider: 'local', model: 'mock', slideCount: 2, mode: 'presentation', themeId: 'auto' });
+    await settings.update({
+      provider: 'local',
+      designMode: 'free',
+      model: 'mock',
+      slideCount: 2,
+      mode: 'presentation',
+      themeId: 'auto',
+    });
     const outline: Outline = {
       title: '配色のテスト',
       mode: 'presentation',
