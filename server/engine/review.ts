@@ -8,6 +8,7 @@ import {
   type DeckSpec,
   type DeckVariant,
   type Outline,
+  type PhotoSide,
   type PolishState,
   type ReviewHint,
   type SlideSpec,
@@ -18,6 +19,7 @@ import { fitProblems, assertTextFits } from '../text-fit.js';
 import { improveTextFit } from '../../shared/layout-selection.js';
 import { applySavedDesign } from '../design-application.js';
 import { draftMarks } from '../../shared/blanks.js';
+import { coverCrop } from '../../shared/free-design.js';
 import type { SessionEngine } from '../engine.js';
 import type { SessionState } from './session-state.js';
 import { continued, plainOutline } from './helpers.js';
@@ -38,6 +40,14 @@ interface Look {
 const TOUCH_UPS = 4;
 /** A finding about a place the user fills in (［実施日］) is not acted on: the place is the user's to fill. */
 const BLANK = /［|未記入|記入欄/;
+/** The one photo of a page, when its cut can move towards the side (it is cut along that side). */
+function photoToMove(slide: SlideSpec, side: PhotoSide) {
+  const photos = (slide.design?.elements ?? []).flatMap(e => (e.t === 'image' ? [e] : [])),
+    [photo] = photos;
+  if (photos.length !== 1 || !photo.iw || !photo.ih) return undefined;
+  const moved = coverCrop(photo.iw, photo.ih, photo.w, photo.h, side);
+  return String(moved) === String(coverCrop(photo.iw, photo.ih, photo.w, photo.h)) ? undefined : photo;
+}
 
 /** Looking at drawn pages as pictures: samples of the directions, the look after the deck is shown, a page on request. */
 export class ReviewService {
@@ -64,6 +74,7 @@ export class ReviewService {
     // What the app found itself (a note to the maker left on a slide, a part close to a side, the same kind of page
     // three in a row) is acted on too.
     for (const hint of known) severe.set(hint.slideId, [...(severe.get(hint.slideId) ?? []), hint]);
+    const crops = new Map<string, PhotoSide>();
     let checked = 0,
       photos = false;
     const size = Math.ceil(pages.length / Math.ceil(pages.length / REVIEW_BATCH_SIZE));
@@ -87,7 +98,11 @@ export class ReviewService {
           if (await this.passOverPhotos(slide, page.problems)) photos = true;
           for (const problem of page.problems) {
             const hint: ReviewHint = { slideId: page.id, title: slide.title, ...problem };
-            if (problem.severity !== 'low' && !BLANK.test(problem.what + problem.fix))
+            // A photo cut in the wrong place is the app's to move, with no call to the AI (not one being replaced).
+            if (problem.crop && look.final && !page.problems.some(p => p.photo) && photoToMove(slide, problem.crop)) {
+              crops.set(page.id, problem.crop);
+              hints.push({ ...hint, fixed: true });
+            } else if (problem.severity !== 'low' && !BLANK.test(problem.what + problem.fix))
               severe.set(page.id, [...(severe.get(page.id) ?? []), hint]);
             else hints.push(hint);
           }
@@ -128,7 +143,7 @@ export class ReviewService {
       if (done[id]) replaced[id] = done[id];
       else unresolved.push(id);
     }
-    return { checked, hints, severe, replaced, unresolved, photos };
+    return { checked, hints, severe, replaced, unresolved, photos, crops };
   }
   /** The photos of a page the look said are not to be used: the next placing takes others, whatever the AI writes. */
   private async passOverPhotos(slide: SlideSpec, problems: { photo?: boolean }[]) {
@@ -233,7 +248,7 @@ export class ReviewService {
       string,
       {
         better?: boolean;
-        problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string; photo?: boolean }[];
+        problems: ReturnType<typeof validateReview>[number]['problems'];
       }
     > = {};
     const drawn = pages.filter((p): p is typeof p & { shot: string } => !!p.shot),
@@ -379,7 +394,14 @@ export class ReviewService {
             );
           } else secondHints.push(...problems.map(p => ({ slideId, title, ...p })));
         }
-        if (Object.keys(versions).length || result.photos) delete variant.render;
+        for (const [slideId, side] of result.crops) {
+          const photo = photoToMove(
+            variant.deck.slides.find(s => s.id === slideId)!,
+            side,
+          );
+          if (photo) photo.focus = side;
+        }
+        if (Object.keys(versions).length || result.photos || result.crops.size) delete variant.render;
         // Findings of the first look at a page that was remade described its old version; the second look replaces them.
         const hints = [...result.hints.filter(h => !fixed.includes(h.slideId)), ...secondHints];
         for (const slideId of unresolved)

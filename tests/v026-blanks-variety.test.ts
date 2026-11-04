@@ -217,7 +217,7 @@ test('the new icons are drawn as editable strokes and as the same picture for br
     assert.ok(Object.hasOwn(iconCatalog, id));
     const svg = iconSvg(id);
     assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 24 24"[^>]*stroke="currentColor"/);
-    assert.match(svg, /<(line|ellipse|rect)\b/);
+    assert.match(svg, /<(line|ellipse|rect|path)\b/);
   }
 });
 
@@ -253,7 +253,7 @@ test(
 );
 
 test(
-  'text hidden under a shape drawn after it is reported; a shape drawn first, a faint one or a page with z-index is not',
+  'text hidden under a shape drawn after it is reported; a shape drawn first, a faint one or text raised by z-index is not',
   { skip: !findBrowser() },
   async () => {
     const theme = paletteTheme({

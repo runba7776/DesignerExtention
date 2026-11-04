@@ -386,6 +386,7 @@ test('a line running square into the middle of a box side is glued to it as a co
       line(536, 170, 616, 170),
       line(264, 200, 328, 200, 'end'),
       line(156, 230, 156, 300),
+      { t: 'text', x: 56, y: 450, w: 300, h: 30, text: '注記', size: 14 },
     ]),
   ).slides[1];
   const lines = scene.elements.filter(e => e.kind === 'line');

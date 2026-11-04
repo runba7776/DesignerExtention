@@ -256,7 +256,7 @@ test('the app passes the smallest size of the mode and tells the user when a pag
     assert.deepEqual(seen[0].minTextSize, { body: 12, caption: 10 });
     assert.ok(
       ready.warnings.some(w =>
-        /「本文」は文字が下端に少しはみ出したため、文字を90%に縮めて収めました（AIは呼び出していません）/.test(w),
+        /「本文」は文字のはみ出しや重なりを防ぐため、文字を90%に縮めて収めました（AIは呼び出していません）/.test(w),
       ),
       JSON.stringify(ready.warnings),
     );

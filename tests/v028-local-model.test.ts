@@ -68,10 +68,7 @@ test('a local LLM that cannot make a page still finishes the deck: a page with s
     const htmlLayout: HtmlLayout = async pages =>
       pages.map(p => ({
         elements: [title(p.id, /<h1>(.*?)<\/h1>/.exec(p.html)![1])],
-        problems:
-          p.id === 'slide-2'
-            ? ['文字が囲みからはみ出して一部が隠れています（「本文」）。囲みを広げるか、文字を減らしてください。']
-            : [],
+        problems: p.id === 'slide-2' ? ['文字が下端の出典欄（下から44px、y=496以降）に入っています（「本文」）。'] : [],
       }));
     const engine = new SessionEngine({
       settings,
@@ -144,7 +141,7 @@ test('a local LLM that cannot make a page still finishes the deck: a page with s
         ['slide-4', 'AIが作れなかったため、'],
       ],
     );
-    assert.match(session.reviewHints![0].what, /囲みからはみ出して/);
+    assert.match(session.reviewHints![0].what, /出典欄/);
     // The reason the app found is in the hint (here the reply's JSON was cut).
     assert.match(session.reviewHints![1].what, /型に当てはめて作りました（AIの出力形式が正しくありません/);
     assert.equal(

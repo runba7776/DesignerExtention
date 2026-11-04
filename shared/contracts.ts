@@ -293,6 +293,7 @@ export type FreeShape =
   | 'donut';
 /** g: parts drawn inside one box of an HTML page (a card: its shape, texts and icons) share a number and stay
  * together in PowerPoint. */
+export type PhotoSide = 'left' | 'right' | 'top' | 'bottom';
 export type FreeElement = { g?: number } & (
   | {
       t: 'text';
@@ -386,7 +387,8 @@ export type FreeElement = { g?: number } & (
       arrow?: 'none' | 'end' | 'start' | 'both';
     }
   /** A photo or illustration the AI asks for with English search words (q). The app finds a freely licensed
-   * picture and writes src (its file in the app's image store), its natural size, the credit and its page. */
+   * picture and writes src (its file in the app's image store), its natural size, the credit and its page.
+   * focus: the side of the picture kept when it is cut to fill its box (the middle when not set). */
   | {
       t: 'image';
       x: number;
@@ -400,6 +402,7 @@ export type FreeElement = { g?: number } & (
       ih?: number;
       credit?: string;
       page?: string;
+      focus?: PhotoSide;
     }
 );
 /** The look of one cell of a table read from an HTML page. pad: left, top, right, bottom; bd: the borders top,

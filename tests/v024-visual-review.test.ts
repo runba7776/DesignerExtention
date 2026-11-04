@@ -156,6 +156,7 @@ async function fixture(
     blank?: boolean;
     drawn?: boolean;
     photo?: boolean;
+    crop?: boolean;
     store?: ImageStore;
   } = {},
 ) {
@@ -191,6 +192,9 @@ async function fixture(
             exact: true,
             role: p.id === 'slide-1' ? 'body' : 'title',
           },
+          ...(options.crop && p.id !== 'slide-1'
+            ? [{ t: 'image', x: 500, y: 120, w: 300, h: 300, q: 'leaf', src: '0123456789abcdef.jpg', iw: 800, ih: 400 }]
+            : []),
         ],
         problems:
           options.fixFails && p.html.includes('直した')
@@ -257,6 +261,23 @@ async function fixture(
                         },
                       ],
                 })),
+              }),
+              usage,
+            };
+          if (options.crop)
+            return {
+              text: JSON.stringify({
+                pages: [
+                  { id: 'slide-1', problems: [] },
+                  {
+                    id: 'slide-2',
+                    problems: [{ severity: 'medium', what: '写真の主役が切れる', fix: '左を見せる', crop: 'left' }],
+                  },
+                  {
+                    id: 'slide-3',
+                    problems: [{ severity: 'medium', what: '写真の上が切れる', fix: '上を見せる', crop: 'top' }],
+                  },
+                ],
               }),
               usage,
             };
@@ -345,6 +366,30 @@ test('a photo the look says is not to be used is passed over: at the first look,
     await f.dispose();
   }
   assert.match(reviewPrompt(), /"photo":true/);
+});
+
+test('a photo cut in the wrong place is moved by the app with no call to the AI, when it is cut along that side', async () => {
+  const f = await fixture({}, { crop: true, drawn: true });
+  try {
+    const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
+    await f.engine.generate(session.id);
+    const polished = await f.engine.polish(session.id);
+    const photo = (index: number) =>
+      polished.variants[0].deck.slides[index].design!.elements.find(e => e.t === 'image') as { focus?: string };
+    assert.equal(photo(1).focus, 'left');
+    assert.deepEqual(
+      f.redos.map(r => r.targetSlides[0].id),
+      ['slide-3'],
+      'a photo cut left and right cannot show more at the top: that one goes on as a finding',
+    );
+    assert.equal(photo(2).focus, undefined);
+    assert.equal(polished.variants[0].render, undefined, 'drawn again');
+    const hint = polished.reviewHints!.find(h => h.slideId === 'slide-2')!;
+    assert.equal(hint.fixed, true);
+  } finally {
+    await f.dispose();
+  }
+  assert.match(reviewPrompt(), /"crop"/);
 });
 
 test('a local model only shows what it saw on a page: nothing is touched up or compared; a page made from a layout is still asked for as HTML', async () => {

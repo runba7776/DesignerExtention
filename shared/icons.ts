@@ -171,8 +171,69 @@ export function resolveItemIcon(item: SlideItem): IconId | undefined {
   ];
   return rules.find(([pattern]) => pattern.test(item.label))?.[1];
 }
+/** Lines that meet become one freeform: PowerPoint ends each line flat, so an outline of separate lines shows a notch
+ * at every corner once it is drawn large. A line meeting nothing stays a line. */
+function strokes(lines: number[][][], stroke: string, strokeWidth: number): SceneElement[] {
+  const same = (a: number[], b: number[]) => Math.abs(a[0] - b[0]) < 0.01 && Math.abs(a[1] - b[1]) < 0.01,
+    n = (v: number) => Math.round(v * 100) / 100,
+    left = [...lines],
+    out: SceneElement[] = [];
+  while (left.length) {
+    const chain = [...left.shift()!];
+    const closed = () => chain.length > 2 && same(chain[0], chain.at(-1)!);
+    for (let grown = true; grown && !closed();) {
+      grown = false;
+      for (let i = 0; i < left.length && !grown; i++) {
+        const [a, b] = left[i];
+        if (same(chain.at(-1)!, a)) chain.push(b);
+        else if (same(chain.at(-1)!, b)) chain.push(a);
+        else if (same(chain[0], b)) chain.unshift(a);
+        else if (same(chain[0], a)) chain.unshift(b);
+        else continue;
+        left.splice(i, 1);
+        grown = true;
+      }
+    }
+    const xs = chain.map(p => p[0]),
+      ys = chain.map(p => p[1]),
+      x = Math.min(...xs),
+      y = Math.min(...ys),
+      w = Math.max(...xs) - x,
+      h = Math.max(...ys) - y,
+      [first, second] = chain;
+    if (chain.length === 2 || w < 0.01 || h < 0.01)
+      out.push({
+        kind: 'line',
+        x,
+        y,
+        w,
+        h,
+        stroke,
+        strokeWidth,
+        flipY: chain.length === 2 && (second[0] - first[0]) * (second[1] - first[1]) < 0,
+      });
+    else {
+      const shut = closed(),
+        points = (shut ? chain.slice(0, -1) : chain).map(p => `${n(p[0])} ${n(p[1])}`);
+      out.push({
+        kind: 'shape',
+        x,
+        y,
+        w,
+        h,
+        shape: 'rect',
+        path: `M ${points.join(' L ')}${shut ? ' Z' : ''}`,
+        fill: 'none',
+        stroke,
+        strokeWidth,
+      });
+    }
+  }
+  return out;
+}
 export function iconElements(id: IconId, rect: Rect, color: string): SceneElement[] {
   const e: SceneElement[] = [],
+    lines: number[][][] = [],
     sx = rect.w / 24,
     sy = rect.h / 24,
     weight = Math.max(1.2, Math.min(sx, sy) * 1.4);
@@ -196,16 +257,10 @@ export function iconElements(id: IconId, rect: Rect, color: string): SceneElemen
       strokeWidth: weight,
     });
   const line = (x1: number, y1: number, x2: number, y2: number) =>
-    e.push({
-      kind: 'line',
-      x: rect.x + Math.min(x1, x2) * sx,
-      y: rect.y + Math.min(y1, y2) * sy,
-      w: Math.abs(x2 - x1) * sx,
-      h: Math.abs(y2 - y1) * sy,
-      stroke: color,
-      strokeWidth: weight,
-      flipY: (x2 - x1) * (y2 - y1) < 0,
-    });
+    lines.push([
+      [rect.x + x1 * sx, rect.y + y1 * sy],
+      [rect.x + x2 * sx, rect.y + y2 * sy],
+    ]);
   const outline = (points: number[][]) =>
     points.forEach((p, i) => {
       if (i) line(points[i - 1][0], points[i - 1][1], p[0], p[1]);
@@ -568,10 +623,10 @@ export function iconElements(id: IconId, rect: Rect, color: string): SceneElemen
       break;
     case 'mail':
       box(2, 4, 20, 16, 'roundRect');
-      line(2, 5, 12, 13);
-      line(12, 13, 22, 5);
-      line(2, 20, 8, 13);
-      line(16, 13, 22, 20);
+      line(2.8, 5.64, 12, 13);
+      line(12, 13, 21.2, 5.64);
+      line(2.9, 19, 8, 13);
+      line(16, 13, 21.1, 19);
       break;
     case 'camera':
       box(2, 6, 20, 16, 'roundRect');
@@ -937,7 +992,7 @@ export function iconElements(id: IconId, rect: Rect, color: string): SceneElemen
       );
       break;
   }
-  return e;
+  return [...e, ...strokes(lines, color, weight)];
 }
 /** An icon as SVG, for pages drawn in a browser (the HTML method): the same strokes as its PowerPoint
  * shapes, in the colour of the text around it (currentColor). */
@@ -952,6 +1007,7 @@ export function iconSvg(id: IconId) {
       }
       if (e.kind !== 'shape') return '';
       const fill = e.fill === 'none' ? 'none' : 'currentColor';
+      if (e.path) return `<path d="${e.path}" fill="none"/>`;
       if (e.shape === 'ellipse')
         return `<ellipse cx="${n(e.x + e.w / 2)}" cy="${n(e.y + e.h / 2)}" rx="${n(e.w / 2)}" ry="${n(e.h / 2)}" fill="${fill}"/>`;
       return `<rect x="${n(e.x)}" y="${n(e.y)}" width="${n(e.w)}" height="${n(e.h)}"${e.shape === 'roundRect' ? ` rx="${n(Math.min(e.w, e.h) / 6)}"` : ''} fill="${fill}"/>`;

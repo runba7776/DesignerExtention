@@ -144,6 +144,8 @@ namespace DesignerExtension.Native
                     if (!titled && (int)slide.Shapes.HasTitle != 0) slide.Shapes.Title.Delete();
                     foreach (var line in glued) Glue(slide, line.Key, line.Value, boxes);
                     GroupShapes(slide, groups);
+                    // A group takes the place of its top part, and the title cannot join one: a card grouped with the text under the title would cover it.
+                    if (titled) slide.Shapes.Title.ZOrder(0);
                     Stage = "スライド " + (i + 1) + " のノート保存";
                     WriteNotes(slide, Text(data, "notes", ""));
                     foreach (object warning in ArrayOf(data, "warnings")) Warnings.Add("スライド " + (i + 1) + ": " + Convert.ToString(warning));

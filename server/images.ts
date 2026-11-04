@@ -207,6 +207,7 @@ export function createImageStore(root: string, fetcher: typeof fetch = fetch): I
           }
         }
         if (picture) {
+          if (place.src !== picture.src) delete place.focus;
           Object.assign(place, picture);
           taken.add(picture.src);
         } else {

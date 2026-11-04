@@ -3,6 +3,7 @@ import type {
   FreeDesign,
   FreeElement,
   LineElement,
+  PhotoSide,
   Rect,
   SceneElement,
   SlideSpec,
@@ -81,11 +82,21 @@ export function designBackground(theme: Theme, design: FreeDesign | undefined) {
 export const isDarkColor = (color: string) => luminance(color) < 0.2;
 /** A file of the app's image store (runtime/images). */
 export const IMAGE_SRC = /^[0-9a-f]{16}\.(jpg|png)$/;
-/** The shares of a picture (iw x ih) cut from the left, top, right and bottom so it fills a w x h box. */
-export function coverCrop(iw: number, ih: number, w: number, h: number): [number, number, number, number] {
+/** The shares of a picture (iw x ih) cut from the left, top, right and bottom so it fills a w x h box: as much from
+ * both ends, or all from one to keep the focus side (a side it is not cut on changes nothing). */
+export function coverCrop(
+  iw: number,
+  ih: number,
+  w: number,
+  h: number,
+  focus?: PhotoSide,
+): [number, number, number, number] {
   const keep = iw / ih / (w / h),
-    cut = (share: number) => Math.round(((1 - share) / 2) * 10000) / 10000;
-  return keep > 1 ? [cut(1 / keep), 0, cut(1 / keep), 0] : [0, cut(keep), 0, cut(keep)];
+    wide = keep > 1,
+    half = Math.round(((1 - (wide ? 1 / keep : keep)) / 2) * 10000) / 10000,
+    start = focus === (wide ? 'left' : 'top') ? 0 : focus === (wide ? 'right' : 'bottom') ? 2 * half : half,
+    end = 2 * half - start;
+  return wide ? [start, 0, end, 0] : [0, start, 0, end];
 }
 /** One kind of blank for facts still unknown when the deck was made: the item's name in full-width square
  * brackets, ［実施日］ (see blanks.ts). A browser line break may fall inside one. */
@@ -355,7 +366,7 @@ export function drawDesign(c: LayoutContext, design: FreeDesign, helpers: Helper
           kind: 'image',
           ...rect,
           src: e.src,
-          ...(e.iw && e.ih ? { crop: coverCrop(e.iw, e.ih, e.w, e.h) } : {}),
+          ...(e.iw && e.ih ? { crop: coverCrop(e.iw, e.ih, e.w, e.h, e.focus) } : {}),
           // The AI's description, or its search words when it gave none.
           alt: e.alt ?? e.q,
         });

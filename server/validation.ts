@@ -10,6 +10,7 @@ import type {
   OpenFact,
   Outline,
   OutlineProposal,
+  PhotoSide,
   SlideSpec,
   SourceRef,
   Theme,
@@ -33,6 +34,8 @@ import { typographyProfiles } from '../shared/typography.js';
 import { iconCatalog } from '../shared/icons.js';
 import { chartCatalog, chartDataProblem } from '../shared/charts.js';
 import { blankLabel } from '../shared/blanks.js';
+
+const PHOTO_SIDES: unknown[] = ['left', 'right', 'top', 'bottom'];
 
 // Kept separate from orchestration so additional layout grammars can be registered centrally.
 export const SUPPORTED_LAYOUTS = listLayouts().map(entry => entry.id);
@@ -639,6 +642,7 @@ export function validateDesign(
               ...(typeof e.iw === 'number' && typeof e.ih === 'number' && e.iw > 0 && e.ih > 0
                 ? { iw: e.iw, ih: e.ih }
                 : {}),
+              ...(PHOTO_SIDES.includes(e.focus) ? { focus: e.focus } : {}),
               ...(typeof e.credit === 'string' ? { credit: e.credit.slice(0, 160) } : {}),
               ...(typeof e.page === 'string' && /^https:\/\/commons\.wikimedia\.org\/wiki\/File:/.test(e.page)
                 ? { page: e.page.slice(0, 300) }
@@ -778,6 +782,16 @@ export function validateDesign(
           `文字の枠が重なっています（「${a.text.slice(0, 12)}」と「${b.text.slice(0, 12)}」）。位置か大きさを調整してください`,
         );
     }
+  // A chart is filled in by PowerPoint, so text placed on it lands on its bars and labels.
+  for (const chart of elements)
+    if (chart.t === 'chart')
+      for (const a of texts) {
+        const w = Math.min(a.x + a.w, chart.x + chart.w) - Math.max(a.x, chart.x),
+          h = Math.min(a.y + a.h, chart.y + chart.h) - Math.max(a.y, chart.y);
+        // Half of the box: a box is often wider than its text.
+        if (!a.exact && w > 0 && h > 0 && w * h > 0.5 * a.w * a.h)
+          bad(`文字がグラフに重なっています（「${a.text.slice(0, 12)}」）。文字はグラフの枠の外に置いてください`);
+      }
   return { ...(data.background !== undefined ? { background: designColor(data.background, '背景') } : {}), elements };
 }
 
@@ -972,7 +986,7 @@ export function validateReview(
 ): {
   id: string;
   better?: boolean;
-  problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string; photo?: boolean }[];
+  problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string; photo?: boolean; crop?: PhotoSide }[];
 }[] {
   const data = object(value, '点検の応答');
   return array(data.pages, '点検したページ', ids.length + 2).flatMap((entry: unknown) => {
@@ -987,6 +1001,7 @@ export function validateReview(
                 what: p.what.trim().slice(0, 80),
                 fix: typeof p.fix === 'string' ? p.fix.trim().slice(0, 120) : '',
                 ...(p.photo === true ? { photo: true } : {}),
+                ...(PHOTO_SIDES.includes(p.crop) ? { crop: p.crop } : {}),
               },
             ]
           : [],

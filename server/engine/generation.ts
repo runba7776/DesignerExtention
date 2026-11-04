@@ -412,8 +412,9 @@ export class GenerationService {
   }
   /** A local model designing its own pages, or writing the content that only goes out as a skeleton (on the
    * app's layouts it stopped 1 of 5 decks there), is not asked without end, and the deck is finished: the page
-   * it could not make is kept as last written when only the reading of its HTML found slips, else asked once
-   * with the summary layout, else made from the outline with a layout. A hint asks the user to check it. */
+   * it could not make is kept as last written when only the reading of its HTML found slips and all its text can
+   * be read, else asked once with the summary layout, else made from the outline with a layout. A hint asks the
+   * user to check it. */
   private async substitute(
     state: SessionState,
     outline: Outline,
@@ -431,7 +432,7 @@ export class GenerationService {
       .slice(0, 100);
     let what: string;
     try {
-      if (!raw?.design || typeof raw.htmlProblem !== 'string') throw new Error('no page to keep');
+      if (!raw?.design || typeof raw.htmlProblem !== 'string' || raw.htmlUnreadable) throw new Error('no page to keep');
       what = `AIが直しきれなかった点があります（${raw.htmlProblem.replace(/「[^」]*」/g, '（該当の文字）').slice(0, 120)}）`;
       delete raw.htmlProblem;
       accept(raw, target.id);

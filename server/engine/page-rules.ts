@@ -143,14 +143,16 @@ export class PageRules {
       // The page's HTML stays beside its picture: the look at the pages gives both back to the AI for a touch-up.
       if (result.shot) Object.assign(raw, { shot: result.shot, shotHtml: html });
       const name = `「${typeof raw.title === 'string' ? raw.title.slice(0, 40) : raw.id}」`;
-      if (result.problems.length) raw.htmlProblem = result.problems.slice(0, 3).join(' ');
-      else if (result.squeezed || result.fitted) {
+      if (result.problems.length) {
+        raw.htmlProblem = result.problems.slice(0, 3).join(' ');
+        if (result.unreadable) raw.htmlUnreadable = true;
+      } else if (result.squeezed || result.fitted) {
         const done = [
           result.squeezed && '余白を詰め',
           result.fitted && `文字を${Math.round(result.fitted * 100)}%に縮め`,
         ];
         state.session.warnings.push(
-          `${name}は文字が下端に少しはみ出したため、${done.filter(Boolean).join('、')}て収めました（AIは呼び出していません）。`,
+          `${name}は文字のはみ出しや重なりを防ぐため、${done.filter(Boolean).join('、')}て収めました（AIは呼び出していません）。`,
         );
       } else if (result.keptSmall)
         state.session.warnings.push(

@@ -12,6 +12,12 @@ import { BLANK } from '../shared/free-design';
 import { presetOutline } from '../shared/shape-outline';
 import { ChartPreview } from './ChartPreview';
 
+/** The picture's place in its box as SVG has it, from the shares cut off its left, top, right and bottom. */
+function photoFit([left, top, right, bottom]: number[] = [0, 0, 0, 0]) {
+  const x = left < right ? 'xMin' : left > right ? 'xMax' : 'xMid',
+    y = top < bottom ? 'YMin' : top > bottom ? 'YMax' : 'YMid';
+  return `${x}${y} slice`;
+}
 type Part = { text: string; color?: string; bold?: boolean };
 /** One drawn line in parts: the coloured or bold parts of a measured text (start: where the line begins in
  * the text), and the blanks still to fill (［実施日］) in their colour. */
@@ -240,8 +246,8 @@ function Element({ element: e, textColor }: { element: SceneElement; textColor: 
         y={e.y}
         width={e.w}
         height={e.h}
-        // A photo of the app's image store fills its box, cut at the middle as in PowerPoint.
-        preserveAspectRatio={e.src ? 'xMidYMid slice' : undefined}
+        // A photo of the app's image store fills its box, cut where PowerPoint cuts it.
+        preserveAspectRatio={e.src ? photoFit(e.crop) : undefined}
         href={
           e.src
             ? `/api/images/${e.src}`

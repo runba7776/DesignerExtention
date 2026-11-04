@@ -51,7 +51,7 @@ test('pictograms are bounded editable objects and unknown labels do not invent a
   for (const id of Object.keys(iconCatalog) as IconId[]) {
     const r = { x: 40, y: 50, w: 48, h: 48 },
       elements = iconElements(id, r, '#123456');
-    assert.ok(elements.length >= 2);
+    assert.ok(elements.length >= 1);
     assert.ok(elements.every(e => e.x >= r.x && e.y >= r.y && e.x + e.w <= r.x + r.w && e.y + e.h <= r.y + r.h));
     assert.ok(elements.every(e => e.kind === 'shape' || e.kind === 'line'));
   }

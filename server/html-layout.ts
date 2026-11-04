@@ -14,6 +14,7 @@ import { presetOutline } from '../shared/shape-outline.js';
  * squeezed: the share the spacing was made smaller to (0.6 or 0.35), before or with the text, without asking the AI.
  * grown: text below the smallest size was made that size (the page still fitted), without asking the AI.
  * keptSmall: text a little below the smallest size was kept as written (made larger, it did not fit).
+ * unreadable: of the problems left, some text cannot be read (on other parts, under a shape, cut off or off the slide).
  * shot: the drawn page as a 960x540 PNG (base64), when asked for. */
 export type HtmlPageLayout =
   | {
@@ -24,6 +25,7 @@ export type HtmlPageLayout =
       squeezed?: number;
       grown?: boolean;
       keptSmall?: boolean;
+      unreadable?: boolean;
       shot?: string;
     }
   | { error: string };
@@ -74,7 +76,7 @@ export function slidePage(html: string, theme: Theme) {
   return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'">
 <style>:root{${vars}}html,body{margin:0;padding:0;background:#FFFFFF}section.slide{background:var(--bg);color:var(--ink);word-break:auto-phrase;line-break:strict;font-family:var(--body-font)}section.slide :is(h1,[data-role="title"]){font-family:var(--heading-font)}section.slide [data-role="number"]{font-family:var(--number-font),var(--body-font)}</style></head><body>${sanitizeHtml(html)}
 <style>section.slide{width:960px!important;height:540px!important;position:relative!important;overflow:hidden!important;box-sizing:border-box!important;margin:0!important}
-section.slide,section.slide *{word-spacing:normal!important;text-shadow:none!important;filter:none!important;writing-mode:horizontal-tb!important;list-style:none!important}
+section.slide,section.slide *{text-spacing-trim:space-all!important;font-kerning:none!important;word-spacing:normal!important;text-shadow:none!important;filter:none!important;writing-mode:horizontal-tb!important;list-style:none!important}
 section.slide [data-image]{overflow:hidden!important}
 section.slide,section.slide :not(svg *){transform:none!important;clip-path:none!important}
 section.slide *::before,section.slide *::after{content:none!important}</style></body></html>`;
@@ -103,7 +105,7 @@ export const CONVERT_SCRIPT = String.raw`(function(){
   };
   const section=document.querySelector('section.slide');
   if(!section)return JSON.stringify({error:'<section class="slide">がありません。各ページのhtmlは<section class="slide">…</section>で書いてください。'});
-  const base=section.getBoundingClientRect(),out=[],problems=[],inks=[],figures=[],kinds=new Set(),options=window.__deOptions||{};let background;
+  const base=section.getBoundingClientRect(),out=[],problems=[],inks=[],figures=[],wordBacks=new Set(),kinds=new Set(),options=window.__deOptions||{};let background;
   // A PowerPoint shape asked for by name (data-shape="chevron"): the page shows its outline and it is read as that shape.
   const outline=${presetOutline};
   for(const e of section.querySelectorAll('[data-shape]')){const r=e.getBoundingClientRect(),p=outline(e.dataset.shape,r.width,r.height);if(p)e.style.setProperty('clip-path','polygon('+p.map((v,i)=>(i%2?' ':i?',':'')+round(v)+'px').join('')+')','important');}
@@ -220,8 +222,8 @@ export const CONVERT_SCRIPT = String.raw`(function(){
   /** Checks where one text's characters are drawn against the slide, the footer and a clipping box around it. */
   function check(el,top,bottom,left,right,sample){
     const y2=bottom-base.top,x2=right-base.left,side=top-base.top< -1||left-base.left< -1||x2>961;
-    // kinds: only text running off the bottom (and nothing else) may be fitted by making the text smaller.
-    if(side||y2>541){kinds.add(side?'side':'bottom');problems.push('文字がスライドの外にはみ出しています（「'+sample+'」）。文字を減らすか、枠と文字の大きさを調整してください。');return;}
+    // kinds: only text running off the bottom or lying on something (and nothing else) may be fitted by making the text smaller.
+    if(side||y2>541){kinds.add(side?'side':'off');problems.push('文字がスライドの外にはみ出しています（「'+sample+'」）。文字を減らすか、枠と文字の大きさを調整してください。');return;}
     if(y2>497){kinds.add('bottom');problems.push('文字が下端の出典欄（下から44px、y=496以降）に入っています（「'+sample+'」）。下から44pxには文字を置かないでください。');return;}
     for(let a=el;a&&a!==section;a=a.parentElement){const cs=getComputedStyle(a);if(cs.overflow==='visible'&&cs.overflowX==='visible'&&cs.overflowY==='visible')continue;const r=a.getBoundingClientRect();if(bottom>r.bottom+2||right>r.right+2||top<r.top-2||left<r.left-2){kinds.add('clip');problems.push('文字が囲みからはみ出して一部が隠れています（「'+sample+'」）。囲みを広げるか、文字を減らしてください。');}break;}
   }
@@ -328,8 +330,14 @@ export const CONVERT_SCRIPT = String.raw`(function(){
     const cs=getComputedStyle(el);if(cs.display==='none'||cs.visibility==='hidden')return;
     const alpha=opacity*parseFloat(cs.opacity||'1');if(alpha<0.02)return;
     const r=el.getBoundingClientRect(),start=out.length;
-    // A box with parts drawn inside it (a card: its shape, texts and icons) stays together; own: its own shapes.
-    const together=own=>{if(own&&out.length-start>own)for(let i=start;i<out.length;i++)if(out[i].g===undefined)out[i].g=start;};
+    // A box with parts drawn inside it (a card: its shape, texts and icons) stays together; own: its own shapes. A
+    // PowerPoint group takes the place of its top part: a text after a box's inner group would lift the box's shape
+    // over that group, so such a box is all one group.
+    const together=own=>{
+      if(!own||out.length-start<=own)return;
+      const parts=out.slice(start),split=parts.some((e,k)=>e.g===undefined&&parts.slice(0,k).some(p=>p.g!==undefined));
+      for(const e of parts)if(split||e.g===undefined)e.g=start;
+    };
     // An app icon (data-icon, drawn by the app before reading): one editable icon, in the colour of its text.
     if(el.getAttribute('data-de-icon')==='1'){
       if(!inside(r))return;
@@ -361,13 +369,15 @@ export const CONVERT_SCRIPT = String.raw`(function(){
     const own=out.length-start;
     if(el!==section&&inlineOnly(el)){
       // Backgrounds of inline parts (a highlighted word) go under the text.
-      for(const c of el.querySelectorAll('*')){const ccs=getComputedStyle(c),bg=color(ccs.backgroundColor);if(bg.a>0.01)for(const part of c.getClientRects())if(inside(part))out.push({t:'box',...rect(part),shape:'rect',fill:bg.hex,...(bg.a<0.99?{op:round(bg.a*100)/100}:{})});}
+      for(const c of el.querySelectorAll('*')){const ccs=getComputedStyle(c),bg=color(ccs.backgroundColor);if(bg.a>0.01)for(const part of c.getClientRects())if(inside(part)){const back={t:'box',...rect(part),shape:'rect',fill:bg.hex,...(bg.a<0.99?{op:round(bg.a*100)/100}:{})};wordBacks.add(back);out.push(back);}}
       const chars=characters(textNodes(el));
       if(chars.length&&chars.every(c=>Math.abs(c.size-chars[0].size)<0.5))emit(el,chars);
       else for(const node of textNodes(el))emit(node.parentElement,characters([node]));
       together(own);return;
     }
-    for(const child of el.childNodes){
+    // PowerPoint draws in the order it is given, so the children go in the order the page stacks them.
+    const stack=n=>n.nodeType===Node.ELEMENT_NODE&&parseInt(getComputedStyle(n).zIndex)||0;
+    for(const child of [...el.childNodes].sort((a,b)=>stack(a)-stack(b))){
       if(child.nodeType===Node.TEXT_NODE){if(child.textContent.trim())emit(el,characters([child]));}
       else if(child.nodeType===Node.ELEMENT_NODE)visit(child,alpha);
     }
@@ -382,23 +392,48 @@ export const CONVERT_SCRIPT = String.raw`(function(){
     const hit=a.glyphs.some(p=>b.glyphs.some(q=>{const w=Math.min(p.r,q.r)-Math.max(p.l,q.l),h=Math.min(p.b,q.b)-Math.max(p.t,q.t);return w>0&&h>0&&w*h>.25*Math.min((p.r-p.l)*(p.b-p.t),(q.r-q.l)*(q.b-q.t));}));
     if(hit){kinds.add('overlap');problems.push('文字どうしが重なっています（「'+a.sample+'」と「'+b.sample+'」）。位置か大きさを調整してください。');}
   }
-  // A table grows with its wrapped cells, so a note placed by position under it ends up on its last row.
-  for(const table of section.querySelectorAll('table')){
-    const r=table.getBoundingClientRect();
-    for(const a of inks)if(!table.contains(a.block)&&a.glyphs.some(g=>Math.min(g.r,r.right)-Math.max(g.l,r.left)>2&&Math.min(g.b,r.bottom)-Math.max(g.t,r.top)>2)){kinds.add('overlap');problems.push('文字が表に重なっています（「'+a.sample+'」）。表の行は文字の折り返しで高くなるので、表の下の文字は位置で固定せず表の後に続けて置くか、表から離してください。');}
+  // A table grows with its wrapped cells, so a note placed by position under it ends up on its last row; a chart is
+  // filled in by PowerPoint, so text placed on it lands on its bars and labels.
+  for(const block of section.querySelectorAll('table,[data-chart]')){
+    const r=block.getBoundingClientRect();
+    for(const a of inks)if(!block.contains(a.block)&&a.glyphs.some(g=>Math.min(g.r,r.right)-Math.max(g.l,r.left)>2&&Math.min(g.b,r.bottom)-Math.max(g.t,r.top)>2)){kinds.add('overlap');problems.push(block.tagName==='TABLE'?'文字が表に重なっています（「'+a.sample+'」）。表の行は文字の折り返しで高くなるので、表の下の文字は位置で固定せず表の後に続けて置くか、表から離してください。':'文字がグラフに重なっています（「'+a.sample+'」）。グラフの題や説明はグラフの枠の外に置くか、グラフを小さくしてください。');}
   }
-  // Text hidden under a shape drawn after it (later in the page, so on top): a character whose middle is inside an
-  // opaque box or circle. Pages that set z-index are left alone, since the order on screen is then not the page order.
-  const layered=[...section.querySelectorAll('*')].some(el=>{const z=getComputedStyle(el).zIndex;return z!=='auto'&&z!=='0';});
-  if(!layered)for(const a of inks){
-    for(let j=a.index+1;j<out.length;j++){
-      const e=out[j];if(e.t!=='image'&&(e.t!=='box'||e.fill==='none'||(e.op!==undefined&&e.op<0.6)))continue;
-      const under=a.glyphs.some(g=>{const cx=(g.l+g.r)/2-base.left,cy=(g.t+g.b)/2-base.top;
-        if(e.shape==='ellipse'){const rx=e.w/2,ry=e.h/2,dx=(cx-e.x-rx)/rx,dy=(cy-e.y-ry)/ry;return dx*dx+dy*dy<1;}
-        return cx>e.x+1&&cx<e.x+e.w-1&&cy>e.y+1&&cy<e.y+e.h-1;});
-      if(under){kinds.add('covered');problems.push('文字が後ろに置いた図形に隠れています（「'+a.sample+'」）。図形を文字より先に置くか、文字の位置をずらしてください。');break;}
-    }
+  // The checks below go by what is drawn over what: the order of the elements, which PowerPoint draws in.
+  const opaque=e=>e.t==='image'||(e.t==='box'&&e.fill!=='none'&&!(e.op<0.6));
+  const middle=g=>[(g.l+g.r)/2-base.left,(g.t+g.b)/2-base.top];
+  const holds=(e,x,y)=>{if(e.shape==='ellipse'){const rx=e.w/2,ry=e.h/2,dx=(x-e.x-rx)/rx,dy=(y-e.y-ry)/ry;return dx*dx+dy*dy<1;}return x>=e.x&&x<=e.x+e.w&&y>=e.y&&y<=e.y+e.h;};
+  // Text hidden under a shape drawn after it (later in the page, so on top): a third of a character is covered (half a
+  // line hidden was missed by looking at the middle of each character alone), or its middle is inside a circle.
+  for(const a of inks)for(let j=a.index+1;j<out.length;j++){
+    const e=out[j];if(!opaque(e))continue;
+    const under=a.glyphs.some(g=>{if(e.shape==='ellipse')return holds(e,...middle(g));
+      const w=Math.min(g.r-base.left,e.x+e.w)-Math.max(g.l-base.left,e.x),h=Math.min(g.b-base.top,e.y+e.h)-Math.max(g.t-base.top,e.y);return w>0&&h>0&&w*h>.3*(g.r-g.l)*(g.b-g.t);});
+    if(under){kinds.add('covered');problems.push('文字が後ろに置いた図形に隠れています（「'+a.sample+'」）。図形を文字より先に置くか、文字の位置をずらしてください。');break;}
   }
+  // A line, a thin rule or the edge of a card under the text touching a character (within four fifths of its half, about where its ink
+  // ends); a shape drawn between them hides it there (a label on a connector, a plate on a card's edge).
+  const isCard=e=>e.t==='box'&&e.fill!=='none'&&e.shape!=='ellipse'&&e.w>=40&&e.h>=24&&!wordBacks.has(e);
+  const rules=out.flatMap((e,i)=>{
+    if(e.t==='line')return [{i,x1:e.x1,y1:e.y1,x2:e.x2,y2:e.y2}];
+    if(e.t==='box'&&e.fill!=='none'&&Math.min(e.w,e.h)<=4&&Math.max(e.w,e.h)>=30)return [e.w>=e.h?{i,x1:e.x,y1:e.y+e.h/2,x2:e.x+e.w,y2:e.y+e.h/2}:{i,x1:e.x+e.w/2,y1:e.y,x2:e.x+e.w/2,y2:e.y+e.h}];
+    const right=e.x+e.w,bottom=e.y+e.h;
+    return isCard(e)?[[e.x,e.y,right,e.y],[e.x,bottom,right,bottom],[e.x,e.y,e.x,bottom],[right,e.y,right,bottom]].map(([x1,y1,x2,y2])=>({i,x1,y1,x2,y2,edge:true})):[];
+  });
+  for(const a of inks)for(const l of rules){
+    if(l.edge&&l.i>a.index)continue;
+    const dx=l.x2-l.x1,dy=l.y2-l.y1,len=Math.hypot(dx,dy)||1;
+    if(a.glyphs.some(g=>{const [x,y]=middle(g),k=Math.max(0,Math.min(1,((x-l.x1)*dx+(y-l.y1)*dy)/(len*len)));return Math.hypot(l.x1+k*dx-x,l.y1+k*dy-y)<.4*(Math.abs(dy)*(g.r-g.l)+Math.abs(dx)*(g.b-g.t))/len&&!out.slice(l.i+1,a.index).some(e=>opaque(e)&&holds(e,x,y));})){kinds.add('overlap');problems.push(l.edge?'文字がカードや帯の端にかかっています（「'+a.sample+'」）。文字を減らすか、カードの中に収めてください。':'線が文字を横切っています（「'+a.sample+'」）。線か文字の位置をずらしてください。');break;}
+  }
+  // Text running out of the card, band or circle it is on, some characters in and some out. The search stops at the
+  // shape holding all of it: a label on its own plate across a card's edge is meant, and an outline is not a card.
+  for(const a of inks)for(let j=a.index-1;j>=0;j--){
+    const e=out[j];if(e.t!=='box'||e.fill==='none'||e.w<40||e.h<24||wordBacks.has(e))continue;
+    const inside=a.glyphs.filter(g=>holds(e,...middle(g))).length;
+    if(inside===a.glyphs.length)break;
+    if(inside>=2&&a.glyphs.length-inside>=2){kinds.add('overlap');problems.push('文字がカードや帯の端をまたいでいます（「'+a.sample+'」）。文字を減らすか、カードの中に収めてください。');break;}
+  }
+  // An icon is drawn in lines that a character on it cannot be read through.
+  for(const a of inks)for(const e of out)if(e.t==='icon'&&a.glyphs.some(g=>{const [x,y]=middle(g),m=e.size*.1;return x>e.x+m&&x<e.x+e.size-m&&y>e.y+m&&y<e.y+e.size-m;})){kinds.add('overlap');problems.push('文字がアイコンに重なっています（「'+a.sample+'」）。文字かアイコンの位置をずらしてください。');break;}
   // A shape stopping partway into the footer lies across the sources and page number the app draws there
   // (a closing band hid the page number); one reaching the slide's bottom edge is a band they are drawn on.
   if(out.some(e=>(e.t==='image'||(e.t==='box'&&e.fill!=='none'))&&e.w>40&&e.y+e.h>501&&e.y+e.h<539)){kinds.add('bottom');problems.push('図形が下端の出典・ページ番号の欄（y=496以降）にかかっています。図形の下端をy=496より上にするか、スライドの下端まで伸ばしてください。');}
@@ -412,7 +447,7 @@ export const CONVERT_SCRIPT = String.raw`(function(){
   // (gemma4:12b stacked boxes down to 600-850px).
   const lowest=inks.length?Math.round(Math.max(...inks.map(a=>a.b))-base.top):0;
   if(lowest>497)problems.unshift('ページの文字が上からy='+lowest+'pxまであります（出典欄はy=496から。文字は470px程度までに）。縦に積む段を減らして横に並べるか、要点・説明を減らしてください。');
-  return JSON.stringify({background,elements:out,problems:[...new Set(problems)],fit:problems.length>0&&[...kinds].every(k=>k==='bottom'||k==='overlap'||k==='covered'),grow:problems.length>0&&[...kinds].every(k=>k==='small')});
+  return JSON.stringify({background,elements:out,problems:[...new Set(problems)],fit:problems.length>0&&[...kinds].every(k=>k==='bottom'||k==='off'||k==='overlap'||k==='covered'||(k==='small'&&options.keepSmall))&&[...kinds].some(k=>k!=='small'),grow:problems.length>0&&[...kinds].every(k=>k==='small'),unreadable:['overlap','covered','clip','side','off'].some(k=>kinds.has(k))});
 })()`;
 
 /** Makes every text of the page smaller by the given share (line heights given in px too). Boxes,
@@ -669,7 +704,7 @@ export const layoutHtmlSlides: HtmlLayout = async (pages, theme, options = {}) =
           }
           await send('Runtime.evaluate', { expression: 'document.fonts.ready.then(()=>true)', awaitPromise: true });
           await send('Runtime.evaluate', {
-            expression: `window.__deOptions=${JSON.stringify({ minTextSize: floor && options.minTextSize ? fitFloor(options.minTextSize) : options.minTextSize })}`,
+            expression: `window.__deOptions=${JSON.stringify({ minTextSize: floor && options.minTextSize ? fitFloor(options.minTextSize) : options.minTextSize, keepSmall: options.keepSmall })}`,
           });
           await send('Runtime.evaluate', { expression: ICON_SCRIPT });
           if (squeeze) await send('Runtime.evaluate', { expression: squeezeScript(squeeze) });
@@ -687,7 +722,7 @@ export const layoutHtmlSlides: HtmlLayout = async (pages, theme, options = {}) =
           keptSmall = false;
         if (!parsed.error && parsed.fit) {
           for (const step of fitSteps) {
-            const next = await read(step);
+            const next = await read({ ...step, floor: !!step.share || options.keepSmall });
             if (!next.error && !next.problems.length) {
               parsed = next;
               ({ share: fitted, squeeze: squeezed } = step);
@@ -735,6 +770,7 @@ export const layoutHtmlSlides: HtmlLayout = async (pages, theme, options = {}) =
                   ...(squeezed ? { squeezed } : {}),
                   ...(grown ? { grown } : {}),
                   ...(keptSmall ? { keptSmall } : {}),
+                  ...(parsed.unreadable ? { unreadable: true } : {}),
                   ...(options.screenshot && shot ? { shot } : {}),
                 },
                 theme,
