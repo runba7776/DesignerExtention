@@ -1803,7 +1803,7 @@ export default function App() {
       </main>
       <footer className="app-footer">
         <span>
-          DESIGNER EXTENTION <span style={{ opacity: 0.65 }}> / PREVIEW {status?.version ?? ''}</span>
+          DESIGNER EXTENTION <span style={{ opacity: 0.65 }}>{status ? ` / v${status.version}` : ''}</span>
         </span>
         {__HOSTED__ && !officeHost ? (
           <button className="text-link footer-link" onClick={() => setGuideOpen(true)}>
