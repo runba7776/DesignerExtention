@@ -37,6 +37,10 @@ import { blankLabel } from '../shared/blanks.js';
 // Kept separate from orchestration so additional layout grammars can be registered centrally.
 export const SUPPORTED_LAYOUTS = listLayouts().map(entry => entry.id);
 
+/** The browser placed the text at the size the AI wrote, so a limit a big number can reach leaves its unit far off
+ * ("4.8" at 130px cut to 110, its "億円" where the browser put it). This one only holds a slip. */
+const MAX_TEXT_SIZE = 300;
+
 function bad(message: string): never {
   throw new AppError(422, `生成内容を確認できません: ${message}`, 'INVALID_CONTENT');
 }
@@ -390,7 +394,7 @@ function lenientDesign(data: Record<string, any>, cover: boolean, title?: string
     if (e.t === 'icon' && (typeof e.icon !== 'string' || !Object.hasOwn(iconCatalog, e.icon))) return [];
     if (e.t === 'text' && e.role !== undefined && !['title', 'heading', 'body', 'number', 'caption'].includes(e.role))
       delete e.role;
-    if (e.t === 'text' && typeof e.size === 'number') e.size = Math.min(110, Math.max(9, e.size));
+    if (e.t === 'text' && typeof e.size === 'number') e.size = Math.min(MAX_TEXT_SIZE, Math.max(9, e.size));
     if (typeof e.lw === 'number') e.lw = Math.min(12, Math.max(e.t === 'line' ? 0.25 : 0, e.lw));
     if (typeof e.op === 'number') e.op = Math.min(1, Math.max(0, e.op));
     // The corner is a share of the shorter side (0-0.5); a value over 1 was meant in pt (r:12 made a card a circle).
@@ -580,7 +584,7 @@ export function validateDesign(
         t: 'text',
         ...r,
         text: text(e.text, `${field}の文字`, 800)!,
-        size: number(e.size, `${field}の文字の大きさ`, 9, 110),
+        size: number(e.size, `${field}の文字の大きさ`, 9, MAX_TEXT_SIZE),
         ...(e.color !== undefined ? { color: designColor(e.color, field) } : {}),
         ...(e.bold !== undefined ? { bold: e.bold === true } : {}),
         ...(e.italic === true ? { italic: true } : {}),
@@ -968,7 +972,7 @@ export function validateReview(
 ): {
   id: string;
   better?: boolean;
-  problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string }[];
+  problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string; photo?: boolean }[];
 }[] {
   const data = object(value, '点検の応答');
   return array(data.pages, '点検したページ', ids.length + 2).flatMap((entry: unknown) => {
@@ -982,6 +986,7 @@ export function validateReview(
                 severity: p.severity,
                 what: p.what.trim().slice(0, 80),
                 fix: typeof p.fix === 'string' ? p.fix.trim().slice(0, 120) : '',
+                ...(p.photo === true ? { photo: true } : {}),
               },
             ]
           : [],

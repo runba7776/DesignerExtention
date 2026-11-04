@@ -15,6 +15,8 @@ import {
 } from '../server/claude-subscription.js';
 import { findBrowser, layoutHtmlSlides, type HtmlLayout, type HtmlLayoutOptions } from '../server/html-layout.js';
 import { validateReview } from '../server/validation.js';
+import { reviewPrompt } from '../server/free-prompts.js';
+import type { ImageStore } from '../server/images.js';
 import { paletteTheme } from '../shared/ai-theme.js';
 
 const help =
@@ -153,6 +155,8 @@ async function fixture(
     notBetter?: boolean;
     blank?: boolean;
     drawn?: boolean;
+    photo?: boolean;
+    store?: ImageStore;
   } = {},
 ) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-review-'));
@@ -218,6 +222,7 @@ async function fixture(
     settings,
     dataDir: dir,
     htmlLayout: layout,
+    ...(options.store ? { images: options.store } : {}),
     subscriptionBinding: () => 'account',
     render,
     artifactRoot: path.join(dir, 'artifacts'),
@@ -243,7 +248,14 @@ async function fixture(
                   ...(req.compare ? { better: !(options.notBetter && p.id === 'slide-3') } : {}),
                   problems: options.remakeBroken
                     ? [{ severity: 'high', what: '文字が丸に隠れる', fix: '丸をずらす' }]
-                    : [{ severity: 'low', what: '行間が狭い', fix: '少し広げる' }],
+                    : [
+                        {
+                          severity: 'low',
+                          what: '行間が狭い',
+                          fix: '少し広げる',
+                          ...(options.photo && p.id === 'slide-3' ? { photo: true } : {}),
+                        },
+                      ],
                 })),
               }),
               usage,
@@ -255,7 +267,12 @@ async function fixture(
                 {
                   id: 'slide-2',
                   problems: [
-                    { severity: 'high', what: '図に中身がない', fix: '問いの点を置く' },
+                    {
+                      severity: 'high',
+                      what: '図に中身がない',
+                      fix: '問いの点を置く',
+                      ...(options.photo ? { photo: true } : {}),
+                    },
                     { severity: 'low', what: '余白が偏る', fix: '左右をそろえる' },
                   ],
                 },
@@ -306,6 +323,72 @@ async function fixture(
 
 const textOf = (session: { variants: { deck: { slides: any[] } }[] }, index: number) =>
   session.variants[0].deck.slides[index].design.elements[0].text;
+
+test('a photo the look says is not to be used is passed over: at the first look, at the second, and on request', async () => {
+  const passed: string[] = [];
+  const store: ImageStore = {
+    file: () => undefined,
+    place: async () => 0,
+    passOver: async page => void passed.push((page as { id: string }).id),
+  };
+  const f = await fixture({}, { photo: true, store, drawn: true });
+  try {
+    const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
+    await f.engine.generate(session.id);
+    const polished = await f.engine.polish(session.id);
+    assert.deepEqual(passed, ['slide-2', 'slide-3'], 'what was looked at, and only what was flagged');
+    assert.equal(polished.variants[0].render, undefined, 'drawn again with the next picture');
+    passed.length = 0;
+    await f.engine.refinePage(session.id, polished.variants[0].id, 'slide-2');
+    assert.deepEqual(passed, ['slide-2']);
+  } finally {
+    await f.dispose();
+  }
+  assert.match(reviewPrompt(), /"photo":true/);
+});
+
+test('a local model only shows what it saw on a page: nothing is touched up or compared; a page made from a layout is still asked for as HTML', async () => {
+  const f = await fixture({ provider: 'local', model: 'mock' });
+  try {
+    const session = await f.engine.create({ prompt: '3枚' }, []);
+    await f.engine.generate(session.id);
+    const polished = await f.engine.polish(session.id);
+    assert.equal(f.reviews.length, 1, 'no comparison');
+    assert.deepEqual(f.redos, []);
+    assert.equal(textOf(polished, 1), '問いの地図');
+    assert.deepEqual(
+      polished.reviewHints!.map(h => [h.slideId, h.severity, !!h.fixed, !!h.unresolved]),
+      [
+        ['slide-2', 'high', false, false],
+        ['slide-2', 'low', false, false],
+        ['slide-3', 'medium', false, false],
+      ],
+    );
+    assert.deepEqual(polished.reviewReport, { checked: 3, fixed: [], unresolved: [], calls: 1 });
+    assert.equal(polished.polish?.versions, undefined);
+    const told = polished.messages.at(-1)!.text;
+    assert.match(told, /AIの気づき3件は「確認のヒント」にあります（自動では直していません）/);
+    assert.doesNotMatch(told, /手直しが必要な問題はありませんでした/);
+  } finally {
+    await f.dispose();
+  }
+  const g = await fixture({ provider: 'local', model: 'mock' });
+  try {
+    const session = await g.engine.create({ prompt: '3枚' }, []);
+    await g.engine.generate(session.id);
+    delete g.engine.state(session.id).polish!.html['slide-2'];
+    const polished = await g.engine.polish(session.id);
+    assert.deepEqual(
+      g.redos.map(r => r.targetSlides.map((s: any) => s.id)),
+      [['slide-2']],
+    );
+    assert.equal(g.redos[0].repair.html, undefined);
+    assert.equal(textOf(polished, 1), '直した問いの地図');
+    assert.equal(textOf(polished, 2), 'まとめ', 'the page whose HTML is at hand only gets a hint');
+  } finally {
+    await g.dispose();
+  }
+});
 
 test('the deck is ready before the look; polishing then touches up the pages with a high or medium problem and compares them with how they were', async () => {
   const f = await fixture();

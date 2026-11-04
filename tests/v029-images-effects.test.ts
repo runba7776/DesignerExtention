@@ -184,6 +184,62 @@ test('a deck uses each picture once: the same words find the next one, a page ke
   }
 });
 
+test('a picture the look passed over is not used again by any deck, also after a restart; the next one takes its place', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'de-images-'));
+  try {
+    const { fetcher } = commons([
+      result(1, 'Harbor morning.jpg', 'CC0', 1280, 720),
+      result(2, 'Harbor evening.jpg', 'CC BY 2.0', 1280, 720),
+    ]);
+    const at = () => ({ t: 'image', x: 0, y: 0, w: 480, h: 270, q: 'harbor' }) as Record<string, unknown>;
+    const page = (place: Record<string, unknown>) => String(place.page).split('File:')[1];
+    const store = createImageStore(dir, fetcher),
+      place = at();
+    assert.equal(await store.place([place]), 0);
+    assert.equal(page(place), 'Harbor morning.jpg');
+    await store.passOver({ design: { elements: [place] } });
+    assert.equal(await store.place([place]), 0);
+    assert.equal(page(place), 'Harbor evening.jpg', 'the same page, written the same way, takes the next');
+    const restarted = createImageStore(dir, fetcher),
+      other = at();
+    assert.equal(await restarted.place([other]), 0);
+    assert.equal(page(other), 'Harbor evening.jpg');
+    await restarted.passOver([other]);
+    assert.equal(await restarted.place([other]), 1, 'nothing else found: a frame');
+    assert.ok(!('src' in other));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a file from a criminal case is passed over, whatever else it shows; nothing else is taken for one', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'de-images-'));
+  try {
+    const byBureau = result(1, 'Harbor EFTA01.jpg', 'Public domain', 1280, 720),
+      inCategory = result(2, 'Harbor island.jpg', 'CC0', 1280, 720),
+      clean = result(3, 'Harbor view.jpg', 'CC BY 2.0', 1280, 720);
+    byBureau.imageinfo[0].extmetadata.Artist.value = '<b>Federal Bureau of Investigation</b>';
+    Object.assign(inCategory.imageinfo[0].extmetadata, { Categories: { value: '2019 FBI raid|Islands' } });
+    Object.assign(clean.imageinfo[0].extmetadata, { ImageDescription: { value: 'The bureau of harbors, in spring' } });
+    const place = { t: 'image', x: 0, y: 0, w: 480, h: 270, q: 'harbor' } as Record<string, unknown>;
+    const { fetcher } = commons([byBureau, inCategory, clean]);
+    assert.equal(await createImageStore(dir, fetcher).place([place]), 0);
+    assert.equal(place.page, 'https://commons.wikimedia.org/wiki/File:Harbor view.jpg');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a big number keeps the size the browser placed it at, so that its unit stays beside it; a slip is still held', () => {
+  const size = (n: number) =>
+    (
+      validateDesign({ elements: [title, { t: 'text', x: 60, y: 120, w: 198, h: 140, text: '4.8', size: n }] }, 0)
+        .elements[1] as Extract<FreeElement, { t: 'text' }>
+    ).size;
+  assert.equal(size(130), 130);
+  assert.equal(size(900), 300);
+});
+
 test('a found photo fills its box cut at the middle, keeps the colour of the text on it, and is credited in the footer and the notes; a place without one is a plain frame', () => {
   assert.deepEqual(coverCrop(1600, 900, 400, 400), [0.2188, 0, 0.2188, 0]);
   assert.deepEqual(coverCrop(900, 1600, 400, 200), [0, 0.3594, 0, 0.3594]);
@@ -336,6 +392,7 @@ async function fixture(provider: 'subscription' | 'local', patch: Record<string,
     asked: string[] = [];
   const images: ImageStore = {
     file: () => undefined,
+    passOver: async () => {},
     async place(value) {
       const places: any[] = [];
       const walk = (v: any) =>

@@ -12,6 +12,8 @@ interface Found {
   ih: number;
   credit: string;
   page: string;
+  /** The look at a page said it is not to be used: it stays out of every deck from then on. */
+  passedOver?: boolean;
 }
 /** Photos and illustrations for the places an AI marked on its pages (an image with English search words),
  * found on Wikimedia Commons under a free licence (CC0, public domain, CC BY, CC BY-SA) and kept in
@@ -21,6 +23,9 @@ export interface ImageStore {
   /** Finds a picture for every place in value (a session) that has none, or whose words changed, each picture
    * once in a deck; returns how many places are left without one. */
   place(value: unknown): Promise<number>;
+  /** The pictures of the places in value (a page) are not used again: the look saw a real person in one, or something
+   * other than the words asked for. The next placing takes another. */
+  passOver(value: unknown): Promise<void>;
   /** The file of a stored picture. */
   file(src: string): string | undefined;
 }
@@ -32,6 +37,8 @@ const FREE = /^(cc0|public domain|pd|cc by(-sa)? \d)/i;
  * person (few files say so in their structured data, so the search itself cannot leave them out). */
 const PERSON =
   /\b(people|persons?|humans?|m[ae]n|wom[ae]n|girls?|boys?|child(ren)?|kids?|portraits?|faces?|selfies?|female|male|business(m[ae]n|wom[ae]n|people)|doctors?|nurses?|workers?|employees?|students?|teachers?|politicians?|officials?|ministers?|mayors?|governors?|senators?|ambassadors?|presidents?|director|chairman|ceo|actors?|actress(es)?|singers?|crowds?|ceremony)\b(?!-)/i;
+/** Words saying a file comes from a criminal case: free of copyright as a government's work, but not for a slide. */
+const CASE = /\b(epstein|fbi|federal bureau of investigation|raids?|crimes?|criminals?|evidence|mugshots?)\b/i;
 const plain = (html: string) =>
   html
     .replace(/<(\w+)[^>]*display:\s*none[^>]*>[\s\S]*?<\/\1>/gi, '')
@@ -104,10 +111,8 @@ export function createImageStore(root: string, fetcher: typeof fetch = fetch): I
         if (!stems.some(s => name.includes(s))) return [];
         // Personality rights: a person in it may not be used to promote anything without consent.
         if (/personality/i.test(String(meta.Restrictions?.value ?? ''))) return [];
-        if (
-          PERSON.test(`${p.title} ${meta.Categories?.value ?? ''} ${plain(String(meta.ImageDescription?.value ?? ''))}`)
-        )
-          return [];
+        const about = `${p.title} ${meta.Categories?.value ?? ''} ${plain(String(meta.ImageDescription?.value ?? ''))}`;
+        if (PERSON.test(about) || CASE.test(`${about} ${plain(String(meta.Artist?.value ?? ''))}`)) return [];
         if (!(info.thumbwidth >= 480 && info.thumbheight >= 320)) return [];
         return [{ info, license, title: p.title }];
       })
@@ -141,24 +146,41 @@ export function createImageStore(root: string, fetcher: typeof fetch = fetch): I
     return undefined;
   }
 
+  /** Each place in value with the pictures its deck uses (a place outside a deck, like the earlier version of a page,
+   * is on its own). */
+  function placesIn(value: unknown) {
+    const places: { place: ImagePlace; taken: Set<string> }[] = [];
+    const walk = (v: unknown, taken?: Set<string>) => {
+      if (Array.isArray(v)) v.forEach(item => walk(item, taken));
+      else if (v && typeof v === 'object') {
+        const o = v as Record<string, unknown>;
+        if (o.t === 'image' && typeof o.q === 'string')
+          places.push({ place: o as unknown as ImagePlace, taken: taken ?? new Set() });
+        else for (const [name, item] of Object.entries(o)) walk(item, name === 'slides' ? new Set() : taken);
+      }
+    };
+    walk(value);
+    return places;
+  }
+  async function save(found: Record<string, Found>) {
+    await mkdir(root, { recursive: true });
+    await writeFile(indexFile, JSON.stringify(found), 'utf8');
+  }
+
   return {
     file: src => (IMAGE_SRC.test(src) && existsSync(path.join(root, src)) ? path.join(root, src) : undefined),
+    async passOver(value) {
+      const srcs = new Set(placesIn(value).map(({ place }) => place.src)),
+        found = await load(),
+        marked = Object.values(found).filter(p => srcs.has(p.src));
+      for (const picture of marked) picture.passedOver = true;
+      if (marked.length) await save(found);
+    },
     async place(value) {
-      // Each place with the pictures its deck uses (a place outside a deck, like the earlier version of a page, is
-      // on its own).
-      const places: { place: ImagePlace; taken: Set<string> }[] = [];
-      const walk = (v: unknown, taken?: Set<string>) => {
-        if (Array.isArray(v)) v.forEach(item => walk(item, taken));
-        else if (v && typeof v === 'object') {
-          const o = v as Record<string, unknown>;
-          if (o.t === 'image' && typeof o.q === 'string')
-            places.push({ place: o as unknown as ImagePlace, taken: taken ?? new Set() });
-          else for (const [name, item] of Object.entries(o)) walk(item, name === 'slides' ? new Set() : taken);
-        }
-      };
-      walk(value);
+      const places = placesIn(value);
       if (!places.length) return 0;
-      const found = await load();
+      const found = await load(),
+        passed = Object.values(found).flatMap(p => (p.passedOver ? [p.src] : []));
       let changed = false,
         left = 0;
       // A page keeps the picture it has, and a new one takes a picture its deck does not use yet: a touch-up sees its
@@ -171,11 +193,11 @@ export function createImageStore(root: string, fetcher: typeof fetch = fetch): I
         const stored = Object.keys(found)
           .filter(name => name === k || name.startsWith(`${k} #`))
           .map(name => found[name])
-          .filter(p => !taken.has(p.src) && existsSync(path.join(root, p.src)));
+          .filter(p => !p.passedOver && !taken.has(p.src) && existsSync(path.join(root, p.src)));
         let picture: Found | undefined = stored.find(p => p.src === place.src) ?? stored[0];
         if (!picture && !missing.has(k)) {
           try {
-            picture = await search(place.q, place.w / place.h, taken);
+            picture = await search(place.q, place.w / place.h, new Set([...taken, ...passed]));
             if (picture) {
               found[found[k] ? `${k} #${picture.src}` : k] = picture;
               changed = true;
@@ -192,10 +214,7 @@ export function createImageStore(root: string, fetcher: typeof fetch = fetch): I
           left++;
         }
       }
-      if (changed) {
-        await mkdir(root, { recursive: true });
-        await writeFile(indexFile, JSON.stringify(found), 'utf8');
-      }
+      if (changed) await save(found);
       return left;
     },
   };

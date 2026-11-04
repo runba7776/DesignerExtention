@@ -64,7 +64,8 @@ export class ReviewService {
     // What the app found itself (a note to the maker left on a slide, a part close to a side, the same kind of page
     // three in a row) is acted on too.
     for (const hint of known) severe.set(hint.slideId, [...(severe.get(hint.slideId) ?? []), hint]);
-    let checked = 0;
+    let checked = 0,
+      photos = false;
     const size = Math.ceil(pages.length / Math.ceil(pages.length / REVIEW_BATCH_SIZE));
     for (let i = 0; i < pages.length && this.engine.ai.callsLeft(state); i += size) {
       const batch = pages.slice(i, i + size);
@@ -81,13 +82,16 @@ export class ReviewService {
           batch.map(s => s.id),
         );
         checked += batch.length;
-        for (const page of reply)
+        for (const page of reply) {
+          const slide = batch.find(s => s.id === page.id)!;
+          if (await this.passOverPhotos(slide, page.problems)) photos = true;
           for (const problem of page.problems) {
-            const hint: ReviewHint = { slideId: page.id, title: batch.find(s => s.id === page.id)!.title, ...problem };
+            const hint: ReviewHint = { slideId: page.id, title: slide.title, ...problem };
             if (problem.severity !== 'low' && !BLANK.test(problem.what + problem.fix))
               severe.set(page.id, [...(severe.get(page.id) ?? []), hint]);
             else hints.push(hint);
           }
+        }
       } catch (error) {
         if (error instanceof AppError && error.code === 'CALL_LIMIT') break;
         state.session.warnings.push(
@@ -95,6 +99,15 @@ export class ReviewService {
         );
       }
     }
+    // A local model's findings on a page are only shown: asked to touch them up, gemma4 left most of its high ones as
+    // they were and made some pages worse, and called all of them better. A page made from a layout has no HTML yet,
+    // and is still asked for again.
+    if (state.settings.provider === 'local')
+      for (const [id, found] of severe)
+        if (look.html[id]) {
+          hints.push(...found);
+          severe.delete(id);
+        }
     // One page per call (several pages in one answer can run past its limit, and then all of them are lost), the
     // pages with a high problem first.
     const high = (found: ReviewHint[]) => (found.some(h => h.severity === 'high') ? 0 : 1);
@@ -115,7 +128,13 @@ export class ReviewService {
       if (done[id]) replaced[id] = done[id];
       else unresolved.push(id);
     }
-    return { checked, hints, severe, replaced, unresolved };
+    return { checked, hints, severe, replaced, unresolved, photos };
+  }
+  /** The photos of a page the look said are not to be used: the next placing takes others, whatever the AI writes. */
+  private async passOverPhotos(slide: SlideSpec, problems: { photo?: boolean }[]) {
+    if (!problems.some(p => p.photo)) return false;
+    await this.engine.options.images?.passOver(slide);
+    return true;
   }
   /** Makes the given pages again with the finding from the look at them; a page whose HTML and picture are at hand
    * (current) is touched up instead: the AI gets both back and changes only what was found, and the page keeps
@@ -212,7 +231,10 @@ export class ReviewService {
   ) {
     const found: Record<
       string,
-      { better?: boolean; problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string }[] }
+      {
+        better?: boolean;
+        problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string; photo?: boolean }[];
+      }
     > = {};
     const drawn = pages.filter((p): p is typeof p & { shot: string } => !!p.shot),
       compare = drawn.every(p => p.before);
@@ -336,7 +358,9 @@ export class ReviewService {
           secondHints: ReviewHint[] = [];
         for (const slideId of [...fixed]) {
           const { better, problems = [] } = second[slideId] ?? {},
-            title = variant.deck.slides.find(s => s.id === slideId)!.title;
+            page = variant.deck.slides.find(s => s.id === slideId)!,
+            title = page.title;
+          await this.passOverPhotos(page, problems);
           const high = problems.filter(p => p.severity === 'high');
           if (high.length || better === false) {
             const at = variant.deck.slides.findIndex(s => s.id === slideId);
@@ -355,7 +379,7 @@ export class ReviewService {
             );
           } else secondHints.push(...problems.map(p => ({ slideId, title, ...p })));
         }
-        if (Object.keys(versions).length) delete variant.render;
+        if (Object.keys(versions).length || result.photos) delete variant.render;
         // Findings of the first look at a page that was remade described its old version; the second look replaces them.
         const hints = [...result.hints.filter(h => !fixed.includes(h.slideId)), ...secondHints];
         for (const slideId of unresolved)
@@ -367,7 +391,8 @@ export class ReviewService {
           (a, b) => order(a.slideId) - order(b.slideId) || rank[a.severity] - rank[b.severity],
         );
         const calls = state.session.usage.calls - startCalls,
-          notes = hints.filter(h => h.severity !== 'high' && !h.fixed && !h.unresolved).length;
+          local = state.settings.provider === 'local',
+          notes = hints.filter(h => (local || h.severity !== 'high') && !h.fixed && !h.unresolved).length;
         state.session.reviewReport = { checked: result.checked, fixed, unresolved, calls };
         state.session.polish = {
           state: 'done',
@@ -379,7 +404,7 @@ export class ReviewService {
         if (result.checked)
           state.session.messages.push({
             role: 'assistant',
-            text: `描画した${result.checked}枚を画像で見直しました。${fixed.length ? `${fixed.length}枚を手直ししました${fixed.every(slideId => second[slideId]?.better) ? '。直す前と見比べて、良くなったページだけを使っています' : ''}（「確認のヒント」から直す前に戻せます）。` : unresolved.length ? '' : '手直しが必要な問題はありませんでした。'}${unresolved.length ? `${unresolved.length}枚は自動で直せなかったため、確認のヒントに載せています。` : ''}${notes ? `細かな気づき${notes}件は「確認のヒント」にあります。` : ''}この見直しのAI呼び出しは${calls}回です。`,
+            text: `描画した${result.checked}枚を画像で見直しました。${fixed.length ? `${fixed.length}枚を手直ししました${fixed.every(slideId => second[slideId]?.better) ? '。直す前と見比べて、良くなったページだけを使っています' : ''}（「確認のヒント」から直す前に戻せます）。` : unresolved.length || (local && notes) ? '' : '手直しが必要な問題はありませんでした。'}${unresolved.length ? `${unresolved.length}枚は自動で直せなかったため、確認のヒントに載せています。` : ''}${notes ? (local ? `AIの気づき${notes}件は「確認のヒント」にあります（自動では直していません）。` : `細かな気づき${notes}件は「確認のヒント」にあります。`) : ''}この見直しのAI呼び出しは${calls}回です。`,
           });
       } catch {
         state.session.polish = { state: 'failed' };
@@ -501,6 +526,7 @@ export class ReviewService {
           [slide.id],
         );
         const problems = reply[0]?.problems ?? [];
+        await this.passOverPhotos(slide, problems);
         const others = (state.session.reviewHints ?? []).filter(h => h.slideId !== slide.id),
           findings = problems.map(p => ({ slideId: slide.id, title: slide.title, ...p }));
         if (!problems.length) {
