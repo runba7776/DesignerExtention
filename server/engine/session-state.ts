@@ -45,6 +45,8 @@ export interface GenerationDraft {
   pending?: Record<string, SlideSpec>;
   /** The drawn pages (PNG, base64), kept for the look at them after the deck is shown. */
   shots?: Record<string, string>;
+  /** The HTML each drawn page was read from. */
+  html?: Record<string, string>;
   /** Pages a local model could not make, kept or made by the app, shown to the user to check. */
   hints?: ReviewHint[];
 }
@@ -119,12 +121,18 @@ export interface SessionState {
   sendScope?: SendScope;
   polish?: {
     shots: Record<string, string>;
+    html: Record<string, string>;
     outline: Outline;
     compact: boolean;
     variantId: string;
     findings: ReviewHint[];
   };
-  previewSeeds?: { outline: string; slides: SlideSpec[]; shots: Record<string, string> }[];
+  previewSeeds?: {
+    outline: string;
+    slides: SlideSpec[];
+    shots: Record<string, string>;
+    html: Record<string, string>;
+  }[];
   bindings?: Partial<Record<SubscriptionService, string>>;
   extras?: { started: boolean; ready: DeckVariant[]; failed: string[] };
   refresh?: RefreshDraft;

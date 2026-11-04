@@ -17,7 +17,10 @@ namespace DesignerExtension.Native
     internal static class Renderer
     {
         private static readonly List<string> Warnings = new List<string>();
-        private static string FontName = "Yu Gothic";
+        private static string FontName = "Yu Gothic", HeadingFont = "Yu Gothic";
+        // The deck's own theme colours, as the theme colour (ObjectThemeColor) each is written as; none for a deck
+        // that takes a company template's theme.
+        private static readonly Dictionary<int, int> ThemeColors = new Dictionary<int, int>();
         private static readonly HashSet<string> InstalledFonts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string,string> ResolvedFonts = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
         private static int Foreground = Color("#17263C");
@@ -65,6 +68,7 @@ namespace DesignerExtension.Native
                         family.Dispose();
                     }
                 FontName = ResolveFont(Text(theme, "font", "Yu Gothic"), "Yu Gothic");
+                HeadingFont = ResolveFont(Text(theme, "headingFont", FontName), FontName);
                 Foreground = Color(Text(theme, "foreground", "#17263C"));
                 Accent = Color(Text(theme, "accent", "#087F8C"));
                 OleMessageFilter.Register();
@@ -79,37 +83,67 @@ namespace DesignerExtension.Native
                 Stage = "ページとテーマの設定";
                 presentation.PageSetup.SlideWidth = 960;
                 presentation.PageSetup.SlideHeight = 540;
+                bool themed = false;
                 try
                 {
-                    dynamic scheme = presentation.SlideMaster.Theme.ThemeColorScheme;
-                    scheme.Colors(5).RGB = Accent;
-                    scheme.Colors(1).RGB = Foreground;
+                    dynamic look = presentation.SlideMaster.Theme;
+                    dynamic scheme = look.ThemeColorScheme;
+                    // The deck's colours and fonts are its theme's, which its shapes and texts refer to (Design >
+                    // Variants restyles the deck); slides show the master's background (Background 1).
+                    object[] colors = ArrayOf(scene, "themeColors");
+                    int[] slots = { 13, 14, 15, 16, 5, 6, 7, 8, 9, 10 }; // Text 1, Background 1, Text 2, Background 2, Accent 1-6
+                    for (int k = 0; k < colors.Length && k < 10; k++)
+                    {
+                        int rgb = Color(Convert.ToString(colors[k], CultureInfo.InvariantCulture));
+                        scheme.Colors(k + 1).RGB = rgb;
+                        if (!ThemeColors.ContainsKey(rgb)) ThemeColors[rgb] = slots[k];
+                    }
+                    // A company template's deck takes that deck's theme when inserted; its own file keeps the look.
+                    if (colors.Length == 0) { scheme.Colors(1).RGB = Foreground; scheme.Colors(2).RGB = Color(Text(theme, "background", "#FFFFFF")); scheme.Colors(5).RGB = Accent; }
+                    LoadThemeFonts(look.ThemeFontScheme, output);
+                    themed = true;
                 }
-                catch { Warnings.Add("テーマの一部は図形ごとの書式で適用しました。"); }
+                catch { ThemeColors.Clear(); Warnings.Add("テーマの一部は図形ごとの書式で適用しました。"); }
                 var thumbs = new List<string>();
                 for (int i = 0; i < slides.Length; i++)
                 {
                     var data = AsObject(slides[i]);
                     Stage = "スライド " + (i + 1) + " の作成";
-                    dynamic slide = presentation.Slides.Add(i + 1, 12);
-                    slide.FollowMasterBackground = 0;
-                    slide.Background.Fill.Solid();
-                    slide.Background.Fill.ForeColor.RGB = Color(Text(theme, "background", "#FFFFFF"));
+                    // Title Only: the slide's title is written in its title placeholder.
+                    dynamic slide = presentation.Slides.Add(i + 1, 11);
+                    string ground = Text(data, "background", themed ? null : Text(theme, "background", "#FFFFFF"));
+                    if (ground != null) { slide.FollowMasterBackground = 0; slide.Background.Fill.Solid(); Paint(slide.Background.Fill.ForeColor, Color(ground)); }
                     try { slide.Name = "DE_" + (i + 1).ToString(CultureInfo.InvariantCulture); } catch { }
+                    dynamic lastShape = null;
+                    bool titled = false;
+                    var groups = new Dictionary<string, List<string>>();
+                    var boxes = new List<string>(); var glued = new Dictionary<string, Dictionary<string, object>>();
                     foreach (object element in ArrayOf(data, "elements"))
                     {
                         var e = AsObject(element);
                         string kind = Text(e, "kind", "");
                         Stage = "スライド " + (i + 1) + " の " + kind + " の配置";
                         ValidateBounds(e, i + 1);
-                        if (kind == "text") AddText(slide, e, i + 1);
-                        else if (kind == "shape") AddShape(slide, e);
-                        else if (kind == "line") AddLine(slide, e);
+                        int before = slide.Shapes.Count;
+                        dynamic shape = null;
+                        // The one text of a box drawn just before it is written in that shape.
+                        if (kind == "text" && e.ContainsKey("inShape") && lastShape != null) AddLabel(lastShape, e);
+                        else if (kind == "text" && Boolean(e, "title") && !titled && (int)slide.Shapes.HasTitle != 0) { AddText(slide, e, i + 1, slide.Shapes.Title); titled = true; }
+                        else if (kind == "text") AddText(slide, e, i + 1);
+                        else if (kind == "shape") { shape = AddShape(slide, e); boxes.Add(Convert.ToString(shape.Name)); }
+                        else if (kind == "line") { string name = AddLine(slide, e); if (e.ContainsKey("from") || e.ContainsKey("to")) glued[name] = e; }
                         else if (kind == "chart") AddChart(slide, e, i + 1);
+                        else if (kind == "table") AddTable(slide, e, i + 1);
                         else if (kind == "smartart") AddSmartArt(app, slide, e, i + 1);
                         else if (kind == "image") AddImage(slide, e, output, i + 1);
                         else throw new InvalidDataException("Unknown element kind: " + kind);
+                        Release((object)lastShape); lastShape = shape;
+                        Collect(slide, groups, Text(e, "group", null), before);
                     }
+                    Release((object)lastShape);
+                    if (!titled && (int)slide.Shapes.HasTitle != 0) slide.Shapes.Title.Delete();
+                    foreach (var line in glued) Glue(slide, line.Key, line.Value, boxes);
+                    GroupShapes(slide, groups);
                     Stage = "スライド " + (i + 1) + " のノート保存";
                     WriteNotes(slide, Text(data, "notes", ""));
                     foreach (object warning in ArrayOf(data, "warnings")) Warnings.Add("スライド " + (i + 1) + ": " + Convert.ToString(warning));
@@ -263,9 +297,13 @@ namespace DesignerExtension.Native
                 Warnings.Add("スライド " + slide + ": スライド外に配置される要素があります。");
         }
 
-        private static dynamic AddText(dynamic slide, Dictionary<string, object> e, int slideNumber)
+        private static dynamic AddText(dynamic slide, Dictionary<string, object> e, int slideNumber, dynamic title = null)
         {
-            dynamic shape = slide.Shapes.AddTextbox(1, Number(e, "x"), Number(e, "y"), Number(e, "w"), Number(e, "h"));
+            float x = Number(e, "x"), y = Number(e, "y"), w = Number(e, "w"), h = Number(e, "h");
+            dynamic shape = title;
+            if ((object)title == null) shape = slide.Shapes.AddTextbox(1, x, y, w, h);
+            // The title placeholder is put where the title was drawn, over what was drawn before it.
+            else { shape.Left = x; shape.Top = y; shape.Width = w; shape.Height = h; shape.ZOrder(0); }
             dynamic frame = shape.TextFrame2;
             frame.AutoSize = 0;
             frame.WordWrap = Boolean(e,"noWrap") ? 0 : -1;
@@ -276,16 +314,43 @@ namespace DesignerExtension.Native
             string vertical = Text(e, "verticalAlign", "top");
             frame.VerticalAnchor = vertical == "middle" ? 3 : vertical == "bottom" ? 4 : 1;
             dynamic range = frame.TextRange;
+            TextLook(range, e, Text(e, "font", FontName), Text(e, "fontFarEast", Text(e, "font", FontName)));
+            // The master's title style (90% line spacing; capitals in some templates) does not change the title.
+            if ((object)title != null)
+            {
+                if (!e.ContainsKey("lineHeight")) { range.ParagraphFormat.LineRuleWithin = -1; range.ParagraphFormat.SpaceWithin = 1; }
+                range.ParagraphFormat.SpaceBefore = 0;
+                range.Font.Allcaps = 0;
+            }
+            // The leading number is the slide's own: a field PowerPoint keeps right when slides move.
+            if (Boolean(e, "slideNumber"))
+            {
+                string text = Convert.ToString(range.Text);
+                int digits = text.Length - text.TrimStart("0123456789".ToCharArray()).Length;
+                if (digits > 0) { range.Text = text.Substring(digits); shape.TextFrame.TextRange.Characters(1, 0).InsertSlideNumber(); }
+            }
+            // Browser-measured text keeps its lines; only report if PowerPoint sets it wider.
+            if (Boolean(e, "exact")) { if ((float)range.BoundWidth > w * 1.08f) Warnings.Add("スライド " + slideNumber + ": 文字がわずかに枠より広く表示されます（" + Short(Convert.ToString(range.Text)) + "）。"); }
+            else FitNativeText(frame, w, h, Number(e,"fontSize",22), slideNumber, Number(e, "minFontSize", 0));
+            return shape;
+        }
+
+        /// <summary>A text's words and look: font, size, weight, colour, alignment, coloured or bold parts (runs) and a
+        /// fixed line pitch, for a text box or a table cell.</summary>
+        private static void TextLook(dynamic range, Dictionary<string, object> e, string font, string farEast)
+        {
             range.Text = Text(e, "text", "");
-            range.Font.Name = ResolveFont(Text(e, "font", FontName), FontName);
-            range.Font.NameFarEast = ResolveFont(Text(e, "fontFarEast", Text(e, "font", FontName)), FontName);
+            bool heading = Boolean(e, "title") || Text(e, "role", "") == "heading";
+            range.Font.Name = ThemeFont(ResolveFont(font, FontName), "lt", heading);
+            range.Font.NameFarEast = ThemeFont(ResolveFont(farEast, FontName), "ea", heading);
             range.Font.Size = Number(e, "fontSize", 22);
             range.Font.Bold = Boolean(e, "bold") ? -1 : 0;
             range.Font.Italic = Boolean(e, "italic") ? -1 : 0;
-            range.Font.Fill.ForeColor.RGB = Color(Text(e, "color", null), Foreground);
+            Paint(range.Font.Fill.ForeColor, Color(Text(e, "color", null), Foreground));
             string align = Text(e, "align", "left");
             range.ParagraphFormat.Alignment = align == "center" ? 2 : align == "right" ? 3 : 1;
             range.ParagraphFormat.SpaceAfter = Number(e, "paragraphSpacing", 0);
+            if (e.ContainsKey("spacing")) range.Font.Spacing = Number(e, "spacing", 0);
             // Parts of the text with their own colour or weight (from an HTML page).
             foreach (object item in ArrayOf(e, "runs"))
             {
@@ -296,7 +361,7 @@ namespace DesignerExtension.Native
                 try
                 {
                     dynamic part = range.Characters(start + 1, length);
-                    if (run.ContainsKey("color")) part.Font.Fill.ForeColor.RGB = Color(Text(run, "color", null), Foreground);
+                    if (run.ContainsKey("color")) Paint(part.Font.Fill.ForeColor, Color(Text(run, "color", null), Foreground));
                     if (run.ContainsKey("bold")) part.Font.Bold = Boolean(run, "bold") ? -1 : 0;
                     if (run.ContainsKey("italic")) part.Font.Italic = Boolean(run, "italic") ? -1 : 0;
                     Release((object)part);
@@ -305,10 +370,102 @@ namespace DesignerExtension.Native
             }
             // Fixed line pitch (points between baselines) for text laid out by a browser.
             if (e.ContainsKey("lineHeight")) { range.ParagraphFormat.LineRuleWithin = 0; range.ParagraphFormat.SpaceWithin = Number(e, "lineHeight", 0); }
-            // Browser-measured text keeps its lines; only report if PowerPoint sets it wider.
-            if (Boolean(e, "exact")) { if ((float)range.BoundWidth > Number(e, "w") * 1.08f) Warnings.Add("スライド " + slideNumber + ": 文字がわずかに枠より広く表示されます（" + Short(Convert.ToString(range.Text)) + "）。"); }
-            else FitNativeText(frame, Number(e,"w"), Number(e,"h"), Number(e,"fontSize",22), slideNumber, Number(e, "minFontSize", 0));
-            return shape;
+        }
+
+        /// <summary>A PowerPoint table: column widths and row heights, and each cell's text, fill, borders and margins.
+        /// It has no table style of its own (every look comes from its cells); its heading row is marked as one.</summary>
+        private static void AddTable(dynamic slide, Dictionary<string, object> e, int slideNumber)
+        {
+            object[] columns = ArrayOf(e, "columns"), rows = ArrayOf(e, "rows"), cells = ArrayOf(e, "cells");
+            if (columns.Length < 1 || columns.Length > 12 || rows.Length < 1 || rows.Length > 20 || cells.Length != rows.Length)
+                throw new InvalidDataException("表の行と列の数が一致しません。");
+            dynamic shape = slide.Shapes.AddTable(rows.Length, columns.Length, Number(e, "x"), Number(e, "y"), Number(e, "w"), Number(e, "h"));
+            dynamic table = shape.Table;
+            bool plain = true;
+            try { table.ApplyStyle("{2D5ABB26-0587-4C30-8999-92F81FD0307C}", false); } catch { plain = false; }
+            table.FirstRow = Boolean(e, "header") ? -1 : 0;
+            table.HorizBanding = 0;
+            for (int c = 0; c < columns.Length; c++) { dynamic column = table.Columns(c + 1); column.Width = Convert.ToSingle(columns[c], CultureInfo.InvariantCulture); Release((object)column); }
+            string font = Text(e, "font", FontName), farEast = Text(e, "fontFarEast", font);
+            int[] sides = { 1, 4, 3, 2 }; // top, right, bottom, left as ppBorderTop, ppBorderRight, ppBorderBottom, ppBorderLeft
+            for (int r = 0; r < rows.Length; r++)
+            {
+                object[] row = cells[r] is object[] ? (object[])cells[r] : cells[r] is ArrayList ? ((ArrayList)cells[r]).ToArray() : new object[0];
+                if (row.Length != columns.Length) throw new InvalidDataException("表の行と列の数が一致しません。");
+                for (int c = 0; c < columns.Length; c++)
+                {
+                    Stage = "スライド " + slideNumber + " の表 " + (r + 1) + "行" + (c + 1) + "列";
+                    var data = AsObject(row[c]);
+                    dynamic cell = table.Cell(r + 1, c + 1);
+                    dynamic s = cell.Shape;
+                    string fill = Text(data, "fill", null);
+                    if (fill == null) s.Fill.Visible = 0;
+                    else
+                    {
+                        s.Fill.Visible = -1; s.Fill.Solid(); Paint(s.Fill.ForeColor, Color(fill));
+                        if (data.ContainsKey("opacity")) s.Fill.Transparency = (float)Math.Max(0, Math.Min(1, 1 - Number(data, "opacity", 1)));
+                    }
+                    object[] borders = ArrayOf(data, "borders");
+                    for (int b = 0; b < 4; b++)
+                    {
+                        var side = b < borders.Length ? borders[b] as Dictionary<string, object> : null;
+                        if (side == null && plain) continue;
+                        dynamic border = cell.Borders(sides[b]);
+                        // A border set to none is written transparent (PowerPoint ignores Visible = false on table borders).
+                        if (side == null) border.Transparency = 1;
+                        else { border.Visible = -1; border.Transparency = 0; Paint(border.ForeColor, Color(Text(side, "color", "#000000"))); border.Weight = Number(side, "width", 1); }
+                        Release((object)border);
+                    }
+                    dynamic frame = s.TextFrame2;
+                    object[] margin = ArrayOf(data, "margin");
+                    if (margin.Length == 4)
+                    {
+                        frame.MarginLeft = Convert.ToSingle(margin[0], CultureInfo.InvariantCulture); frame.MarginTop = Convert.ToSingle(margin[1], CultureInfo.InvariantCulture);
+                        frame.MarginRight = Convert.ToSingle(margin[2], CultureInfo.InvariantCulture); frame.MarginBottom = Convert.ToSingle(margin[3], CultureInfo.InvariantCulture);
+                    }
+                    string vertical = Text(data, "verticalAlign", "top");
+                    frame.VerticalAnchor = vertical == "middle" ? 3 : vertical == "bottom" ? 4 : 1;
+                    // A browser's lines are kept as drawn: PowerPoint does not wrap them again.
+                    if (Boolean(e, "noWrap")) { try { frame.WordWrap = 0; } catch { } }
+                    dynamic range = frame.TextRange;
+                    TextLook(range, data, font, farEast);
+                    Release((object)range); Release((object)frame); Release((object)s); Release((object)cell);
+                }
+            }
+            for (int r = 0; r < rows.Length; r++) { dynamic tableRow = table.Rows(r + 1); tableRow.Height = Convert.ToSingle(rows[r], CultureInfo.InvariantCulture); Release((object)tableRow); }
+            Release((object)table); Release((object)shape);
+        }
+
+        /// <summary>A colour of the deck's theme is written as that theme colour (Design > Variants recolours it);
+        /// any other as it is.</summary>
+        private static void Paint(dynamic color, int rgb)
+        {
+            int slot;
+            if (ThemeColors.TryGetValue(rgb, out slot)) color.ObjectThemeColor = slot; else color.RGB = rgb;
+        }
+
+        /// <summary>The deck's heading or body font as the theme's (+mj-, +mn-) when the deck has its own theme;
+        /// any other font by name.</summary>
+        private static string ThemeFont(string font, string script, bool heading)
+        {
+            if (ThemeColors.Count == 0) return font;
+            if (font == (heading ? HeadingFont : FontName)) return (heading ? "+mj-" : "+mn-") + script;
+            return font == HeadingFont ? "+mj-" + script : font == FontName ? "+mn-" + script : font;
+        }
+
+        /// <summary>The deck's heading and body fonts as the theme's, for Japanese text too (its script font is
+        /// only set by loading a font scheme).</summary>
+        private static void LoadThemeFonts(dynamic fonts, string folder)
+        {
+            Func<string, string> set = name =>
+            {
+                string font = System.Security.SecurityElement.Escape(name);
+                return "<a:latin typeface=\"" + font + "\"/><a:ea typeface=\"" + font + "\"/><a:cs typeface=\"\"/><a:font script=\"Jpan\" typeface=\"" + font + "\"/>";
+            };
+            string file = Path.Combine(folder, "theme-fonts.xml");
+            File.WriteAllText(file, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><a:fontScheme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Designer Extention\"><a:majorFont>"
+                + set(HeadingFont) + "</a:majorFont><a:minorFont>" + set(FontName) + "</a:minorFont></a:fontScheme>", new UTF8Encoding(false));
+            try { fonts.Load(file); } finally { File.Delete(file); }
         }
 
         private static string ResolveFont(string requested, string fallback)
@@ -345,29 +502,163 @@ namespace DesignerExtension.Native
                 throw new InvalidDataException("TEXT_FIT_REQUIRED: スライド " + slideNumber + " の文章が実際の文字枠に収まりません。文章を短くするか構図を変更してください（" + Short(Convert.ToString(range.Text)) + "）。");
         }
 
-        private static void AddShape(dynamic slide, Dictionary<string, object> e)
+        private static dynamic AddShape(dynamic slide, Dictionary<string, object> e)
         {
-            string kind = Text(e, "shape", "rect");
-            dynamic shape = slide.Shapes.AddShape(ShapeType(kind), Number(e, "x"), Number(e, "y"), Number(e, "w"), Number(e, "h"));
+            string kind = Text(e, "shape", "rect"), path = Text(e, "path", null);
+            dynamic shape = path != null ? Freeform(slide, path) : slide.Shapes.AddShape(ShapeType(kind), Number(e, "x"), Number(e, "y"), Number(e, "w"), Number(e, "h"));
             string fill = Text(e, "fill", "#FFFFFF");
             if (fill == "none" || fill == "transparent") shape.Fill.Visible = 0;
             else
             {
-                shape.Fill.Visible = -1; shape.Fill.Solid(); shape.Fill.ForeColor.RGB = Color(fill);
+                shape.Fill.Visible = -1; shape.Fill.Solid(); Paint(shape.Fill.ForeColor, Color(fill));
                 if (e.ContainsKey("opacity")) shape.Fill.Transparency = (float)Math.Max(0, Math.Min(1, 1 - Number(e, "opacity", 1)));
             }
             // Corner radius of a rounded rectangle, as a share of the shorter side (0-0.5).
             if (kind == "roundRect" && e.ContainsKey("radius")) { try { shape.Adjustments[1] = (float)Math.Max(0, Math.Min(.5f, Number(e, "radius", .1f))); } catch { } }
             string stroke = Text(e, "stroke", "none");
             if (stroke == "none" || stroke == "transparent") shape.Line.Visible = 0;
-            else { shape.Line.Visible = -1; shape.Line.ForeColor.RGB = Color(stroke); shape.Line.Weight = Number(e, "strokeWidth", 1); }
+            else
+            {
+                shape.Line.Visible = -1; Paint(shape.Line.ForeColor, Color(stroke)); shape.Line.Weight = Number(e, "strokeWidth", 1);
+                if (Boolean(e, "dash")) shape.Line.DashStyle = 4;
+                if (Boolean(e, "arrow")) shape.Line.EndArrowheadStyle = 2;
+                if (Boolean(e, "arrowStart")) shape.Line.BeginArrowheadStyle = 2;
+            }
             if (e.ContainsKey("rotation")) shape.Rotation = Number(e, "rotation");
-            Release((object)shape);
+            // A straight gradient (angle as in CSS: 0 upwards, 90 to the right; PowerPoint's 0 is to the right).
+            object[] stops = ArrayOf(ObjectOf(e, "gradient"), "stops");
+            if (fill != "none" && fill != "transparent" && stops.Length >= 2)
+            {
+                float opacity = Math.Max(0, Math.Min(1, Number(e, "opacity", 1)));
+                shape.Fill.TwoColorGradient(1, 1);
+                dynamic gradientStops = shape.Fill.GradientStops;
+                int original = gradientStops.Count;
+                foreach (object item in stops)
+                {
+                    var stop = AsObject(item);
+                    gradientStops.Insert(Color(Text(stop, "color", fill)), Math.Max(0, Math.Min(1, Number(stop, "at", 0))), 1 - opacity * Math.Max(0, Math.Min(1, Number(stop, "op", 1))), gradientStops.Count + 1);
+                }
+                for (int k = 0; k < original; k++) gradientStops.Delete(1);
+                Release((object)gradientStops);
+                shape.Fill.GradientAngle = ((Number(ObjectOf(e, "gradient"), "angle", 180) - 90) % 360 + 360) % 360;
+            }
+            var shadow = ObjectOf(e, "shadow");
+            if (shadow.Count > 0)
+            {
+                dynamic s = shape.Shadow;
+                s.Visible = -1; s.OffsetX = Number(shadow, "x"); s.OffsetY = Number(shadow, "y"); s.Blur = Number(shadow, "blur");
+                s.ForeColor.RGB = Color(Text(shadow, "color", "#000000")); s.Transparency = 1 - Math.Max(0, Math.Min(1, Number(shadow, "opacity", .25f)));
+                Release((object)s);
+            }
+            return shape;
         }
 
-        /// <summary>Inserts SVG artwork (or PNG data) as a picture. The file is written next to the output and removed.</summary>
+        /// <summary>A freeform from one figure of M, L, C and Z commands in slide points.</summary>
+        private static dynamic Freeform(dynamic slide, string path)
+        {
+            string[] t = path.Split(' ');
+            Func<int, float> at = k => float.Parse(t[k], CultureInfo.InvariantCulture);
+            if (t.Length < 3 || t[0] != "M") throw new InvalidDataException("図形の輪郭を読めません。");
+            float x = at(1), y = at(2);
+            dynamic builder = slide.Shapes.BuildFreeform(1, x, y);
+            for (int i = 3; i < t.Length; )
+            {
+                string c = t[i++];
+                if (c == "L") { builder.AddNodes(0, 1, at(i), at(i + 1)); i += 2; }
+                else if (c == "C") { builder.AddNodes(1, 1, at(i), at(i + 1), at(i + 2), at(i + 3), at(i + 4), at(i + 5)); i += 6; }
+                else if (c == "Z") builder.AddNodes(0, 1, x, y);
+                else throw new InvalidDataException("図形の輪郭を読めません。");
+            }
+            dynamic shape = builder.ConvertToShape();
+            Release((object)builder);
+            return shape;
+        }
+
+        /// <summary>The one text of a box on an HTML page, written in the box's shape where the browser drew it (the
+        /// margins inside the shape's text area, centred top to bottom when it was).</summary>
+        private static void AddLabel(dynamic shape, Dictionary<string, object> e)
+        {
+            var place = ObjectOf(e, "inShape");
+            object[] margin = ArrayOf(place, "margin");
+            if (margin.Length != 4) margin = new object[] { 0, 0, 0, 0 };
+            dynamic frame = shape.TextFrame2;
+            frame.AutoSize = 0;
+            frame.WordWrap = Boolean(e, "noWrap") ? 0 : -1;
+            frame.MarginLeft = Convert.ToSingle(margin[0], CultureInfo.InvariantCulture); frame.MarginTop = Convert.ToSingle(margin[1], CultureInfo.InvariantCulture);
+            frame.MarginRight = Convert.ToSingle(margin[2], CultureInfo.InvariantCulture); frame.MarginBottom = Convert.ToSingle(margin[3], CultureInfo.InvariantCulture);
+            frame.VerticalAnchor = Boolean(place, "middle") ? 3 : 1;
+            dynamic range = frame.TextRange;
+            TextLook(range, e, Text(e, "font", FontName), Text(e, "fontFarEast", Text(e, "font", FontName)));
+            Release((object)range); Release((object)frame);
+        }
+
+        /// <summary>Keeps the names of the shapes an element added (after the first `before`) under its group.</summary>
+        private static void Collect(dynamic slide, Dictionary<string, List<string>> groups, string group, int before)
+        {
+            if (group == null) return;
+            List<string> names;
+            if (!groups.TryGetValue(group, out names)) groups[group] = names = new List<string>();
+            for (int k = before + 1; k <= (int)slide.Shapes.Count; k++) { dynamic added = slide.Shapes(k); names.Add(Convert.ToString(added.Name)); Release((object)added); }
+        }
+
+        /// <summary>Groups the parts of each card of an HTML page, the innermost first (an icon's strokes are a group in
+        /// its card). Parts PowerPoint cannot group stay as they are.</summary>
+        private static void GroupShapes(dynamic slide, Dictionary<string, List<string>> groups)
+        {
+            var paths = new List<string>(groups.Keys);
+            paths.Sort((a, b) => b.Split('/').Length - a.Split('/').Length);
+            foreach (string path in paths)
+            {
+                List<string> names = groups[path];
+                string name = names.Count == 1 ? names[0] : null;
+                if (names.Count > 1)
+                {
+                    try
+                    {
+                        var list = new object[names.Count];
+                        for (int k = 0; k < names.Count; k++) list[k] = names[k];
+                        dynamic range = slide.Shapes.Range(list);
+                        dynamic group = range.Group();
+                        name = Convert.ToString(group.Name);
+                        Release((object)group); Release((object)range);
+                    }
+                    catch { name = null; }
+                }
+                int cut = path.LastIndexOf('/');
+                if (name == null || cut < 0) continue;
+                List<string> parent;
+                if (!groups.TryGetValue(path.Substring(0, cut), out parent)) continue;
+                parent.Add(name);
+            }
+        }
+
+        /// <summary>Inserts SVG artwork (or PNG data) as a picture. The file is written next to the output and removed.
+        /// A photo of the app's image store is inserted from its file, cut to fill its box.</summary>
         private static void AddImage(dynamic slide, Dictionary<string, object> e, string output, int slideNumber)
         {
+            string photo = Text(e, "file", null);
+            if (photo != null)
+            {
+                if (!File.Exists(photo) || !System.Text.RegularExpressions.Regex.IsMatch(photo, @"\.(jpg|png)$")) return;
+                // The cut is a share of the picture's own size (PowerPoint shrinks a large picture to the slide when
+                // inserting it, but measures the cut on its own size), then the cut picture is set to the box.
+                dynamic picture = slide.Shapes.AddPicture(photo, 0, -1, Number(e, "x"), Number(e, "y"), -1, -1);
+                picture.ScaleHeight(1, -1); picture.ScaleWidth(1, -1);
+                object[] crop = ArrayOf(e, "crop");
+                if (crop.Length == 4)
+                {
+                    float w0 = (float)picture.Width, h0 = (float)picture.Height;
+                    picture.PictureFormat.CropLeft = Convert.ToSingle(crop[0], CultureInfo.InvariantCulture) * w0;
+                    picture.PictureFormat.CropTop = Convert.ToSingle(crop[1], CultureInfo.InvariantCulture) * h0;
+                    picture.PictureFormat.CropRight = Convert.ToSingle(crop[2], CultureInfo.InvariantCulture) * w0;
+                    picture.PictureFormat.CropBottom = Convert.ToSingle(crop[3], CultureInfo.InvariantCulture) * h0;
+                }
+                picture.LockAspectRatio = 0;
+                picture.Left = Number(e, "x"); picture.Top = Number(e, "y"); picture.Width = Number(e, "w"); picture.Height = Number(e, "h");
+                picture.AlternativeText = Text(e, "alt", "");
+                Release((object)picture);
+                return;
+            }
             string svg = Text(e, "svg", null), png = Text(e, "png", null);
             if (string.IsNullOrEmpty(svg) && string.IsNullOrEmpty(png)) return;
             string file = Path.Combine(output, "image-" + slideNumber + "-" + Guid.NewGuid().ToString("N") + (svg != null ? ".svg" : ".png"));
@@ -388,16 +679,34 @@ namespace DesignerExtension.Native
             }
         }
 
-        private static void AddLine(dynamic slide, Dictionary<string, object> e)
+        private static string AddLine(dynamic slide, Dictionary<string, object> e)
         {
             float y = Number(e,"y"), h = Number(e,"h");
             dynamic shape = slide.Shapes.AddLine(Number(e, "x"), y + (Boolean(e,"flipY") ? h : 0), Number(e, "x") + Number(e, "w"), y + (Boolean(e,"flipY") ? 0 : h));
-            shape.Line.ForeColor.RGB = Color(Text(e, "stroke", "#D7DEE5"));
+            Paint(shape.Line.ForeColor, Color(Text(e, "stroke", "#D7DEE5")));
             shape.Line.Weight = Number(e, "strokeWidth", 1);
-            if (Boolean(e, "arrow")) shape.Line.EndArrowheadStyle = 3;
-            if (Boolean(e, "arrowStart")) shape.Line.BeginArrowheadStyle = 3;
+            if (Boolean(e, "arrow")) shape.Line.EndArrowheadStyle = 2;
+            if (Boolean(e, "arrowStart")) shape.Line.BeginArrowheadStyle = 2;
             if (Boolean(e, "dash")) shape.Line.DashStyle = 4;
+            string name = Convert.ToString(shape.Name);
             Release((object)shape);
+            return name;
+        }
+
+        /// <summary>Glues a line's ends to the shapes the scene names (its nth shape and a connection site), so the
+        /// line stays on them when they are moved. The scene already draws the ends on those sites.</summary>
+        private static void Glue(dynamic slide, string name, Dictionary<string, object> e, List<string> boxes)
+        {
+            dynamic line = slide.Shapes(name), ends = line.ConnectorFormat;
+            foreach (string end in new[] { "from", "to" })
+            {
+                var at = ObjectOf(e, end); int n = (int)Number(at, "shape", -1), site = (int)Number(at, "site", 0);
+                if (n < 0 || n >= boxes.Count || site < 1) continue;
+                dynamic box = slide.Shapes(boxes[n]);
+                try { if (end == "from") ends.BeginConnect(box, site); else ends.EndConnect(box, site); } catch { }
+                Release((object)box);
+            }
+            Release((object)ends); Release((object)line);
         }
 
         private static void AddChart(dynamic slide, Dictionary<string, object> e, int slideNumber)
@@ -419,6 +728,7 @@ namespace DesignerExtension.Native
             if (stacked && series.Length < 2) throw new InvalidDataException("積み上げグラフは2系列以上が必要です。");
             Stage = "スライド " + slideNumber + " のグラフ挿入";
             dynamic shape = slide.Shapes.AddChart2(-1, chartType, Number(e, "x"), Number(e, "y"), Number(e, "w"), Number(e, "h"), false);
+            shape.AlternativeText = Text(e, "alt", "");
             dynamic chart = shape.Chart;
             dynamic workbook = null, chartData = null, sheet = null;
             try
@@ -520,7 +830,9 @@ namespace DesignerExtension.Native
                         Stage = "スライド " + slideNumber + " のデータラベルの内容設定";
                         labels.ShowValue = !share; labels.ShowPercentage = share; labels.ShowCategoryName = false; labels.ShowSeriesName = false;
                         bool fractional = false; foreach (object number in ArrayOf(AsObject(series[i-1]),"values")) { double v = Convert.ToDouble(number); if (v != Math.Truncate(v)) fractional = true; }
-                        labels.NumberFormatLinked = false; labels.NumberFormat = share ? "0.0%" : fractional ? "General" : "#,##0";
+                        // A zero part of a stacked bar has nothing to label: the empty third (zero) section hides its "0".
+                        string format = fractional ? "General" : "#,##0";
+                        labels.NumberFormatLinked = false; labels.NumberFormat = share ? "0.0%" : stacked ? format + ";-" + format + ";" : format;
                         Stage = "スライド " + slideNumber + " のデータラベルの位置設定";
                         // Doughnut charts do not accept Center on every Office version.
                         if (type != "doughnut") labels.Position = share || stacked ? -4108 : type == "line" ? 0 : 2;

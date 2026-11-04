@@ -57,8 +57,9 @@ export const OUTLINE_PROPOSALS = 3;
 /** Smallest text the HTML method accepts (px = pt on the 960x540 slide): body text, and notes the AI marks
  * as captions (data-role="caption"). Text a little smaller is made larger by the app when the page still fits. */
 export const MIN_TEXT_SIZE = { presentation: { body: 16, caption: 12 }, reading: { body: 12, caption: 10 } } as const;
-/** Drawn pages shown to the AI in one look, and the answer budget of that look. */
-export const REVIEW_BATCH_SIZE = 4;
+/** Drawn pages shown to the AI in one look (a deck of usual length at once, so its pages are compared too), and
+ * the answer budget of that look. */
+export const REVIEW_BATCH_SIZE = 8;
 export const REVIEW_OUTPUT_TOKENS = 4_000;
 /** Colors and fonts read from a company PowerPoint theme. Slide text, images and
  * masters are not copied; only the reusable style is stored with a project. */
@@ -116,6 +117,8 @@ export interface Settings {
   outlineProposals?: boolean;
   proposalPreviews?: boolean;
   visualReview?: boolean;
+  /** Photos from Wikimedia Commons for the places the AI marks (installed app, cloud AI only). */
+  imageSearch?: boolean;
   chatService?: ChatService;
   subscriptionService?: SubscriptionService;
   preferredDesignId?: string;
@@ -288,7 +291,9 @@ export type FreeShape =
   | 'trapezoid'
   | 'octagon'
   | 'donut';
-export type FreeElement =
+/** g: parts drawn inside one box of an HTML page (a card: its shape, texts and icons) share a number and stay
+ * together in PowerPoint. */
+export type FreeElement = { g?: number } & (
   | {
       t: 'text';
       x: number;
@@ -309,6 +314,8 @@ export type FreeElement =
       runs?: TextRun[];
       font?: string;
       fontFarEast?: string;
+      /** Extra space between characters in pt (browser-measured text only). */
+      sp?: number;
     }
   | {
       t: 'box';
@@ -323,6 +330,11 @@ export type FreeElement =
       op?: number;
       r?: number;
       rot?: number;
+      dash?: boolean;
+      /** A shadow (offset and blur in pt) and a straight gradient (angle as in CSS: 0 upwards, 90 to the right;
+       * stops at 0-1, each with its own opacity). */
+      shadow?: { x: number; y: number; blur: number; color: string; op?: number };
+      grad?: { angle: number; stops: { color: string; at: number; op?: number }[] };
     }
   | {
       t: 'line';
@@ -337,9 +349,75 @@ export type FreeElement =
     }
   | { t: 'icon'; icon: IconId; x: number; y: number; size: number; color?: string }
   | { t: 'chart'; x: number; y: number; w: number; h: number; chart: ChartSpec }
-  | { t: 'table'; x: number; y: number; w: number; h: number; headers: string[]; rows: string[][]; size?: number }
+  | {
+      t: 'table';
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      headers: string[];
+      rows: string[][];
+      size?: number;
+      /** A table read from an HTML page, as the browser drew it: column widths, row heights and each cell's look
+       * (cells[0] is the first row, the headers; head: that row is a heading row). Texts keep the browser's lines. */
+      cols?: number[];
+      rowH?: number[];
+      cells?: FreeCell[][];
+      head?: boolean;
+      font?: string;
+      fontFarEast?: string;
+    }
   /** Vector artwork converted from an AI-written HTML slide (never accepted from AI JSON). */
-  | { t: 'svg'; x: number; y: number; w: number; h: number; svg: string };
+  | { t: 'svg'; x: number; y: number; w: number; h: number; svg: string }
+  /** A shape of an HTML page's SVG as a PowerPoint freeform: one figure of M, L, C and Z commands in slide points
+   * (never accepted from AI JSON). */
+  | {
+      t: 'path';
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      d: string;
+      fill?: string;
+      line?: string;
+      lw?: number;
+      op?: number;
+      dash?: boolean;
+      arrow?: 'none' | 'end' | 'start' | 'both';
+    }
+  /** A photo or illustration the AI asks for with English search words (q). The app finds a freely licensed
+   * picture and writes src (its file in the app's image store), its natural size, the credit and its page. */
+  | {
+      t: 'image';
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+      q: string;
+      alt?: string;
+      src?: string;
+      iw?: number;
+      ih?: number;
+      credit?: string;
+      page?: string;
+    }
+);
+/** The look of one cell of a table read from an HTML page. pad: left, top, right, bottom; bd: the borders top,
+ * right, bottom and left (null where there is none). */
+export interface FreeCell {
+  size: number;
+  color?: string;
+  bold?: boolean;
+  italic?: boolean;
+  align?: 'l' | 'c' | 'r';
+  va?: 't' | 'm' | 'b';
+  fill?: string;
+  op?: number;
+  lh?: number;
+  pad?: [number, number, number, number];
+  bd?: ({ w: number; c: string } | null)[];
+  runs?: TextRun[];
+}
 export interface FreeDesign {
   background?: string;
   elements: FreeElement[];
@@ -734,12 +812,29 @@ export interface TextElement extends Rect {
   runs?: { start: number; length: number; color?: string; bold?: boolean; italic?: boolean }[];
   /** The colour of the blanks still to fill (［実施日］) in this text; they are also given as runs. */
   blankColor?: string;
+  /** Extra space between characters in pt. */
+  spacing?: number;
+  /** The one text of the shape drawn just before it (a box on an HTML page), written in that shape where the
+   * browser drew it: margins (left, top, right, bottom) inside the shape's own text area; middle: centred top to
+   * bottom. */
+  inShape?: { margin: [number, number, number, number]; middle?: boolean };
+  /** The slide's title: PowerPoint's title placeholder (the outline, the slide list and screen readers use it). */
+  title?: boolean;
+  /** Its leading number is the slide's number, a field PowerPoint keeps right when slides move. */
+  slideNumber?: boolean;
 }
-/** A picture: SVG artwork (inserted as an editable-in-PowerPoint vector image) or PNG data. */
+/** A picture: SVG artwork (inserted as an editable-in-PowerPoint vector image), PNG data, or a photo of the
+ * app's image store (src; the renderer is given its file) cut to fill the box (crop: shares of the left, top,
+ * right and bottom cut off). */
 export interface ImageElement extends Rect {
   kind: 'image';
   svg?: string;
   png?: string;
+  src?: string;
+  file?: string;
+  crop?: [number, number, number, number];
+  /** What the picture shows, for PowerPoint's alternative text (read aloud by screen readers). */
+  alt?: string;
 }
 export interface ShapeElement extends Rect {
   kind: 'shape';
@@ -750,6 +845,15 @@ export interface ShapeElement extends Rect {
   opacity?: number;
   radius?: number;
   rotation?: number;
+  shadow?: { x: number; y: number; blur: number; color: string; opacity: number };
+  gradient?: { angle: number; stops: { color: string; at: number; op?: number }[] };
+  /** A freeform (a drawing of an HTML page's SVG): its outline in slide points, one figure of M, L, C and Z
+   * commands; the box is its extent. An open one may end in arrowheads. */
+  path?: string;
+  /** A dashed outline. */
+  dash?: boolean;
+  arrow?: boolean;
+  arrowStart?: boolean;
 }
 /** Drawn from (x, flipY ? y+h : y) to (x+w, flipY ? y : y+h); arrow marks the end, arrowStart the start. */
 export interface LineElement extends Rect {
@@ -760,6 +864,10 @@ export interface LineElement extends Rect {
   arrow?: boolean;
   arrowStart?: boolean;
   dash?: boolean;
+  /** The shapes its start and end are glued to as a PowerPoint connector: the slide's nth shape element and its
+   * connection site (a rectangle's 1-4 are the middles of its top, left, bottom and right; an oval's 1, 3, 5, 7). */
+  from?: { shape: number; site: number };
+  to?: { shape: number; site: number };
 }
 export interface ChartElement extends Rect {
   kind: 'chart';
@@ -773,6 +881,8 @@ export interface ChartElement extends Rect {
   labelSize?: number;
   showValues?: boolean;
   categoryOrder?: 'input';
+  /** The chart in words (its kind, unit and values), for PowerPoint's alternative text. */
+  alt?: string;
 }
 export interface SmartArtElement extends Rect {
   kind: 'smartart';
@@ -782,7 +892,41 @@ export interface SmartArtElement extends Rect {
   color: string;
   fontSize: number;
 }
-export type SceneElement = TextElement | ShapeElement | LineElement | ChartElement | SmartArtElement | ImageElement;
+/** One cell of a PowerPoint table. margin: left, top, right, bottom; borders: top, right, bottom, left (null where
+ * there is none). */
+export interface TableCell {
+  text: string;
+  fontSize: number;
+  color: string;
+  bold?: boolean;
+  italic?: boolean;
+  align?: 'left' | 'center' | 'right';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  fill?: string;
+  opacity?: number;
+  lineHeight?: number;
+  margin?: [number, number, number, number];
+  borders?: ({ width: number; color: string } | null)[];
+  runs?: TextElement['runs'];
+  blankColor?: string;
+}
+/** A PowerPoint table: column widths and row heights (pt), each cell with its text and look. header: the first row
+ * holds the column headings. noWrap: the texts keep their line breaks as drawn (a browser's lines). */
+export interface TableElement extends Rect {
+  kind: 'table';
+  columns: number[];
+  rows: number[];
+  cells: TableCell[][];
+  header?: boolean;
+  font?: string;
+  fontFarEast?: string;
+  noWrap?: boolean;
+}
+/** group: the parts of one card of an HTML page, kept together as a PowerPoint group ('/' nests a group in another,
+ * an icon's strokes in its card). */
+export type SceneElement = { group?: string } & (
+  TextElement | ShapeElement | LineElement | ChartElement | SmartArtElement | ImageElement | TableElement
+);
 export interface TextFitIssue {
   text: string;
   maxCharacters: number;
@@ -795,6 +939,8 @@ export interface SceneSlide {
   elements: SceneElement[];
   warnings: string[];
   textIssues?: TextFitIssue[];
+  /** The slide's own background colour (a full-bleed design or cover); otherwise the theme's. */
+  background?: string;
 }
 export interface RenderDocument {
   title: string;
@@ -803,6 +949,10 @@ export interface RenderDocument {
   width: number;
   height: number;
   slides: SceneSlide[];
+  /** The deck's own PowerPoint theme colours (Dark 1, Light 1, Dark 2, Light 2, Accent 1–6). Shapes and texts of
+   * these colours, and of the deck's fonts, refer to the theme, so PowerPoint's Design > Variants restyles the
+   * deck. A deck that takes a company template's theme when inserted has none. */
+  themeColors?: string[];
 }
 
 /** Text of a slide in the open presentation, read through Office.js. */

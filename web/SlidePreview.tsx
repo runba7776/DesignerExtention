@@ -1,7 +1,15 @@
 import React from 'react';
-import type { Rect, RenderDocument, SceneElement, SmartArtElement, TextElement } from '../shared/contracts';
-import { wrapText } from '../shared/layouts';
+import type {
+  Rect,
+  RenderDocument,
+  SceneElement,
+  ShapeElement,
+  SmartArtElement,
+  TextElement,
+} from '../shared/contracts';
+import { tableParts, wrapText } from '../shared/layouts';
 import { BLANK } from '../shared/free-design';
+import { presetOutline } from '../shared/shape-outline';
 import { ChartPreview } from './ChartPreview';
 
 type Part = { text: string; color?: string; bold?: boolean };
@@ -57,6 +65,7 @@ function Text({ element }: { element: TextElement }) {
           : undefined
       }
       fontWeight={element.bold ? 700 : 400}
+      letterSpacing={element.spacing}
       textAnchor={anchor}
     >
       {lines.map((line, i) => (
@@ -197,116 +206,8 @@ function SmartArt({ element: e }: { element: SmartArtElement }) {
   );
 }
 
-/** Outline of each polygon shape in a unit box, matching PowerPoint's default adjustments. */
-function shapePoints(shape: string): number[][] | undefined {
-  switch (shape) {
-    case 'triangle':
-      return [
-        [0.5, 0],
-        [1, 1],
-        [0, 1],
-      ];
-    case 'arrow':
-      return [
-        [0, 0.25],
-        [0.7, 0.25],
-        [0.7, 0],
-        [1, 0.5],
-        [0.7, 1],
-        [0.7, 0.75],
-        [0, 0.75],
-      ];
-    case 'leftArrow':
-      return [
-        [1, 0.25],
-        [0.3, 0.25],
-        [0.3, 0],
-        [0, 0.5],
-        [0.3, 1],
-        [0.3, 0.75],
-        [1, 0.75],
-      ];
-    case 'upArrow':
-      return [
-        [0.25, 1],
-        [0.25, 0.3],
-        [0, 0.3],
-        [0.5, 0],
-        [1, 0.3],
-        [0.75, 0.3],
-        [0.75, 1],
-      ];
-    case 'downArrow':
-      return [
-        [0.25, 0],
-        [0.25, 0.7],
-        [0, 0.7],
-        [0.5, 1],
-        [1, 0.7],
-        [0.75, 0.7],
-        [0.75, 0],
-      ];
-    case 'chevron':
-      return [
-        [0, 0],
-        [0.8, 0],
-        [1, 0.5],
-        [0.8, 1],
-        [0, 1],
-        [0.2, 0.5],
-      ];
-    case 'pentagon':
-      return [
-        [0, 0],
-        [0.8, 0],
-        [1, 0.5],
-        [0.8, 1],
-        [0, 1],
-      ];
-    case 'hexagon':
-      return [
-        [0.25, 0],
-        [0.75, 0],
-        [1, 0.5],
-        [0.75, 1],
-        [0.25, 1],
-        [0, 0.5],
-      ];
-    case 'diamond':
-      return [
-        [0.5, 0],
-        [1, 0.5],
-        [0.5, 1],
-        [0, 0.5],
-      ];
-    case 'parallelogram':
-      return [
-        [0.25, 0],
-        [1, 0],
-        [0.75, 1],
-        [0, 1],
-      ];
-    case 'trapezoid':
-      return [
-        [0.25, 0],
-        [0.75, 0],
-        [1, 1],
-        [0, 1],
-      ];
-    case 'octagon':
-      return [
-        [0.29, 0],
-        [0.71, 0],
-        [1, 0.29],
-        [1, 0.71],
-        [0.71, 1],
-        [0.29, 1],
-        [0, 0.71],
-        [0, 0.29],
-      ];
-  }
-}
 function Element({ element: e, textColor }: { element: SceneElement; textColor: string }) {
+  const id = `de-grad-${React.useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   if (e.kind === 'text') return <Text element={e} />;
   if (e.kind === 'line')
     return (
@@ -324,6 +225,14 @@ function Element({ element: e, textColor }: { element: SceneElement; textColor: 
     );
   if (e.kind === 'chart') return <ChartPreview element={e} textColor={textColor} />;
   if (e.kind === 'smartart') return <SmartArt element={e} />;
+  if (e.kind === 'table')
+    return (
+      <g>
+        {tableParts(e).map((part, i) => (
+          <Element key={i} element={part} textColor={textColor} />
+        ))}
+      </g>
+    );
   if (e.kind === 'image')
     return (
       <image
@@ -331,18 +240,66 @@ function Element({ element: e, textColor }: { element: SceneElement; textColor: 
         y={e.y}
         width={e.w}
         height={e.h}
+        // A photo of the app's image store fills its box, cut at the middle as in PowerPoint.
+        preserveAspectRatio={e.src ? 'xMidYMid slice' : undefined}
         href={
-          e.svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(e.svg)}` : `data:image/png;base64,${e.png}`
+          e.src
+            ? `/api/images/${e.src}`
+            : e.svg
+              ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(e.svg)}`
+              : `data:image/png;base64,${e.png}`
         }
       />
     );
-  const paint = {
-    fill: e.fill === 'none' ? 'none' : e.fill,
+  const gradient = e.gradient && e.fill !== 'none' ? e.gradient : undefined,
+    shadow = e.shadow;
+  const paint: Paint = {
+    fill: gradient ? `url(#${id})` : e.fill === 'none' ? 'none' : e.fill,
     fillOpacity: e.opacity,
     stroke: e.stroke,
     strokeWidth: e.strokeWidth,
+    strokeDasharray: e.dash ? '6 4' : undefined,
     transform: e.rotation ? `rotate(${e.rotation} ${e.x + e.w / 2} ${e.y + e.h / 2})` : undefined,
+    style: shadow
+      ? {
+          filter: `drop-shadow(${shadow.x}px ${shadow.y}px ${shadow.blur / 2}px ${shadow.color}${Math.round(
+            shadow.opacity * 255,
+          )
+            .toString(16)
+            .padStart(2, '0')})`,
+        }
+      : undefined,
   };
+  return (
+    <>
+      {gradient && (
+        <defs>
+          {/* The angle as in CSS (0 upwards, 90 to the right); SVG's own direction is to the right. */}
+          <linearGradient id={id} gradientTransform={`rotate(${gradient.angle - 90} .5 .5)`}>
+            {gradient.stops.map((stop, i) => (
+              <stop key={i} offset={stop.at} stopColor={stop.color} stopOpacity={stop.op} />
+            ))}
+          </linearGradient>
+        </defs>
+      )}
+      <Shape element={e} paint={paint} />
+    </>
+  );
+}
+type Paint = Pick<
+  React.SVGAttributes<SVGElement>,
+  'fill' | 'fillOpacity' | 'stroke' | 'strokeWidth' | 'strokeDasharray' | 'transform' | 'style'
+>;
+function Shape({ element: e, paint }: { element: ShapeElement; paint: Paint }) {
+  if (e.path)
+    return (
+      <path
+        d={e.path}
+        {...paint}
+        markerEnd={e.arrow ? 'url(#de-arrow)' : undefined}
+        markerStart={e.arrowStart ? 'url(#de-arrow-start)' : undefined}
+      />
+    );
   if (e.shape === 'ellipse')
     return <ellipse cx={e.x + e.w / 2} cy={e.y + e.h / 2} rx={e.w / 2} ry={e.h / 2} {...paint} />;
   if (e.shape === 'donut')
@@ -359,9 +316,8 @@ function Element({ element: e, textColor }: { element: SceneElement; textColor: 
         />
       </g>
     );
-  const points = shapePoints(e.shape);
-  if (points)
-    return <polygon points={points.map(([px, py]) => `${e.x + px * e.w},${e.y + py * e.h}`).join(' ')} {...paint} />;
+  const points = presetOutline(e.shape, e.w, e.h);
+  if (points) return <polygon points={points.map((v, i) => v + (i % 2 ? e.y : e.x)).join(' ')} {...paint} />;
   return (
     <rect
       x={e.x}
@@ -426,7 +382,7 @@ export function SlidePreview({
       role="img"
       aria-label={slide.title}
       style={{
-        background: document.theme.background,
+        background: slide.background ?? document.theme.background,
         fontFamily: `"${document.theme.font}", "Yu Gothic UI", sans-serif`,
       }}
     >

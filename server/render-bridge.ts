@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { DeckSpec, RenderResult } from '../shared/contracts';
 import { compileDeck } from '../shared/layouts';
+import { IMAGE_SRC } from '../shared/free-design';
 import { AppError } from './errors';
 import { assertTextFits } from './text-fit';
 
@@ -12,6 +14,7 @@ const execute = promisify(execFile);
 export function createRenderBridge(projectRoot: string) {
   const artifactRoot = path.join(projectRoot, 'runtime', 'artifacts');
   const executable = path.join(projectRoot, 'native', 'bin', 'DesignerExtension.Renderer.exe');
+  const imageRoot = path.join(projectRoot, 'runtime', 'images');
   let queue = Promise.resolve();
   const serialized = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = queue.then(operation, operation);
@@ -35,6 +38,13 @@ export function createRenderBridge(projectRoot: string) {
     if (!(await nativeAvailable()))
       throw new Error('PowerPoint連携をビルドしてください。「セットアップ」を実行すると準備できます。');
     const scene = compileDeck(deck);
+    // Photos of the image store are given to PowerPoint as their files; one whose file is gone is left out.
+    for (const slide of scene.slides)
+      slide.elements = slide.elements.filter(e => {
+        if (e.kind !== 'image' || !e.src) return true;
+        e.file = path.join(imageRoot, e.src);
+        return IMAGE_SRC.test(e.src) && existsSync(e.file);
+      });
     const artifactId = randomUUID();
     const directory = path.join(artifactRoot, artifactId);
     await fs.mkdir(directory, { recursive: true });

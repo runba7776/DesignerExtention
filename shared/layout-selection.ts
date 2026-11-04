@@ -25,7 +25,9 @@ function visible(scene: SceneSlide) {
           ? [e.text]
           : e.kind === 'smartart'
             ? e.items.flatMap(i => [i.label, i.description ?? ''])
-            : [],
+            : e.kind === 'table'
+              ? e.cells.flat().map(cell => cell.text)
+              : [],
       )
       .join('\n'),
   );

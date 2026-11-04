@@ -13,6 +13,7 @@ import { AppError } from './errors.js';
 import type { Provider } from './providers.js';
 import { SettingsStore } from './settings.js';
 import type { HtmlLayout } from './html-layout.js';
+import type { ImageStore } from './images.js';
 import { DesignLibraryStore } from './design-library.js';
 import { ProjectStore } from './projects.js';
 import { fillBlanks } from '../shared/blanks.js';
@@ -39,6 +40,8 @@ export interface EngineOptions {
   providerFactory?: (settings: Settings, key?: string) => Provider;
   /** HTML method: draws AI-written HTML pages in a browser and reads their layout. */
   htmlLayout?: HtmlLayout;
+  /** Photos for the places an AI marks on its pages (installed app; see images.ts). */
+  images?: ImageStore;
   /** The recorded creation the sample experience replays (see showcase.ts); without it the plain sample is used. */
   showcase?: () => Promise<unknown>;
   subscriptionBinding?: (service: SubscriptionService) => string | undefined;
@@ -205,6 +208,14 @@ export class SessionEngine {
     }
   }
 
+  /** Pictures for the image places the AI wrote in this operation, before the pages are shown or saved. */
+  async placeImages(state: SessionState) {
+    if (!this.options.images || !this.pages.imagesFor(state)) return;
+    const left = await this.options.images.place(state.session);
+    const warning = `画像が見つからなかった枠が${left}か所あります。仮の枠のまま置いたので、PowerPointで画像を入れてください。`;
+    state.session.warnings = state.session.warnings.filter(w => !/^画像が見つからなかった枠/.test(w));
+    if (left) state.session.warnings.push(warning);
+  }
   state(id: string) {
     const state = this.states.get(id);
     if (!state) throw new AppError(404, '作業が見つかりません。保存した資料は履歴から開いてください。');
@@ -221,6 +232,7 @@ export class SessionEngine {
     state.busy = true;
     try {
       const result = repair ? await this.ai.withRepairs(state, () => operation(state)) : await operation(state);
+      await this.placeImages(state);
       if (save && state.session.phase === 'ready' && !state.chat) await this.persist(state);
       return result;
     } finally {

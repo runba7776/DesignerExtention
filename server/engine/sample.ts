@@ -37,7 +37,7 @@ export class SampleService {
     delete state.session.reviewHints;
     delete state.session.reviewReport;
     if (record.polish) {
-      state.polish = { shots: {}, outline, compact: false, variantId: main.id, findings: [] };
+      state.polish = { shots: {}, html: {}, outline, compact: false, variantId: main.id, findings: [] };
       state.session.polish = { state: 'pending', pages: record.polish.report.checked };
     }
     const blanks = deckBlanks(deck).length;

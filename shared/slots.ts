@@ -149,7 +149,10 @@ export function transplant(content: SlideSpec, design: SlideSpec): TransplantRes
       if (e.t === 'chart') return { ...e, chart: structuredClone(source.charts[slots.charts.indexOf(index)]) };
       if (e.t === 'table') {
         const table = source.tables[slots.tables.indexOf(index)];
-        return { ...e, headers: [...table.headers], rows: table.rows.map(r => [...r]) };
+        // A browser's look of a table (cells, widths, heights) holds only for the texts it was drawn with.
+        const { cells: _cells, cols: _cols, rowH: _rowH, ...plain } = e;
+        const same = JSON.stringify([table.headers, table.rows]) === JSON.stringify([e.headers, e.rows]);
+        return { ...(same ? e : plain), headers: [...table.headers], rows: table.rows.map(r => [...r]) };
       }
       return e;
     })

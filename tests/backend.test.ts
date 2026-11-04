@@ -386,7 +386,7 @@ test('HTTP boundary requires bootstrap cookie + same-origin writes; demo upload 
   }
 });
 
-test('local provider asks the model not to think and holds pages to their shape; a server refusing the options gets the plain request once; a time-out says so', async () => {
+test('local provider asks the model not to think, holds answers to their shape and sends drawn pages as pictures; a server refusing the options gets the plain request once; a time-out says so', async () => {
   const bodies: any[] = [];
   const reply = () =>
     new Response(JSON.stringify({ choices: [{ message: { content: '{"kind":"questions","message":"?"}' } }] }), {
@@ -414,6 +414,23 @@ test('local provider asks the model not to think and holds pages to their shape;
   assert.equal(bodies.length, 2);
   assert.equal(bodies[1].reasoning_effort, undefined);
   assert.equal(bodies[1].response_format, undefined);
+  // Drawn pages go as pictures beside the text.
+  bodies.length = 0;
+  const provider = local(async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return reply();
+  });
+  assert.equal(provider.images, true);
+  await provider.complete({
+    system: 's',
+    content: 'c',
+    maxTokens: 100,
+    images: [{ mediaType: 'image/png', data: 'QUJD' }],
+  });
+  assert.deepEqual(bodies[0].messages[1].content, [
+    { type: 'text', text: 'c' },
+    { type: 'image_url', image_url: { url: 'data:image/png;base64,QUJD' } },
+  ]);
   await assert.rejects(
     local(async () => {
       throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });

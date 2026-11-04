@@ -69,7 +69,19 @@ export function createProvider(settings: Settings, apiKey?: string, fetcher: typ
         max_tokens: request.maxTokens,
         messages: [
           { role: 'system', content: request.system },
-          { role: 'user', content: request.content },
+          {
+            role: 'user',
+            // Drawn pages go as pictures beside the text (OpenAI-compatible; gemma4 reads them).
+            content: request.images?.length
+              ? [
+                  { type: 'text', text: request.content },
+                  ...request.images.map(image => ({
+                    type: 'image_url',
+                    image_url: { url: `data:${image.mediaType};base64,${image.data}` },
+                  })),
+                ]
+              : request.content,
+          },
         ],
       };
       const send = (body: object) =>
@@ -157,6 +169,8 @@ export function createProvider(settings: Settings, apiKey?: string, fetcher: typ
         );
       return { text, usage };
     },
+    // A model that cannot read pictures answers with an error, and the look at the pages is left out.
+    images: true,
   };
 }
 

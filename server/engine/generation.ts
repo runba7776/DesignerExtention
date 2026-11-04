@@ -84,6 +84,7 @@ export class GenerationService {
               ).deck.slides;
               state.draft.pending = Object.fromEntries(slides.map(s => [s.id, s]));
               state.draft.shots = { ...seed.shots };
+              state.draft.html = { ...seed.html };
             }
           }
           const draft = state.draft;
@@ -198,7 +199,14 @@ export class GenerationService {
         const shots = state.draft?.shots,
           findings = [...(state.draft?.hints ?? []), ...deckFindings(main.deck.slides)];
         if (shots && Object.keys(shots).length && this.engine.pages.wantsReview(state)) {
-          state.polish = { shots, outline, compact: state.draft!.compact, variantId: main.id, findings };
+          state.polish = {
+            shots,
+            html: state.draft!.html ?? {},
+            outline,
+            compact: state.draft!.compact,
+            variantId: main.id,
+            findings,
+          };
           state.session.polish = { state: 'pending', pages: Object.keys(shots).length };
         }
         // Without the look at the pages, what the app found itself is shown to the user to fix.
@@ -251,7 +259,10 @@ export class GenerationService {
       keep: (slide: SlideSpec) => void = slide => draft.slides.push(slide),
     ) => {
       keep(this.engine.pages.checkPage(state, raw, expected));
-      if (typeof raw.shot === 'string') (draft.shots ??= {})[expected] = raw.shot;
+      if (typeof raw.shot === 'string') {
+        (draft.shots ??= {})[expected] = raw.shot;
+        (draft.html ??= {})[expected] = raw.shotHtml;
+      }
     };
     const pending = (draft.pending ??= {});
     while (draft.slides.length < outline.slides.length) {
@@ -382,8 +393,16 @@ export class GenerationService {
           )
         )
           continue;
-        if (local && free) {
-          await this.substitute(state, outline, draft, response?.slides?.[draft.slides.length - start], accept, run);
+        if (local && (free || state.sendScope === 'design')) {
+          await this.substitute(
+            state,
+            outline,
+            draft,
+            response?.slides?.[draft.slides.length - start],
+            accept,
+            error instanceof AppError ? error.message : '',
+            run,
+          );
           continue;
         }
         return { canRetry: draft.singleFailures < 2 };
@@ -391,19 +410,25 @@ export class GenerationService {
     }
     return undefined;
   }
-  /** A local model designing its own pages is not asked without end, and the deck is finished: the page it
-   * could not make is kept as last written when only the reading of its HTML found slips, else asked once
-   * with the app's layouts (with layouts it finished every time), else made from the outline with a layout.
-   * A hint asks the user to check it. */
+  /** A local model designing its own pages, or writing the content that only goes out as a skeleton (on the
+   * app's layouts it stopped 1 of 5 decks there), is not asked without end, and the deck is finished: the page
+   * it could not make is kept as last written when only the reading of its HTML found slips, else asked once
+   * with the summary layout, else made from the outline with a layout. A hint asks the user to check it. */
   private async substitute(
     state: SessionState,
     outline: Outline,
     draft: GenerationDraft,
     raw: any,
     accept: (raw: any, expected: string) => void,
+    problem: string,
     run?: AiRun,
   ) {
     const target = outline.slides[draft.slides.length];
+    // Why the AI's page was not kept, as the app found it (quoted fragments of the model's text left out).
+    const why = problem
+      .replace(/^slide-\d+：/, '')
+      .replace(/「[^」]*」/g, '（該当の文字）')
+      .slice(0, 100);
     let what: string;
     try {
       if (!raw?.design || typeof raw.htmlProblem !== 'string') throw new Error('no page to keep');
@@ -431,9 +456,9 @@ export class GenerationService {
         // gemma4 once returned the layout with no items: an empty page is not kept.
         if (!page?.items?.length && !page?.body && !page?.chart && !page?.table) throw new Error('an empty page');
         accept(page, target.id);
-        what = 'AIのデザインが崩れたため、型に当てはめて作りました';
+        what = `AIのデザインが通らなかったため、型に当てはめて作りました${why ? `（${why}）` : ''}`;
       } catch {
-        what = 'AIが作れなかったため、構成案の要点から型で仮に作りました';
+        what = `AIが作れなかったため、構成案の要点から型で仮に作りました${why ? `（${why}）` : ''}`;
         accept(
           {
             id: target.id,

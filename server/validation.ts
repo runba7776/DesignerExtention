@@ -3,6 +3,7 @@ import type {
   ChartSpec,
   ChartType,
   DeckSpec,
+  FreeCell,
   FreeDesign,
   FreeElement,
   IconId,
@@ -13,7 +14,15 @@ import type {
   SourceRef,
   Theme,
 } from '../shared/contracts.js';
-import { colorTokens, freeShapes, FREE_LAYOUT_ID, FOOTER_TOP, SLIDE_H, SLIDE_W } from '../shared/free-design.js';
+import {
+  colorTokens,
+  freeShapes,
+  FREE_LAYOUT_ID,
+  FOOTER_TOP,
+  IMAGE_SRC,
+  SLIDE_H,
+  SLIDE_W,
+} from '../shared/free-design.js';
 import { dummyText, type DesignPacket, type SlotContent } from '../shared/confidential.js';
 import { AppError } from './errors.js';
 import { listLayouts } from '../shared/layouts.js';
@@ -276,7 +285,7 @@ function chartSpec(value: unknown): ChartSpec {
 
 const number = (value: unknown, field: string, min: number, max: number) => {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max)
-    bad(`${field}は${min}〜${max}の数値`);
+    bad(`${field}は${min}〜${max}の数値${typeof value === 'number' ? `（今は${value}）` : ''}`);
   return Math.round(value * 10) / 10;
 };
 /** Shares (corner radius, opacity) keep three decimals: a 6px corner on a 300px card is 0.02. */
@@ -293,6 +302,30 @@ const designColor = (value: unknown, field: string) => {
   )
     bad(`${field}の色は${colorTokens.join('・')}・none・#RRGGBBのいずれか`);
   return value;
+};
+/** A shape's shadow (offset and blur in pt) and straight gradient (2-4 stops), as PowerPoint draws them. */
+const shadow = (value: unknown, field: string) => {
+  const s = object(value, `${field}の影`);
+  return {
+    x: number(s.x ?? 0, `${field}の影のx`, -40, 40),
+    y: number(s.y ?? 0, `${field}の影のy`, -40, 40),
+    blur: number(s.blur ?? 0, `${field}の影のぼかし`, 0, 80),
+    color: designColor(s.color ?? '#000000', `${field}の影`)!,
+    ...(s.op !== undefined ? { op: share(s.op, `${field}の影の不透明度`, 0, 1) } : {}),
+  };
+};
+const gradient = (value: unknown, field: string) => {
+  const g = object(value, `${field}のグラデーション`),
+    stops = array(g.stops, `${field}のグラデーションの色`, 4).map(stop => {
+      const p = object(stop, `${field}のグラデーションの色`);
+      return {
+        color: designColor(p.color, `${field}のグラデーション`)!,
+        at: share(p.at, `${field}の色の位置`, 0, 1),
+        ...(p.op !== undefined ? { op: share(p.op, `${field}の色の不透明度`, 0, 1) } : {}),
+      };
+    });
+  if (stops.length < 2) bad(`${field}のグラデーションは2〜4色にしてください`);
+  return { angle: number(g.angle ?? 180, `${field}のグラデーションの角度`, -360, 360), stops };
 };
 const oneOf = <T extends string>(value: unknown, allowed: readonly T[], field: string): T | undefined => {
   if (value === undefined) return undefined;
@@ -360,9 +393,28 @@ function lenientDesign(data: Record<string, any>, cover: boolean, title?: string
     if (e.t === 'text' && typeof e.size === 'number') e.size = Math.min(110, Math.max(9, e.size));
     if (typeof e.lw === 'number') e.lw = Math.min(12, Math.max(e.t === 'line' ? 0.25 : 0, e.lw));
     if (typeof e.op === 'number') e.op = Math.min(1, Math.max(0, e.op));
-    if (typeof e.r === 'number') e.r = Math.min(0.5, Math.max(0, e.r));
+    // The corner is a share of the shorter side (0-0.5); a value over 1 was meant in pt (r:12 made a card a circle).
+    if (typeof e.r === 'number')
+      e.r = Math.min(
+        0.5,
+        Math.max(0, e.r > 1 && e.w > 0 && e.h > 0 ? Math.round((e.r / Math.min(e.w, e.h)) * 1000) / 1000 : e.r),
+      );
     const box =
-      ['text', 'box', 'chart', 'table'].includes(e.t) && [e.x, e.y, e.w, e.h].every(n => typeof n === 'number');
+      ['text', 'box', 'chart', 'table', 'image'].includes(e.t) &&
+      [e.x, e.y, e.w, e.h].every(n => typeof n === 'number');
+    // A shape bleeding far off the slide (Claude's big circle past a corner) cannot be drawn: a rectangle or a photo
+    // is cut at the edge and another shape is left out, rather than the page being asked again (it failed 3 of 4 decks).
+    if (
+      box &&
+      (e.t === 'box' || e.t === 'image') &&
+      (e.x < -near || e.y < -near || e.x + e.w > SLIDE_W + near || e.y + e.h > SLIDE_H + near)
+    ) {
+      if (e.t === 'box' && e.shape !== undefined && e.shape !== 'rect') return [];
+      const x = Math.max(0, e.x),
+        y = Math.max(0, e.y);
+      [e.w, e.h, e.x, e.y] = [round(Math.min(SLIDE_W, e.x + e.w) - x), round(Math.min(SLIDE_H, e.y + e.h) - y), x, y];
+      if (e.w < 1 || e.h < 1) return [];
+    }
     if (box) {
       if (e.x < 0 && e.x >= -near) {
         e.w += e.x;
@@ -423,6 +475,49 @@ function lenientDesign(data: Record<string, any>, cover: boolean, title?: string
   return { ...data, elements };
 }
 
+/** Parts of a browser-measured text with their own colour or weight; parts that do not fit are left out. */
+function textRuns(value: unknown, field: string) {
+  return (Array.isArray(value) ? value.slice(0, 40) : []).flatMap(run => {
+    const p = run && typeof run === 'object' ? (run as Record<string, unknown>) : {};
+    if (!Number.isInteger(p.s) || !Number.isInteger(p.l) || (p.s as number) < 0 || (p.l as number) < 1) return [];
+    return [
+      {
+        s: p.s as number,
+        l: p.l as number,
+        ...(p.color !== undefined ? { color: designColor(p.color, field) } : {}),
+        ...(typeof p.bold === 'boolean' ? { bold: p.bold } : {}),
+        ...(typeof p.italic === 'boolean' ? { italic: p.italic } : {}),
+      },
+    ];
+  });
+}
+/** The look of a table cell read from an HTML page. */
+function tableCell(value: unknown, field: string): FreeCell {
+  const c = object(value, field),
+    border = (side: unknown) => {
+      if (side === null || side === undefined) return null;
+      const b = object(side, `${field}の枠線`);
+      return { w: number(b.w, `${field}の枠線の太さ`, 0, 12), c: designColor(b.c, `${field}の枠線`)! };
+    };
+  const pad = c.pad === undefined ? undefined : array(c.pad, `${field}の余白`, 4);
+  const runs = textRuns(c.runs, field);
+  return {
+    size: number(c.size, `${field}の文字の大きさ`, 6, 110),
+    ...(c.color !== undefined ? { color: designColor(c.color, field) } : {}),
+    ...(c.bold === true ? { bold: true } : {}),
+    ...(c.italic === true ? { italic: true } : {}),
+    ...(c.align !== undefined ? { align: oneOf(c.align, ['l', 'c', 'r'] as const, `${field}のalign`) } : {}),
+    ...(c.va !== undefined ? { va: oneOf(c.va, ['t', 'm', 'b'] as const, `${field}のva`) } : {}),
+    ...(c.fill !== undefined ? { fill: designColor(c.fill, field) } : {}),
+    ...(c.op !== undefined ? { op: share(c.op, `${field}の不透明度`, 0, 1) } : {}),
+    ...(c.lh !== undefined ? { lh: number(c.lh, `${field}の行の高さ`, 4, 240) } : {}),
+    ...(pad?.length === 4
+      ? { pad: pad.map(v => number(v, `${field}の余白`, 0, 200)) as [number, number, number, number] }
+      : {}),
+    ...(c.bd !== undefined ? { bd: array(c.bd, `${field}の枠線`, 4).map(border) } : {}),
+    ...(runs.length ? { runs } : {}),
+  };
+}
 /** A font name chosen by the AI (or read from the browser): kept as a name only. */
 const elementFont = (value: unknown) =>
   typeof value === 'string' && value.trim() && !/[\u0000-\u001f<>"]/.test(value)
@@ -444,12 +539,20 @@ export function sanitizeSvg(value: unknown, field: string) {
 /** An AI-designed slide. Positions, shapes and colours are the AI's; the app only
  * rejects what would be unreadable or untrue: text outside the slide or in the
  * footer, overlapping text boxes, unknown icons, and charts whose data fail. */
-export function validateDesign(value: unknown, sourceCount: number, cover = false, title?: string): FreeDesign {
+export function validateDesign(
+  value: unknown,
+  sourceCount: number,
+  cover = false,
+  title?: string,
+  page?: string,
+): FreeDesign {
   const data = lenientDesign(object(value, 'デザイン'), cover, title);
   // An HTML page read back by the browser can hold more parts than the JSON method's 90.
-  const elements = array(data.elements, 'デザインの要素', 200).map((entry, i): FreeElement => {
+  const entries = array(data.elements, 'デザインの要素', 200);
+  const elements = entries.map((entry, i): FreeElement => {
     const e = object(entry, `要素${i + 1}`),
-      field = `要素${i + 1}`;
+      // A design AI that sent several pages is told which page and which kind of element.
+      field = page ? `${page}の要素${i + 1}（${String(e.t)}）` : `要素${i + 1}`;
     const rect = () => {
       const x = number(e.x, `${field}のx`, 0, SLIDE_W),
         y = number(e.y, `${field}のy`, 0, SLIDE_H),
@@ -472,23 +575,7 @@ export function validateDesign(value: unknown, sourceCount: number, cover = fals
           : (array(e.refs, `${field}の出典番号`, 5).filter(
               n => Number.isInteger(n) && n >= 1 && n <= sourceCount,
             ) as number[]);
-      const runs =
-        e.exact === true && Array.isArray(e.runs)
-          ? (e.runs as unknown[]).slice(0, 40).flatMap(run => {
-              const p = run && typeof run === 'object' ? (run as Record<string, unknown>) : {};
-              if (!Number.isInteger(p.s) || !Number.isInteger(p.l) || (p.s as number) < 0 || (p.l as number) < 1)
-                return [];
-              return [
-                {
-                  s: p.s as number,
-                  l: p.l as number,
-                  ...(p.color !== undefined ? { color: designColor(p.color, field) } : {}),
-                  ...(typeof p.bold === 'boolean' ? { bold: p.bold } : {}),
-                  ...(typeof p.italic === 'boolean' ? { italic: p.italic } : {}),
-                },
-              ];
-            })
-          : [];
+      const runs = e.exact === true ? textRuns(e.runs, field) : [];
       return {
         t: 'text',
         ...r,
@@ -507,6 +594,9 @@ export function validateDesign(value: unknown, sourceCount: number, cover = fals
         ...(elementFont(e.fontFarEast) ? { fontFarEast: elementFont(e.fontFarEast) } : {}),
         ...(e.exact === true ? { exact: true } : {}),
         ...(e.exact === true && typeof e.lh === 'number' ? { lh: number(e.lh, `${field}の行の高さ`, 4, 240) } : {}),
+        ...(e.exact === true && typeof e.sp === 'number' && e.sp !== 0
+          ? { sp: number(e.sp, `${field}の文字の間隔`, -3, 20) }
+          : {}),
         ...(runs.length ? { runs } : {}),
       };
     }
@@ -522,6 +612,35 @@ export function validateDesign(value: unknown, sourceCount: number, cover = fals
         ...(e.op !== undefined ? { op: share(e.op, `${field}の不透明度`, 0, 1) } : {}),
         ...(e.r !== undefined ? { r: share(e.r, `${field}の角丸`, 0, 0.5) } : {}),
         ...(e.rot !== undefined ? { rot: number(e.rot, `${field}の回転`, -360, 360) } : {}),
+        ...(e.dash === true ? { dash: true } : {}),
+        ...(e.shadow !== undefined ? { shadow: shadow(e.shadow, field) } : {}),
+        ...(e.grad !== undefined ? { grad: gradient(e.grad, field) } : {}),
+      };
+    }
+    if (e.t === 'image') {
+      const r = rect();
+      if (r.w < 40 || r.h < 30) bad(`${field}の画像は幅40・高さ30以上にしてください`);
+      // What the app wrote after finding the picture is kept with it (a revision sends the page back).
+      const found = typeof e.src === 'string' && IMAGE_SRC.test(e.src);
+      return {
+        t: 'image',
+        ...r,
+        q: text(e.q, `${field}の画像の検索語`, 80)!,
+        ...(text(e.alt, `${field}の画像の説明`, 60, true)
+          ? { alt: text(e.alt, `${field}の画像の説明`, 60, true) }
+          : {}),
+        ...(found
+          ? {
+              src: e.src as string,
+              ...(typeof e.iw === 'number' && typeof e.ih === 'number' && e.iw > 0 && e.ih > 0
+                ? { iw: e.iw, ih: e.ih }
+                : {}),
+              ...(typeof e.credit === 'string' ? { credit: e.credit.slice(0, 160) } : {}),
+              ...(typeof e.page === 'string' && /^https:\/\/commons\.wikimedia\.org\/wiki\/File:/.test(e.page)
+                ? { page: e.page.slice(0, 300) }
+                : {}),
+            }
+          : {}),
       };
     }
     if (e.t === 'line')
@@ -560,8 +679,39 @@ export function validateDesign(value: unknown, sourceCount: number, cover = fals
       return { t: 'chart', ...r, chart: chartSpec(e.chart) };
     }
     if (e.t === 'table') {
-      const r = rect(),
-        headers = stringList(e.headers, `${field}の表の列`, 6, 60),
+      const r = rect();
+      // A table read from an HTML page (cells) keeps the browser's look: up to 8 columns and 15 rows, empty cells.
+      if (Array.isArray(e.cells)) {
+        const cell = (v: unknown) => text(v, `${field}の表のセル`, 200, true) ?? '',
+          headers = array(e.headers, `${field}の表の列`, 8).map(cell),
+          rows = array(e.rows, `${field}の表の行`, 14).map(row => array(row, `${field}の表の行`, 8).map(cell)),
+          cells = array(e.cells, `${field}の表のセル`, 15).map((row, i) =>
+            array(row, `${field}の表のセル`, 8).map((c, j) => tableCell(c, `${field}の表の${i + 1}行${j + 1}列`)),
+          ),
+          cols = array(e.cols, `${field}の表の列の幅`, 8).map(v => number(v, `${field}の表の列の幅`, 1, SLIDE_W)),
+          rowH = array(e.rowH, `${field}の表の行の高さ`, 15).map(v => number(v, `${field}の表の行の高さ`, 1, SLIDE_H));
+        if (
+          !headers.length ||
+          !rows.length ||
+          [...rows, ...cells, cols].some(row => row.length !== headers.length) ||
+          cells.length !== rows.length + 1 ||
+          rowH.length !== cells.length
+        )
+          bad(`${field}の表の行と列の数が一致しません`);
+        return {
+          t: 'table',
+          ...r,
+          headers,
+          rows,
+          cols,
+          rowH,
+          cells,
+          ...(e.head === true ? { head: true } : {}),
+          ...(elementFont(e.font) ? { font: elementFont(e.font) } : {}),
+          ...(elementFont(e.fontFarEast) ? { fontFarEast: elementFont(e.fontFarEast) } : {}),
+        };
+      }
+      const headers = stringList(e.headers, `${field}の表の列`, 6, 60),
         rows = array(e.rows, `${field}の表の行`, 10).map(row => stringList(row, `${field}の表のセル`, 6, 90));
       if (!headers.length || !rows.length || rows.some(row => row.length !== headers.length))
         bad(`${field}の表の列数が一致しません`);
@@ -577,7 +727,30 @@ export function validateDesign(value: unknown, sourceCount: number, cover = fals
       const r = rect();
       return { t: 'svg', ...r, svg: sanitizeSvg(e.svg, field) };
     }
-    bad(`${field}のtはtext・box・line・icon・chart・tableのいずれか`);
+    if (e.t === 'path') {
+      const r = rect();
+      if (typeof e.d !== 'string' || e.d.length > 8000 || !/^M[-\d. ]+(?: [LCZ][-\d. ]*)*$/.test(e.d))
+        bad(`${field}の図形の輪郭を読めません`);
+      return {
+        t: 'path',
+        ...r,
+        d: e.d,
+        ...(e.fill !== undefined ? { fill: designColor(e.fill, field) } : {}),
+        ...(e.line !== undefined ? { line: designColor(e.line, field) } : {}),
+        ...(e.lw !== undefined ? { lw: number(e.lw, `${field}の線の太さ`, 0, 12) } : {}),
+        ...(e.op !== undefined ? { op: share(e.op, `${field}の不透明度`, 0, 1) } : {}),
+        ...(e.dash === true ? { dash: true } : {}),
+        ...(e.arrow !== undefined
+          ? { arrow: oneOf(e.arrow, ['none', 'end', 'start', 'both'] as const, `${field}のarrow`) }
+          : {}),
+      };
+    }
+    bad(`${field}のtはtext・box・line・icon・chart・table・imageのいずれか`);
+  });
+  // The parts of one card of an HTML page (the same g) are kept together.
+  elements.forEach((e, i) => {
+    const g = entries[i].g;
+    if (Number.isInteger(g) && g >= 0 && g < 1000) e.g = g;
   });
   if (!elements.length) bad('デザインの要素がありません');
   const texts = elements.filter((e): e is Extract<FreeElement, { t: 'text' }> => e.t === 'text');
@@ -585,6 +758,7 @@ export function validateDesign(value: unknown, sourceCount: number, cover = fals
   if (!cover && !texts.some(e => e.role === 'title')) bad('見出しのtext要素（role:"title"）がありません');
   if (elements.filter(e => e.t === 'chart').length > 4 || elements.filter(e => e.t === 'table').length > 2)
     bad('1枚のグラフは4つ、表は2つまでです');
+  if (elements.filter(e => e.t === 'image').length > 4) bad('1枚の画像は4つまでです');
   // Text boxes may sit on shapes, but two texts on top of each other are unreadable.
   for (let i = 0; i < texts.length; i++)
     for (let j = i + 1; j < texts.length; j++) {
@@ -617,8 +791,16 @@ export function validateDesignReply(
   return packet.slides.map(request => {
     const reply = replies.find(r => r && typeof r === 'object' && r.id === request.id);
     if (!reply) bad(`${request.id}のデザインがありません`);
+    // A text with neither slot nor text (Claude's empty number markers) shows nothing and is left out.
     const design = object(reply.design, `${request.id}のデザイン`),
-      elements = array(design.elements, `${request.id}の要素`, 90);
+      elements = array(design.elements, `${request.id}の要素`, 90).filter(
+        e =>
+          !(
+            e?.t === 'text' &&
+            typeof e.slot !== 'string' &&
+            (e.text === undefined || e.text === null || e.text === '')
+          ),
+      );
     const slots = new Map(request.slots.map(s => [s.id, s])),
       charts = new Set(request.charts.map(c => c.id)),
       tables = new Set(request.tables.map(t => t.id)),
@@ -663,6 +845,8 @@ export function validateDesignReply(
       { ...(design.background !== undefined ? { background: design.background } : {}), elements: sampled },
       original.sources.length,
       request.cover,
+      undefined,
+      request.id,
     );
     const filled = sampled.map((e: any, i: number) => {
       const slot = typeof (elements[i] as any).slot === 'string' ? (elements[i] as any).slot : undefined;
@@ -681,6 +865,8 @@ export function validateDesignReply(
       { ...(design.background !== undefined ? { background: design.background } : {}), elements: filled },
       original.sources.length,
       request.cover,
+      undefined,
+      request.id,
     );
     return {
       id: original.id,
@@ -779,7 +965,11 @@ export function validatePlanResponse(
 export function validateReview(
   value: unknown,
   ids: string[],
-): { id: string; problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string }[] }[] {
+): {
+  id: string;
+  better?: boolean;
+  problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string }[];
+}[] {
   const data = object(value, '点検の応答');
   return array(data.pages, '点検したページ', ids.length + 2).flatMap((entry: unknown) => {
     if (!entry || typeof entry !== 'object' || !ids.includes((entry as any).id)) return [];
@@ -797,7 +987,7 @@ export function validateReview(
           : [],
       )
       .slice(0, 3);
-    return [{ id: String(page.id), problems }];
+    return [{ id: String(page.id), ...(typeof page.better === 'boolean' ? { better: page.better } : {}), problems }];
   });
 }
 

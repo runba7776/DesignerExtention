@@ -49,7 +49,7 @@ export function compositionOf(slide: SlideSpec): CompositionKind {
       (e.t === 'box' && ['arrow', 'chevron', 'pentagon'].includes(e.shape ?? '')),
   ).length;
   if (arrows >= 2) return 'flow';
-  if (elements.some(e => e.t === 'svg' && area(e) >= 0.12)) return 'figure';
+  if (elements.some(e => (e.t === 'svg' || e.t === 'image') && area(e) >= 0.12)) return 'figure';
   return 'text';
 }
 

@@ -121,6 +121,11 @@ test('HTML method (the default): pages written as HTML become the deck; a page w
     assert.match(generate, /var\(--accent\)=?|--accent=#/);
     assert.doesNotMatch(generate, /Element = Text\|Box|"t":"icon"/);
     assert.doesNotMatch(generate, /企業の資料の組み方/, 'the layout guide is for local models only');
+    assert.match(
+      generate,
+      /■ 文章を、人が書く業務の日本語にする/,
+      'a monthly plan keeps the whole standing instruction',
+    );
     assert.match(f.repairs[1].detail, /^slide-2：文字が下端の出典欄/);
     const slide = session.variants[0].deck.slides[1],
       title = slide.design!.elements[1] as any;
@@ -145,6 +150,10 @@ test('a local LLM writes HTML on the installed app with the business layout guid
     assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
     assert.match(f.systems[1], /<section class="slide">/);
     assert.match(f.systems[1], /企業の資料の組み方（ローカルLLM向け）[\s\S]*上から120〜470px/);
+    // The standing instruction and the icon list come short for a local model.
+    assert.match(f.systems[1], /【常設指示（要点）】/);
+    assert.doesNotMatch(f.systems[1], /■ 文章を、人が書く業務の日本語にする|"idea":"アイデア・発想"/);
+    assert.match(f.systems[1], /アイコン（iconに指定できるID）: idea document /);
     assert.deepEqual((f.schemas[0] as any).properties.kind.enum, ['questions', 'outline', 'proposals', 'deck']);
     assert.deepEqual((f.schemas[1] as any).properties.slides.minItems, 2);
   } finally {
@@ -324,6 +333,19 @@ test(
       `<div style="position:absolute;left:56px;top:120px"><div><span style="font-size:48px;font-weight:700">11.8</span><span style="font-size:20px">%</span></div><div style="font-size:32px;font-weight:700;line-height:1">1,284<span style="font-size:16px">億円</span></div><div style="font-size:14px;line-height:1.2">前年同期比 +6.4%</div></div><div style="position:absolute;left:400px;top:120px;font-size:160px;color:var(--surface)">01</div><p style="position:absolute;left:420px;top:200px;margin:0;font-size:18px">前面の説明</p>`,
     );
     assert.ok(!fine.problems.some(p => p.includes('重なって')), JSON.stringify(fine.problems));
+    // A note placed by position under a table whose last row wrapped (the sales report's last page), and the
+    // same note following the table.
+    const table = `<table style="width:600px;border-collapse:collapse;font-size:18px"><tr><th>順</th><th>実施事項</th></tr><tr style="background:var(--surface)"><td>1</td><td style="width:140px">目標を共有し、進み具合を追う</td></tr></table>`,
+      note = `<p style="margin:8px 0 0;font-size:14px">1は提案。</p>`;
+    const placed = await read(
+      `<div style="position:absolute;left:56px;top:110px">${table}</div><div style="position:absolute;left:56px;top:150px">${note}</div>`,
+    );
+    assert.ok(
+      placed.problems.some(p => p.includes('文字が表に重なっています（「1は提案。')),
+      JSON.stringify(placed.problems),
+    );
+    const following = await read(`<div style="position:absolute;left:56px;top:110px">${table}${note}</div>`);
+    assert.ok(!following.problems.some(p => p.includes('重なって')), JSON.stringify(following.problems));
   },
 );
 

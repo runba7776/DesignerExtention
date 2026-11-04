@@ -70,25 +70,19 @@ function moved(position: number, edits: { start: number; end: number; length: nu
   }
   return position + shift;
 }
-/** Fills one designed text. A browser-measured text keeps its lines when the filled lines still fit their
- * box; otherwise it becomes a text the app wraps and fits like any other (its styled parts are dropped). */
-function fillElement(e: FreeElement, values: Map<string, string>): FreeElement {
-  if (e.t === 'table')
-    return {
-      ...e,
-      headers: e.headers.map(h => fillText(h, values).text),
-      rows: e.rows.map(r => r.map(c => fillText(c, values).text)),
-    };
-  if (e.t === 'chart')
-    return {
-      ...e,
-      chart: { ...e.chart, ...(e.chart.caption ? { caption: fillText(e.chart.caption, values).text } : {}) },
-    };
-  if (e.t !== 'text') return e;
-  const { text, edits } = fillText(e.text, values);
-  if (!edits.length) return e;
-  if (!e.exact) return { ...e, text };
-  const runs: TextRun[] = (e.runs ?? [])
+/** The styled parts of a browser-measured text after its blanks are filled (a filled blank's own colour is
+ * dropped), or null when a line holding a filled blank no longer fits the measured width. */
+function refit(
+  before: string,
+  filled: ReturnType<typeof fillText>,
+  runs: TextRun[] | undefined,
+  width: number,
+  size: number,
+) {
+  const { text, edits } = filled;
+  const changed = new Set(edits.map(x => before.slice(0, x.start).split('\n').length - 1));
+  if (text.split('\n').some((line, i) => changed.has(i) && wrapText(line, width, size).length > 1)) return null;
+  return (runs ?? [])
     .filter(run => !edits.some(x => x.start === run.s && x.end === run.s + run.l))
     .map(run => {
       const s = moved(run.s, edits, false),
@@ -96,15 +90,52 @@ function fillElement(e: FreeElement, values: Map<string, string>): FreeElement {
       return { ...run, s, l: end - s };
     })
     .filter(run => run.l > 0);
-  // Lines that hold a filled blank are measured again; a line that no longer fits sends the text to the app's own wrapping.
-  const changed = new Set(edits.map(x => e.text.slice(0, x.start).split('\n').length - 1));
-  const lines = text.split('\n'),
-    tooWide = lines.some((line, i) => changed.has(i) && wrapText(line, e.w, e.size).length > 1);
-  if (tooWide) {
-    const { exact: _exact, lh: _lh, runs: _runs, ...rest } = e;
-    return { ...rest, text };
+}
+/** Fills one designed text. A browser-measured text keeps its lines when the filled lines still fit their
+ * box; otherwise it becomes a text the app wraps and fits like any other (its styled parts are dropped).
+ * A table read from a page keeps its look the same way, while every filled cell fits its column. */
+function fillElement(e: FreeElement, values: Map<string, string>): FreeElement {
+  if (e.t === 'table') {
+    const before = [e.headers, ...e.rows],
+      filled = before.map(row => row.map(cell => fillText(cell, values)));
+    const table = { ...e, headers: filled[0].map(f => f.text), rows: filled.slice(1).map(row => row.map(f => f.text)) };
+    if (!e.cells || !e.cols) return table;
+    const cols = e.cols,
+      cells = e.cells.map(row => [...row]);
+    let fits = true;
+    e.cells.forEach((row, r) =>
+      row.forEach((look, c) => {
+        if (!filled[r][c].edits.length) return;
+        const runs = refit(
+          before[r][c],
+          filled[r][c],
+          look.runs,
+          cols[c] - (look.pad?.[0] ?? 0) - (look.pad?.[2] ?? 0),
+          look.size,
+        );
+        if (runs) cells[r][c] = { ...look, runs: runs.length ? runs : undefined };
+        else fits = false;
+      }),
+    );
+    if (fits) return { ...table, cells };
+    const { cells: _cells, cols: _cols, rowH: _rowH, ...plain } = table;
+    return plain;
   }
-  return { ...e, text, ...(runs.length ? { runs } : { runs: undefined }) };
+  if (e.t === 'chart')
+    return {
+      ...e,
+      chart: { ...e.chart, ...(e.chart.caption ? { caption: fillText(e.chart.caption, values).text } : {}) },
+    };
+  if (e.t !== 'text') return e;
+  const filled = fillText(e.text, values);
+  if (!filled.edits.length) return e;
+  if (!e.exact) return { ...e, text: filled.text };
+  const runs = refit(e.text, filled, e.runs, e.w, e.size);
+  if (!runs) {
+    const { exact: _exact, lh: _lh, runs: _runs, ...rest } = e;
+    return { ...rest, text: filled.text };
+  }
+  return { ...e, text: filled.text, ...(runs.length ? { runs } : { runs: undefined }) };
 }
 /** Fills the blanks named in values everywhere in the deck: slide texts, tables, captions and notes.
  * Returns the filled deck and the ids of the slides that changed. Empty values are left as blanks. */

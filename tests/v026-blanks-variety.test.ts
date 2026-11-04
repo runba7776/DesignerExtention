@@ -206,7 +206,10 @@ test('the instructions ask for one kind of blank, keep notes off the slides, lis
   assert.match(plan, /背景の明るさ・主な色・文字と図の割合のうち、少なくとも2つを案ごとに変えます/);
   for (const prompt of [html, json])
     assert.match(prompt, /同じ構図（表、同じ形の囲みの並びなど）を3ページ以上続けません/);
-  assert.match(reviewPrompt(), /［実施日］のような全角の角かっこの文字は、利用者が後で記入する欄です。問題にしません/);
+  assert.match(
+    reviewPrompt(),
+    /［実施日］のような全角の角かっこの文字は、利用者が後で記入する欄です。記入欄が空であることや、記入欄だけの項目は問題にしません/,
+  );
 });
 
 test('the new icons are drawn as editable strokes and as the same picture for browser pages', () => {
@@ -436,7 +439,7 @@ test('the look after the deck is shown also remakes a page with a note to the ma
   const f = await engineWith(
     { designMode: 'html' },
     (req, r) => {
-      if (r.images) return { pages: req.pages.map((p: any) => ({ id: p.id, problems: [] })) };
+      if (req.pages) return { pages: req.pages.map((p: any) => ({ id: p.id, problems: [] })) };
       if (!req.targetSlides) return { kind: 'outline', outline: outline3() };
       if (req.repair?.reason === 'VISUAL_REVIEW') {
         remakes.push(req);

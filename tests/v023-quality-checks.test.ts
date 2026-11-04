@@ -109,9 +109,11 @@ test(
       `<p style="position:absolute;left:56px;top:${top}px;width:840px;margin:0;font-size:20px;line-height:27px">${Array.from({ length: count }, (_, i) => `${i + 1}行目の説明です`).join('<br>')}</p>`;
     const fitted = await read(lines(380, 5));
     assert.deepEqual(fitted.problems, []);
-    assert.equal(fitted.fitted, 0.85);
+    // The line spacing (27px for 20px text) comes down first, so the text needs to be made only 90%.
+    assert.equal(fitted.squeezed, 0.35);
+    assert.equal(fitted.fitted, 0.9);
     const body = fitted.elements.find(e => e.t === 'text' && String(e.text).startsWith('1行目'))!;
-    assert.equal(body.size, 17);
+    assert.equal(body.size, 18);
     assert.equal(
       body.text,
       '1行目の説明です\n2行目の説明です\n3行目の説明です\n4行目の説明です\n5行目の説明です',
@@ -143,7 +145,8 @@ test(
     const fitted = await read(block(20, 27) + note, { minTextSize: presentation });
     assert.deepEqual(fitted.problems, []);
     assert.ok(fitted.fitted && fitted.fitted >= 0.85, String(fitted.fitted));
-    const tight = await read(block(16, 26) + note.replace('top:412px', 'top:400px').replace('18px', '16px'), {
+    // Spacing already at 1.3: only text 13.6px (85%) would make room, below the 14px floor.
+    const tight = await read(block(16, 21) + note.replace('top:412px', 'top:380px').replace('18px', '16px'), {
       minTextSize: presentation,
     });
     assert.ok(

@@ -27,41 +27,56 @@ interface RemadePage {
   slide: SlideSpec;
   shot?: string;
 }
+/** The pictures of the pages a look is given (drawn in PowerPoint when final) and the HTML each page was read from. */
+interface Look {
+  shots: Record<string, string>;
+  html: Record<string, string>;
+  final: boolean;
+}
+
+/** Pages touched up after one look at most: one call each, one after another (a subscription takes one call at a time). */
+const TOUCH_UPS = 4;
+/** A finding about a place the user fills in (［実施日］) is not acted on: the place is the user's to fill. */
+const BLANK = /［|未記入|記入欄/;
 
 /** Looking at drawn pages as pictures: samples of the directions, the look after the deck is shown, a page on request. */
 export class ReviewService {
   constructor(private readonly engine: SessionEngine) {}
 
-  /** Shows the drawn pages to the AI a few at a time and makes the pages with a high problem again once
-   * with the finding. Returns the new pages (checked, not yet finished), the findings by weight, and the
-   * pages that could not be made again. Nothing in the deck is changed here. */
+  /** Shows the drawn pages to the AI, a deck of usual length in one look so that its pages are compared too, and
+   * once touches up each page with a high or medium problem or one the app found (up to TOUCH_UPS, high ones
+   * first); a page whose HTML is not at hand is made again instead. Returns the new pages (checked, not yet
+   * finished), the findings acted on by page, the other findings, and the pages that could not be made again.
+   * Nothing in the deck is changed here. */
   private async reviewPages(
     state: SessionState,
     outline: Outline,
     slides: SlideSpec[],
-    shots: Record<string, string>,
+    look: Look,
     compact: boolean,
     known: ReviewHint[] = [],
   ) {
-    const pages = slides.filter(s => shots[s.id]),
+    const pages = slides.filter(s => look.shots[s.id]),
       hints: ReviewHint[] = [],
       severe = new Map<string, ReviewHint[]>(),
       replaced: Record<string, RemadePage> = {},
       unresolved: string[] = [];
-    // What the app found itself (a note to the maker left on a slide, the same kind of page three in a row) is made again too.
+    // What the app found itself (a note to the maker left on a slide, a part close to a side, the same kind of page
+    // three in a row) is acted on too.
     for (const hint of known) severe.set(hint.slideId, [...(severe.get(hint.slideId) ?? []), hint]);
     let checked = 0;
-    for (let i = 0; i < pages.length && this.engine.ai.callsLeft(state); i += REVIEW_BATCH_SIZE) {
-      const batch = pages.slice(i, i + REVIEW_BATCH_SIZE);
+    const size = Math.ceil(pages.length / Math.ceil(pages.length / REVIEW_BATCH_SIZE));
+    for (let i = 0; i < pages.length && this.engine.ai.callsLeft(state); i += size) {
+      const batch = pages.slice(i, i + size);
       try {
         const reply = validateReview(
           await this.engine.ai.complete(
             state,
             'review',
-            { pages: batch.map(s => ({ id: s.id, title: s.title })) },
+            { pages: batch.map(s => ({ id: s.id, title: s.title })), ...(look.final ? { final: true } : {}) },
             REVIEW_OUTPUT_TOKENS,
             undefined,
-            batch.map(s => shots[s.id]),
+            batch.map(s => look.shots[s.id]),
           ),
           batch.map(s => s.id),
         );
@@ -69,7 +84,8 @@ export class ReviewService {
         for (const page of reply)
           for (const problem of page.problems) {
             const hint: ReviewHint = { slideId: page.id, title: batch.find(s => s.id === page.id)!.title, ...problem };
-            if (problem.severity === 'high') severe.set(page.id, [...(severe.get(page.id) ?? []), hint]);
+            if (problem.severity !== 'low' && !BLANK.test(problem.what + problem.fix))
+              severe.set(page.id, [...(severe.get(page.id) ?? []), hint]);
             else hints.push(hint);
           }
       } catch (error) {
@@ -79,26 +95,32 @@ export class ReviewService {
         );
       }
     }
-    // One page per call: several pages remade at once can run past the answer limit, and then all of them are lost.
-    for (const [id, found] of severe) {
-      const done = this.engine.ai.callsLeft(state)
-        ? await this.redoPages(
-            state,
-            outline,
-            slides,
-            [id],
-            found.map(h => `${id}：${h.what}。${h.fix}`).join(' '),
-            compact,
-          )
-        : {};
+    // One page per call (several pages in one answer can run past its limit, and then all of them are lost), the
+    // pages with a high problem first.
+    const high = (found: ReviewHint[]) => (found.some(h => h.severity === 'high') ? 0 : 1);
+    for (const [index, [id, found]] of [...severe].sort(([, a], [, b]) => high(a) - high(b)).entries()) {
+      const done =
+        index < TOUCH_UPS && this.engine.ai.callsLeft(state)
+          ? await this.redoPages(
+              state,
+              outline,
+              slides,
+              [id],
+              found.map(h => `${id}：${h.what}。${h.fix}`).join(' '),
+              compact,
+              true,
+              look.html[id] && look.shots[id] ? { html: look.html[id], shot: look.shots[id] } : undefined,
+            )
+          : {};
       if (done[id]) replaced[id] = done[id];
       else unresolved.push(id);
     }
     return { checked, hints, severe, replaced, unresolved };
   }
-  /** Makes the given pages again with the finding from the look at them. Returns the new versions that
-   * pass the checks, with their pictures when drawn in a browser; a page missing from the result keeps its
-   * earlier version. */
+  /** Makes the given pages again with the finding from the look at them; a page whose HTML and picture are at hand
+   * (current) is touched up instead: the AI gets both back and changes only what was found, and the page keeps
+   * its notes and sources. Returns the new versions that pass the checks, with their pictures when drawn in a
+   * browser; a page missing from the result keeps its earlier version. */
   private async redoPages(
     state: SessionState,
     outline: Outline,
@@ -107,6 +129,7 @@ export class ReviewService {
     detail: string,
     compact: boolean,
     again = true,
+    current?: { html: string; shot: string },
   ): Promise<Record<string, RemadePage>> {
     const targetSlides = outline.slides.filter(s => ids.includes(s.id));
     try {
@@ -121,14 +144,22 @@ export class ReviewService {
           continuedFrom: slides.filter(s => !ids.includes(s.id)).map(continued),
           repair: {
             reason: 'VISUAL_REVIEW',
-            instruction:
-              '描画したページを画像で見直して見つかった問題です。文章・数値・出典は保ったまま、指摘されたページの図と配置を直してください。',
+            instruction: current
+              ? '描画したページを画像で見直して見つかった問題です。repair.htmlはこのページの今のHTMLで、画像はそれを描いたものです。このHTMLの指摘された所だけを直して返してください。指摘のない文章・数値・配置・色・写真は変えません。ノートと出典はアプリが今のものを使うので、notesは""、sourcesは[]にします。'
+              : '描画したページを画像で見直して見つかった問題です。文章・数値・出典は保ったまま、指摘されたページの図と配置を直してください。',
             detail: detail.slice(0, 1500),
+            ...(current ? { html: current.html } : {}),
           },
         },
         Math.min(GENERATION_OUTPUT_TOKENS, 3000 + targetSlides.length * 5500),
+        undefined,
+        current ? [current.shot] : undefined,
       );
       if (!response || response.mode !== outline.mode || !Array.isArray(response.slides)) return {};
+      const page = response.slides[0],
+        before = current && slides.find(s => s.id === ids[0]);
+      if (before && page && typeof page === 'object')
+        Object.assign(page, { notes: before.notes, sources: structuredClone(before.sources) });
       if (this.engine.pages.htmlFor(state))
         await this.engine.pages.layoutPages(state, outline, response.slides.slice(0, targetSlides.length));
       const done: Record<string, RemadePage> = {},
@@ -162,6 +193,7 @@ export class ReviewService {
             `${detail} / 作り直した案は次の検査で通りませんでした。見直しの指摘を生かしたまま直してください：${refused.map(r => r.why).join(' ')}`,
             compact,
             false,
+            current,
           ),
         );
       return done;
@@ -170,10 +202,20 @@ export class ReviewService {
     }
   }
   /** A second look at remade pages, as pictures: a remake can bring a new problem (text hidden under a shape
-   * that was moved, for example). Returns the findings per page; pages without a picture are not looked at. */
-  private async lookAgain(state: SessionState, pages: { slide: SlideSpec; shot?: string }[]) {
-    const found: Record<string, { severity: 'high' | 'medium' | 'low'; what: string; fix: string }[]> = {};
-    const drawn = pages.filter((p): p is { slide: SlideSpec; shot: string } => !!p.shot);
+   * that was moved, for example). Given each page's picture from before (drawn the same way), the AI compares the
+   * two and says whether the page got better. Returns the findings per page; pages without a picture are not
+   * looked at. */
+  private async lookAgain(
+    state: SessionState,
+    pages: { slide: SlideSpec; shot?: string; before?: string; asked?: string[] }[],
+    final = false,
+  ) {
+    const found: Record<
+      string,
+      { better?: boolean; problems: { severity: 'high' | 'medium' | 'low'; what: string; fix: string }[] }
+    > = {};
+    const drawn = pages.filter((p): p is typeof p & { shot: string } => !!p.shot),
+      compare = drawn.every(p => p.before);
     for (let i = 0; i < drawn.length && this.engine.ai.callsLeft(state); i += REVIEW_BATCH_SIZE) {
       const batch = drawn.slice(i, i + REVIEW_BATCH_SIZE);
       try {
@@ -181,14 +223,22 @@ export class ReviewService {
           await this.engine.ai.complete(
             state,
             'review',
-            { pages: batch.map(p => ({ id: p.slide.id, title: p.slide.title })) },
+            {
+              pages: batch.map(p => ({
+                id: p.slide.id,
+                title: p.slide.title,
+                ...(compare && p.asked ? { asked: p.asked } : {}),
+              })),
+              ...(compare ? { compare: true } : {}),
+              ...(final ? { final: true } : {}),
+            },
             REVIEW_OUTPUT_TOKENS,
             undefined,
-            batch.map(p => p.shot),
+            batch.flatMap(p => (compare ? [p.before!, p.shot] : [p.shot])),
           ),
           batch.map(p => p.slide.id),
         );
-        for (const page of reply) found[page.id] = page.problems;
+        for (const { id, ...page } of reply) found[id] = page;
       } catch (error) {
         if (error instanceof AppError && error.code === 'CALL_LIMIT') break;
       }
@@ -210,8 +260,8 @@ export class ReviewService {
     }
     return single.slides[0];
   }
-  /** The look at the drawn pages, after the deck is shown: pages with a high problem are made again and
-   * swapped in (the earlier version is kept to go back to); the other findings become hints. */
+  /** The look at the drawn pages, after the deck is shown: pages with a high or medium problem are touched up and
+   * swapped in when they got better (the earlier version is kept to go back to); the other findings become hints. */
   async polish(id: string) {
     return this.engine.lock(id, async state => {
       const job = state.polish,
@@ -230,11 +280,14 @@ export class ReviewService {
       // Its own operation: the calls of writing the pages do not count against this one's 12.
       state.repairOperation = { remaining: 0, startedCalls: startCalls };
       try {
+        // The pages are looked at as the user will see them, drawn in PowerPoint with their photos (as the browser
+        // drew them when PowerPoint cannot draw).
+        const drawn = await this.drawnPages(variant);
         const result = await this.reviewPages(
           state,
           job.outline,
           variant.deck.slides,
-          job.shots,
+          { shots: drawn ?? job.shots, html: job.html, final: !!drawn },
           job.compact,
           job.findings,
         );
@@ -258,15 +311,34 @@ export class ReviewService {
           fixed.push(slideId);
           remade.push({ slide: finished, ...(page.shot ? { shot: page.shot } : {}) });
         }
-        // The remade pages are looked at once more; one with a high problem of its own is not used (the user can
-        // still switch to it), and its other findings join the hints.
-        const second = remade.length ? await this.lookAgain(state, remade) : {},
+        // The remade pages are drawn the same way again and compared with how they were; one that did not get better
+        // or has a high problem of its own is not used (the user can still switch to it), and its other findings
+        // join the hints.
+        let after: Record<string, string> | undefined;
+        if (remade.length && drawn) {
+          delete variant.render;
+          await this.engine.placeImages(state);
+          after = await this.drawnPages(variant);
+        }
+        const before = after ? drawn : job.shots,
+          second = remade.length
+            ? await this.lookAgain(
+                state,
+                remade.map(p => ({
+                  slide: p.slide,
+                  shot: after?.[p.slide.id] ?? p.shot,
+                  before: before?.[p.slide.id],
+                  asked: (result.severe.get(p.slide.id) ?? []).map(h => h.what),
+                })),
+                !!after,
+              )
+            : {},
           secondHints: ReviewHint[] = [];
         for (const slideId of [...fixed]) {
-          const problems = second[slideId] ?? [],
+          const { better, problems = [] } = second[slideId] ?? {},
             title = variant.deck.slides.find(s => s.id === slideId)!.title;
           const high = problems.filter(p => p.severity === 'high');
-          if (high.length) {
+          if (high.length || better === false) {
             const at = variant.deck.slides.findIndex(s => s.id === slideId);
             variant.deck.slides[at] = structuredClone(versions[slideId].before);
             versions[slideId].applied = 'before';
@@ -277,7 +349,7 @@ export class ReviewService {
                 slideId,
                 title,
                 ...p,
-                what: `作り直した版にも重い問題：${p.what}`,
+                what: `手直しした版にも重い問題：${p.what}`,
                 unresolved: true,
               })),
             );
@@ -295,7 +367,7 @@ export class ReviewService {
           (a, b) => order(a.slideId) - order(b.slideId) || rank[a.severity] - rank[b.severity],
         );
         const calls = state.session.usage.calls - startCalls,
-          notes = hints.filter(h => h.severity !== 'high').length;
+          notes = hints.filter(h => h.severity !== 'high' && !h.fixed && !h.unresolved).length;
         state.session.reviewReport = { checked: result.checked, fixed, unresolved, calls };
         state.session.polish = {
           state: 'done',
@@ -307,7 +379,7 @@ export class ReviewService {
         if (result.checked)
           state.session.messages.push({
             role: 'assistant',
-            text: `描画した${result.checked}枚を画像で見直しました。${fixed.length ? `重い問題のあった${fixed.length}枚を作り直し、作り直したページももう一度確かめました（「確認のヒント」から直す前に戻せます）。` : '作り直しが必要な重い問題はありませんでした。'}${unresolved.length ? `${unresolved.length}枚は自動で直せなかったため、確認のヒントに載せています。` : ''}${notes ? `細かな気づき${notes}件は「確認のヒント」にあります。` : ''}この見直しのAI呼び出しは${calls}回です。`,
+            text: `描画した${result.checked}枚を画像で見直しました。${fixed.length ? `${fixed.length}枚を手直ししました${fixed.every(slideId => second[slideId]?.better) ? '。直す前と見比べて、良くなったページだけを使っています' : ''}（「確認のヒント」から直す前に戻せます）。` : unresolved.length ? '' : '手直しが必要な問題はありませんでした。'}${unresolved.length ? `${unresolved.length}枚は自動で直せなかったため、確認のヒントに載せています。` : ''}${notes ? `細かな気づき${notes}件は「確認のヒント」にあります。` : ''}この見直しのAI呼び出しは${calls}回です。`,
           });
       } catch {
         state.session.polish = { state: 'failed' };
@@ -356,12 +428,16 @@ export class ReviewService {
           if (this.engine.pages.htmlFor(state))
             await this.engine.pages.layoutPages(state, outline, response.slides.slice(0, targetSlides.length));
           const slides: SlideSpec[] = [],
-            shots: Record<string, string> = {};
+            shots: Record<string, string> = {},
+            html: Record<string, string> = {};
           targetSlides.forEach((target, i) => {
             try {
               const raw = response.slides[i];
               slides.push(this.engine.pages.checkPage(state, raw, target.id));
-              if (typeof raw.shot === 'string') shots[target.id] = raw.shot;
+              if (typeof raw.shot === 'string') {
+                shots[target.id] = raw.shot;
+                html[target.id] = raw.shotHtml;
+              }
             } catch {
               /* this page is not shown */
             }
@@ -376,7 +452,7 @@ export class ReviewService {
           };
           this.engine.pages.styleDeck(state, deck, outline);
           proposal.preview = improveTextFit(deck);
-          (state.previewSeeds ??= []).push({ outline: plainOutline(outline), slides, shots });
+          (state.previewSeeds ??= []).push({ outline: plainOutline(outline), slides, shots, html });
         } catch (error) {
           proposal.previewError =
             error instanceof AppError && error.code !== 'CALL_LIMIT'
@@ -417,7 +493,7 @@ export class ReviewService {
           await this.engine.ai.complete(
             state,
             'review',
-            { pages: [{ id: slide.id, title: slide.title }], focus: true },
+            { pages: [{ id: slide.id, title: slide.title }], focus: true, final: true },
             REVIEW_OUTPUT_TOKENS,
             undefined,
             [image],
@@ -446,7 +522,7 @@ export class ReviewService {
         )[slide.id];
         const finished = page && this.finishPage(state, variant.deck, page.slide);
         const second = finished
-            ? ((await this.lookAgain(state, [{ slide: finished, shot: page.shot }]))[slide.id] ?? [])
+            ? ((await this.lookAgain(state, [{ slide: finished, shot: page.shot }]))[slide.id]?.problems ?? [])
             : [],
           high = second.filter(p => p.severity === 'high'),
           calls = state.session.usage.calls - startCalls;
@@ -498,15 +574,31 @@ export class ReviewService {
       }
     });
   }
-  /** One page as the user sees it: the PowerPoint thumbnail of the deck (drawn now if it is not yet). */
+  /** The pages drawn in PowerPoint by slide id, or undefined when PowerPoint cannot draw them. */
+  private async drawnPages(variant: DeckVariant) {
+    try {
+      const images = await this.pageImages(variant);
+      return Object.fromEntries(variant.deck.slides.map((s, i) => [s.id, images[i]]));
+    } catch {
+      return undefined;
+    }
+  }
+  /** One page as the user sees it. */
   private async pageImage(variant: DeckVariant, index: number) {
+    return (await this.pageImages(variant))[index];
+  }
+  /** The pages as the user sees them: the PowerPoint thumbnails of the deck (drawn now if they are not yet). */
+  private async pageImages(variant: DeckVariant) {
     try {
       if (!variant.render) variant.render = await this.engine.options.render(variant.deck, variant.id);
-      const file = variant.render.thumbnails[index];
-      if (!file || !this.engine.options.artifactRoot) throw new Error('no thumbnail');
-      return (
-        await readFile(path.join(this.engine.options.artifactRoot, variant.render.artifactId, path.basename(file)))
-      ).toString('base64');
+      const { artifactId, thumbnails } = variant.render,
+        root = this.engine.options.artifactRoot;
+      if (!root || thumbnails.length !== variant.deck.slides.length) throw new Error('no thumbnails');
+      return await Promise.all(
+        thumbnails.map(async file =>
+          (await readFile(path.join(root, artifactId, path.basename(file)))).toString('base64'),
+        ),
+      );
     } catch {
       throw new AppError(
         503,

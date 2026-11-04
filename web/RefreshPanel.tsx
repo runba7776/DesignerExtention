@@ -377,6 +377,21 @@ export function refreshMarks(scene: RenderDocument, deck: DeckSpec, summary: Ref
       return [{ x: e.x, y: e.y, w: e.w, h: e.h }];
     if (e.kind === 'chart' && e.series.some(s => s.values.some(v => values.has(String(v)))))
       return [{ x: e.x, y: e.y, w: e.w, h: e.h }];
+    if (e.kind === 'table')
+      return e.cells.flatMap((row, r) =>
+        row.flatMap((cell, i) =>
+          numberSpans(cell.text).some(s => texts.has(s.raw))
+            ? [
+                {
+                  x: e.x + e.columns.slice(0, i).reduce((a, b) => a + b, 0),
+                  y: e.y + e.rows.slice(0, r).reduce((a, b) => a + b, 0),
+                  w: e.columns[i],
+                  h: e.rows[r],
+                },
+              ]
+            : [],
+        ),
+      );
     if (
       e.kind === 'smartart' &&
       e.items.some(item =>

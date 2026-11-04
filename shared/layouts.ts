@@ -9,6 +9,8 @@ import type {
   Rect,
   SlideItem,
   ShapeElement,
+  TableCell,
+  TableElement,
 } from './contracts';
 import { MAX_SLIDES } from './contracts';
 import { themes } from './themes';
@@ -18,11 +20,13 @@ import { registerPremiumLayouts } from './premium-layouts';
 import { registerMicrosoftLayouts } from './microsoft-layouts';
 import { registerDesignLayouts } from './design-layouts';
 import { iconElements, resolveItemIcon } from './icons';
-import { chartColors, chartGridColor, isShareChart, isStackedChart } from './charts';
+import { chartAlt, chartColors, chartGridColor, isShareChart, isStackedChart } from './charts';
 import { withTypography, fontFor } from './typography';
 import { itemColor, panelFill, negativeColor, ruleColor, mixColor, contrast, readableColor } from './color';
 import { chartNumber } from './charts';
 import { drawDesign, footerInk, FREE_LAYOUT_ID } from './free-design';
+import { glueLines } from './connectors';
+import { deckTitleSize, tidyDesign } from './tidy';
 import { legacyGuidance, groupCautions, type LayoutGroup, type ResearchSource } from './layout-guidance';
 import { TEMPLATE_THEME_ID } from './themes';
 import { AI_THEME_ID } from './ai-theme';
@@ -275,7 +279,20 @@ function baseContext(slide: SlideSpec, theme: Theme, mode: DeckSpec['mode']): La
     theme,
     mode,
     text(text, rect, size = 21, color = theme.foreground, bold = false, align = 'left', role) {
-      if (!text) return;
+      if (!text) {
+        // A band or panel drawn just before for a text that is not there (a summary the AI left out) is not
+        // left empty on the page.
+        const last = scene.elements.at(-1);
+        if (
+          last?.kind === 'shape' &&
+          last.x <= rect.x &&
+          last.y <= rect.y &&
+          last.x + last.w >= rect.x + rect.w &&
+          last.y + last.h >= rect.y + rect.h
+        )
+          scene.elements.pop();
+        return;
+      }
       const clean = (s: string) => s.replace(/\s/g, '');
       role ??=
         slide.equation && clean(text) === clean(slide.equation.text)
@@ -515,6 +532,7 @@ function chartAt(c: LayoutContext, data: NonNullable<SlideSpec['chart']>, rect: 
       labelSize,
       showValues,
       categoryOrder: 'input',
+      alt: chartAlt(data),
     });
   }
   const unitWidth =
@@ -559,29 +577,104 @@ function tableAt(c: LayoutContext, data: NonNullable<SlideSpec['table']>, rect: 
   let size = requested ?? 17;
   if (requested !== undefined) while (size > 10 && !cellFits(size)) size--;
   const strong = c.theme.tableStyle === 'contrast';
-  c.shape({ x: rect.x, y: rect.y, w: rect.w, h: rowH }, strong ? c.theme.accent : c.theme.pale);
   const pad = Math.min(9, Math.max(3, (rowH - size * 1.35 - 3) / 2));
-  data.headers.forEach((header, i) =>
-    c.text(
-      header,
-      { x: rect.x + i * colW + 10, y: rect.y + pad, w: colW - 20, h: rowH - pad * 2 },
-      size,
-      strong ? c.theme.background : c.theme.foreground,
-      true,
-    ),
-  );
-  rows.forEach((row, r) => {
-    if (c.theme.tableStyle === 'striped' && r % 2 === 1)
-      c.shape({ x: rect.x, y: rect.y + (r + 1) * rowH, w: rect.w, h: rowH }, c.theme.pale);
-    c.line(rect.x, rect.y + (r + 2) * rowH, rect.w);
-    row.forEach((cell, i) =>
-      c.text(
-        cell,
-        { x: rect.x + i * colW + 10, y: rect.y + (r + 1) * rowH + pad, w: colW - 20, h: rowH - pad * 2 },
-        size,
-      ),
-    );
+  // PowerPoint's own table: the heading row on a pale (or the accent) colour, a rule under each row.
+  const cell = (text: string, header: boolean, r: number): TableCell => {
+    const fitted = measureText(text, { x: 0, y: 0, w: colW - 20, h: rowH - pad * 2 }, size);
+    if (fitted.overflow) {
+      (c.scene.textIssues ??= []).push({ text, maxCharacters: fitted.maxCharacters });
+      c.scene.warnings.push(`「${c.slide.title}」に要約が必要な文章があります。書き出し前に調整します。`);
+    }
+    const fill = header
+      ? strong
+        ? c.theme.accent
+        : c.theme.pale
+      : c.theme.tableStyle === 'striped' && r % 2 === 1
+        ? c.theme.pale
+        : undefined;
+    // A stand-alone decrease (△8.8%, -1,900億円) reads as a decrease at a glance.
+    const color =
+      header && strong
+        ? c.theme.background
+        : isNegativeValue(text) && contrast(c.theme.foreground, c.theme.background) >= 3
+          ? negativeColor(c.theme)
+          : c.theme.foreground;
+    return {
+      text: fitted.text,
+      fontSize: fitted.fontSize,
+      color,
+      ...(header ? { bold: true } : {}),
+      verticalAlign: 'top',
+      ...(fill ? { fill } : {}),
+      margin: [10, pad, 10, pad],
+      ...(header ? {} : { borders: [null, null, { width: 1, color: c.theme.pale }, null] }),
+    };
+  };
+  c.scene.elements.push({
+    kind: 'table',
+    ...rect,
+    columns: data.headers.map(() => colW),
+    rows: [data.headers, ...rows].map(() => rowH),
+    cells: [data.headers.map(h => cell(h, true, -1)), ...rows.map((row, r) => row.map(v => cell(v, false, r)))],
+    header: true,
+    ...fontFor(c.theme, 'body'),
   });
+}
+/** A table drawn as plain parts (cell fills, borders and texts), for the preview; PowerPoint draws its own table. */
+export function tableParts(t: TableElement): SceneElement[] {
+  const fills: SceneElement[] = [],
+    texts: SceneElement[] = [];
+  let y = t.y;
+  t.rows.forEach((h, r) => {
+    let x = t.x;
+    t.columns.forEach((w, i) => {
+      const cell = t.cells[r]?.[i];
+      if (cell) {
+        if (cell.fill) fills.push({ kind: 'shape', x, y, w, h, shape: 'rect', fill: cell.fill, opacity: cell.opacity });
+        const [top, right, bottom, left] = cell.borders ?? [];
+        const rule = (side: typeof top, x1: number, y1: number, x2: number, y2: number) => {
+          if (side)
+            fills.push({
+              kind: 'line',
+              x: x1,
+              y: y1,
+              w: x2 - x1,
+              h: y2 - y1,
+              stroke: side.color,
+              strokeWidth: side.width,
+            });
+        };
+        rule(top, x, y, x + w, y);
+        rule(right, x + w, y, x + w, y + h);
+        rule(bottom, x, y + h, x + w, y + h);
+        rule(left, x, y, x, y + h);
+        const [ml, mt, mr, mb] = cell.margin ?? [7, 4, 7, 4];
+        texts.push({
+          kind: 'text',
+          x: x + ml,
+          y: y + mt,
+          w: Math.max(1, w - ml - mr),
+          h: Math.max(1, h - mt - mb),
+          text: cell.text,
+          fontSize: cell.fontSize,
+          color: cell.color,
+          bold: cell.bold,
+          italic: cell.italic,
+          align: cell.align,
+          verticalAlign: cell.verticalAlign,
+          lineHeight: cell.lineHeight,
+          runs: cell.runs,
+          blankColor: cell.blankColor,
+          noWrap: t.noWrap,
+          font: t.font,
+          fontFarEast: t.fontFarEast,
+        });
+      }
+      x += w;
+    });
+    y += h;
+  });
+  return [...fills, ...texts];
 }
 function diagram(c: LayoutContext, layout: 'process' | 'cycle' | 'hierarchy' | 'list', rect: Rect) {
   const items = c.slide.diagram?.items ?? c.slide.items;
@@ -631,7 +724,7 @@ registerLayout({
       // A full-bleed dark cover (the opening of a dark/light/dark sandwich).
       const field = coverField(c.theme),
         ink = readableColor('#FFFFFF', field);
-      c.shape({ x: 0, y: 0, w: 960, h: 540 }, field);
+      c.scene.background = field;
       c.text(c.slide.title, { x: 64, y: 150, w: 800, h: 190 }, 44, ink, true);
       c.text(c.slide.headline || c.slide.body || '', { x: 66, y: 366, w: 780, h: 84 }, 22, mixColor(ink, field, 0.78));
       return;
@@ -813,6 +906,13 @@ export function deckTheme(deck: Pick<DeckSpec, 'themeId' | 'typographyId' | 'cus
     return deck.typographyId ? withTypography(deck.aiTheme, deck.typographyId) : deck.aiTheme;
   return withTypography(themes[deck.themeId] ?? themes.paper, deck.typographyId);
 }
+/** The deck's colours as PowerPoint theme colours: text, background, muted text, pale fill, then the accents. */
+function themeColors(theme: Theme) {
+  const accents = [...new Set([theme.accent, theme.secondary, ...(theme.itemColors ?? [])])].slice(0, 6);
+  // A PowerPoint theme has six accents; missing ones are deeper shades of the deck's own.
+  for (let i = 0; accents.length < 6; i++) accents.push(mixColor(accents[i], theme.foreground, 0.65));
+  return [theme.foreground, theme.background, theme.muted, theme.pale, ...accents];
+}
 const superscripts = '⁰¹²³⁴⁵⁶⁷⁸⁹';
 /** Citation marker for an item, e.g. refs [1,3] -> ¹˒³. */
 export function citationMarker(refs: number[] | undefined) {
@@ -848,7 +948,17 @@ export function compileDeck(deck: DeckSpec): RenderDocument {
   if (!deck.slides.length || deck.slides.length > MAX_SLIDES)
     throw new Error(`スライドは表紙を含めて1〜${MAX_SLIDES}枚にしてください。`);
   const theme = deckTheme(deck);
-  const result: RenderDocument = { title: deck.title, mode: deck.mode, theme, width: 960, height: 540, slides: [] };
+  const result: RenderDocument = {
+    title: deck.title,
+    mode: deck.mode,
+    theme,
+    width: 960,
+    height: 540,
+    slides: [],
+    // A company template's slides take that deck's theme when inserted, so they name their own colours and fonts.
+    ...(deck.themeId === TEMPLATE_THEME_ID ? {} : { themeColors: themeColors(theme) }),
+  };
+  const titleSize = deckTitleSize(deck.slides);
   for (const [i, source] of deck.slides.entries()) {
     const slide = citedSlide(source);
     const numbered =
@@ -861,7 +971,7 @@ export function compileDeck(deck: DeckSpec): RenderDocument {
       c.scene.warnings.push(`未登録の構図「${slide.layoutId}」は要点の配置で表示しました。`);
     // An AI-designed slide draws its own title and composition.
     if (slide.design) {
-      drawDesign(c, slide.design, designHelpers);
+      drawDesign(c, tidyDesign(slide.design, slide.layoutId === 'cover' ? undefined : titleSize), designHelpers);
       // PowerPoint measures the real glyphs; an AI-placed text a little too wide is set
       // up to 20% smaller there instead of stopping the whole export.
       for (const el of c.scene.elements)
@@ -879,6 +989,10 @@ export function compileDeck(deck: DeckSpec): RenderDocument {
           'heading',
         );
       layout.render(c);
+      // A layout draws the slide's title first.
+      const first = c.scene.elements.find(e => e.kind === 'text');
+      if (first?.kind === 'text' && first.text.replace(/\s/g, '') === slide.title.replace(/\s/g, ''))
+        first.title = true;
     }
     const footer = slide.sources.map((s, index) => sourceLine(s, index, numbered)).join(' / ');
     const footerWidth = deck.pageNumbers === false ? 848 : 774;
@@ -888,18 +1002,25 @@ export function compileDeck(deck: DeckSpec): RenderDocument {
         : field
           ? mixColor(readableColor('#FFFFFF', field), field, 0.62)
           : theme.muted;
-    if (footer) {
-      const rect = { x: 56, y: 505, w: footerWidth, h: 22 };
+    // Photos found for the page are credited beside the sources (author and licence), in full in the notes.
+    const pictures = (slide.design?.elements ?? []).flatMap(e => (e.t === 'image' && e.credit ? [e] : [])),
+      credits = pictures.length ? `画像 ${[...new Set(pictures.map(e => e.credit))].join(' / ')}` : '';
+    if (footer || credits) {
+      const rect = { x: 56, y: 505, w: footerWidth, h: 22 },
+        full = [footer && '出典 ' + footer, credits].filter(Boolean).join('　'),
+        numbers = `出典 ${slide.sources.map((_, i) => `[${i + 1}]`).join(' ')}`;
       c.text(
-        measureText('出典 ' + footer, rect, 10).overflow
-          ? `出典 ${slide.sources.map((_, i) => `[${i + 1}]`).join(' ')}　資料名・位置・引用は発表者ノートに記載`
-          : '出典 ' + footer,
+        !measureText(full, rect, 10).overflow
+          ? full
+          : credits
+            ? `${footer ? numbers + '　' : ''}画像 Wikimedia Commons　作者・利用条件は発表者ノートに記載`
+            : `${numbers}　資料名・位置・引用は発表者ノートに記載`,
         rect,
         10,
         footerColor,
       );
     }
-    if (deck.pageNumbers !== false)
+    if (deck.pageNumbers !== false) {
       c.text(
         `${i + 1} / ${deck.slides.length}`,
         { x: 837, y: 505, w: 67, h: 22 },
@@ -908,12 +1029,17 @@ export function compileDeck(deck: DeckSpec): RenderDocument {
         false,
         'right',
       );
+      (c.scene.elements.at(-1) as TextElement).slideNumber = true;
+    }
     if (slide.sources.length)
       c.scene.notes +=
         '\n\n出典:\n' +
         slide.sources
           .map((s, index) => `${sourceLine(s, index, true)}${s.quote ? '\n「' + s.quote + '」' : ''}`)
           .join('\n');
+    if (pictures.length)
+      c.scene.notes +=
+        '\n\n画像（Wikimedia Commons）:\n' + pictures.map(e => `${e.credit}${e.page ? ' ' + e.page : ''}`).join('\n');
     // Retain structured content in notes when a chosen layout has no dedicated field.
     // An AI-designed page draws all of its text, so its notes are not filled with a copy.
     if (!slide.design)
@@ -932,6 +1058,7 @@ export function compileDeck(deck: DeckSpec): RenderDocument {
       el => el.x < 0 || el.y < 0 || el.x + el.w > 961 || el.y + el.h > 541,
     );
     if (unknown.length) throw new Error(`「${slide.title}」の配置がスライドの範囲外です。`);
+    glueLines(c.scene.elements);
     c.scene.warnings = [...new Set(c.scene.warnings)];
     result.slides.push(c.scene);
   }
@@ -989,6 +1116,7 @@ function referenceSlides(deck: DeckSpec, theme: Theme): SceneSlide[] {
       true,
       'heading',
     );
+    (scene.elements[0] as TextElement).title = true;
     scene.elements.push({ kind: 'line', x: 56, y: 139, w: 848, h: 0, stroke: theme.pale, strokeWidth: 1 });
     entries.slice(start, start + perPage).forEach((entry, row) => {
       const y = 158 + row * 48;

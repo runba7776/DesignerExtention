@@ -205,6 +205,8 @@ export class SettingsStore {
       throw new AppError(400, '構成案を3つ出すかどうかは、オン・オフで指定してください。');
     if (value.visualReview !== undefined && typeof value.visualReview !== 'boolean')
       throw new AppError(400, '画像での点検は、オン・オフで指定してください。');
+    if (value.imageSearch !== undefined && typeof value.imageSearch !== 'boolean')
+      throw new AppError(400, '写真を探すかどうかは、オン・オフで指定してください。');
     if (value.proposalPreviews !== undefined && typeof value.proposalPreviews !== 'boolean')
       throw new AppError(400, '構成案の見本を作るかどうかは、オン・オフで指定してください。');
     const chatService = value.chatService ?? 'chatgpt';
@@ -266,6 +268,7 @@ export class SettingsStore {
       editorialGuide: value.editorialGuide !== false,
       outlineProposals: value.outlineProposals !== false,
       visualReview: value.visualReview !== false,
+      imageSearch: value.imageSearch !== false,
       proposalPreviews: value.proposalPreviews !== false,
       chatService: chatService as Settings['chatService'],
       subscriptionService: subscriptionService as Settings['subscriptionService'],

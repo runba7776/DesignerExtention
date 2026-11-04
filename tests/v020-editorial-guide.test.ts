@@ -8,7 +8,7 @@ import { SessionEngine } from '../server/engine.js';
 import { SettingsStore } from '../server/settings.js';
 import { emptyUsage, type CompletionRequest } from '../server/providers.js';
 import { freeSystemPrompt } from '../server/free-prompts.js';
-import { EDITORIAL_GUIDE } from '../server/editorial-guide.js';
+import { EDITORIAL_GUIDE, EDITORIAL_GUIDE_SHORT } from '../server/editorial-guide.js';
 
 const usage = { ...emptyUsage(), calls: 1 };
 const t = (x: number, y: number, w: number, h: number, text: string, size: number, role?: string) => ({
@@ -99,12 +99,14 @@ test('the app sends the standing instruction by default and leaves it out when t
     });
     const on = await engine.create({ prompt: '2枚' }, []);
     await engine.generate(on.id);
-    assert.ok(systems.length === 2 && systems.every(s => s.includes(EDITORIAL_GUIDE)), 'plan and generation');
+    // A local model gets the instruction's points (the whole one goes to a monthly plan, see v019).
+    assert.ok(systems.length === 2 && systems.every(s => s.includes(EDITORIAL_GUIDE_SHORT)), 'plan and generation');
+    assert.ok(systems.every(s => !s.includes(EDITORIAL_GUIDE)));
     await settings.update({ editorialGuide: false });
     systems.length = 0;
     const off = await engine.create({ prompt: '2枚' }, []);
     await engine.generate(off.id);
-    assert.ok(systems.length === 2 && systems.every(s => !s.includes('【常設指示】')));
+    assert.ok(systems.length === 2 && systems.every(s => !s.includes('【常設指示')));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -89,6 +89,19 @@ export class PageRules {
       state.sendScope !== 'design'
     );
   }
+  /** Photos from Wikimedia Commons for the places the AI marks (installed app): the AI's search words leave
+   * this PC, so only when the content already goes to a cloud AI as it is (not masked, not kept on this PC). */
+  imagesFor(state: SessionState, run?: AiRun) {
+    const settings = run ? this.engine.ai.targetSettings(state, run.target) : state.settings;
+    return (
+      !!this.engine.options.images &&
+      this.freeDesign(state) &&
+      state.settings.imageSearch !== false &&
+      ![settings.provider, state.settings.provider].some(p => p === 'local' || p === 'demo') &&
+      state.sendScope !== 'design' &&
+      !this.engine.ai.masking(state)
+    );
+  }
   /** HTML method: each returned page's HTML is drawn in a browser and read back as the page's design. */
   async layoutPages(state: SessionState, outline: Outline, slides: unknown[], run?: AiRun) {
     const theme = this.designOptions(state, outline, run).theme!;
@@ -119,21 +132,27 @@ export class PageRules {
       );
     }
     work.forEach((raw, i) => {
-      const result = results[i];
+      const result = results[i],
+        html = raw.html;
       delete raw.html;
       if (!result || 'error' in result) {
         raw.htmlProblem = result?.error ?? 'HTMLを読み取れませんでした。';
         return;
       }
       raw.design = { ...(result.background ? { background: result.background } : {}), elements: result.elements };
-      if (result.shot) raw.shot = result.shot;
+      // The page's HTML stays beside its picture: the look at the pages gives both back to the AI for a touch-up.
+      if (result.shot) Object.assign(raw, { shot: result.shot, shotHtml: html });
       const name = `「${typeof raw.title === 'string' ? raw.title.slice(0, 40) : raw.id}」`;
       if (result.problems.length) raw.htmlProblem = result.problems.slice(0, 3).join(' ');
-      else if (result.fitted)
+      else if (result.squeezed || result.fitted) {
+        const done = [
+          result.squeezed && '余白を詰め',
+          result.fitted && `文字を${Math.round(result.fitted * 100)}%に縮め`,
+        ];
         state.session.warnings.push(
-          `${name}は文字が下端に少しはみ出したため、文字を${Math.round(result.fitted * 100)}%に縮めて収めました（AIは呼び出していません）。`,
+          `${name}は文字が下端に少しはみ出したため、${done.filter(Boolean).join('、')}て収めました（AIは呼び出していません）。`,
         );
-      else if (result.keptSmall)
+      } else if (result.keptSmall)
         state.session.warnings.push(
           `${name}は一部の文字を既定より少し小さいまま（本文は最大2px）作成しました。大きくすると収まらないためです（AIは呼び出していません）。`,
         );
@@ -158,6 +177,7 @@ export class PageRules {
       design: 'free' as const,
       format,
       local: (run ? this.engine.ai.targetSettings(state, run.target) : state.settings).provider === 'local',
+      images: this.imagesFor(state, run),
       editorial: state.settings.editorialGuide !== false,
       outputMode: state.settings.mode,
       theme: ai
@@ -215,10 +235,14 @@ export class PageRules {
         }
       : undefined;
   }
-  /** Pages can be shown to the AI as images: an AI-designed deck made through a monthly plan whose
-   * provider takes pictures, and no masking (a picture shows the real names and numbers). */
+  /** Pages can be shown to the AI as images: an AI-designed deck made through a monthly plan or a local
+   * model whose provider takes pictures, and no masking (a picture shows the real names and numbers). */
   canLook(state: SessionState) {
-    if (!this.freeDesign(state) || state.settings.provider !== 'subscription' || this.engine.ai.masking(state))
+    if (
+      !this.freeDesign(state) ||
+      !['subscription', 'local'].includes(state.settings.provider) ||
+      this.engine.ai.masking(state)
+    )
       return false;
     try {
       return (
@@ -252,6 +276,19 @@ export class PageRules {
       const slide = validateSlide(raw, expected);
       if ((slide.id === 'slide-1') !== (slide.layoutId === 'cover'))
         throw new AppError(422, '表紙と本文の役割が構成と一致しません。', 'INVALID_CONTENT');
+      // gemma4 returned layout pages with nothing but the title (3 of 5 in one deck); no layout is only a title.
+      const { items, body, headline, chart, table, diagram, equation, design } = slide;
+      if (
+        state.settings.provider === 'local' &&
+        slide.layoutId !== 'cover' &&
+        !items.length &&
+        !(body || headline || chart || table || diagram || equation || design)
+      )
+        throw new AppError(
+          422,
+          'ページに題名しかありません。要点（items）か本文（body）を書いてください。',
+          'INVALID_CONTENT',
+        );
       this.verifySources(state, [slide]);
       return slide;
     } catch (error) {

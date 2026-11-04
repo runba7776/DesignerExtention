@@ -98,3 +98,14 @@ export function chartGridColor(theme: Theme) {
 export function chartNumber(value: number) {
   return new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 15, maximumSignificantDigits: 15 }).format(value);
 }
+/** A chart in words for PowerPoint's alternative text: its kind, unit and every value
+ * (縦棒グラフ（社）：新規 35、解約 8). */
+export function chartAlt(chart: ChartSpec) {
+  const values = (series: ChartSpec['series'][number]) =>
+    chart.categories.map((category, i) => `${category} ${chartNumber(series.values[i])}`).join('、');
+  const body =
+    chart.series.length === 1
+      ? values(chart.series[0])
+      : chart.series.map(series => `${series.name}（${values(series)}）`).join('、');
+  return `${chartCatalog[chart.type].name}${chart.unit ? `（${chart.unit}）` : ''}：${body}`.slice(0, 250);
+}

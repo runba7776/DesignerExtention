@@ -358,7 +358,7 @@ export function SettingsDialog({
           </small>
         </label>
       )}
-      {(draft.designMode ?? 'html') === 'html' && draft.provider === 'subscription' && (
+      {(draft.designMode ?? 'html') === 'html' && (draft.provider === 'subscription' || draft.provider === 'local') && (
         <label className="field auto-repair-setting">
           <span>
             <input
@@ -370,7 +370,25 @@ export function SettingsDialog({
             描画したページを画像でAIに見直させて仕上げる
           </span>
           <small>
-            資料を表示したあと、ページの画像をAIに見せます。中身のない図や、図と説明の食い違いなどの重い問題があるページを作り直し（直す前に戻せます）、細かな気づきは「確認のヒント」として表示します。1本あたり30〜60秒ほどかかります。伏せ字を使うプロジェクトでは行いません。オフでも、各ページの「見直す」で選んだページだけ見直せます。
+            資料を表示したあと、描いたページの画像をAIに見せます。図と説明の食い違いや目立つ崩れのあるページは、指摘された所だけを手直しし、もう一度描いて直す前と見比べ、良くなったときだけ使います（直す前に戻せます）。細かな気づきは「確認のヒント」として表示します。1本あたり1分〜1分半ほど（ローカルLLMは画像を読めるモデルのときだけで、数分以上）かかります。伏せ字を使うプロジェクトでは行いません。オフでも、各ページの「見直す」で選んだページだけ見直せます。
+          </small>
+        </label>
+      )}
+      {draft.designMode !== 'template' && !__HOSTED__ && ['subscription', 'chat'].includes(draft.provider) && (
+        <label className="field auto-repair-setting">
+          <span>
+            <input
+              type="checkbox"
+              checked={draft.imageSearch !== false}
+              disabled={activeSession || saving}
+              onChange={event => setDraft({ ...draft, imageSearch: event.target.checked })}
+            />
+            写真・イラストを探して入れる
+          </span>
+          <small>
+            AIが写真を置く場所と英語の検索語を決め、アプリがWikimedia Commonsで自由に使える画像（CC0・CC BY・CC
+            BY-SAなど）を探して入れます。作者と利用条件はページ下端と発表者ノートに記載します。検索語はWikimedia
+            Commonsに送られます。伏せ字を使うプロジェクト、ローカルLLM、デザインだけを依頼するときは探しません。
           </small>
         </label>
       )}

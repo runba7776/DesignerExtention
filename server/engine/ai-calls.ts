@@ -37,6 +37,18 @@ const PLAN_SCHEMA = {
   additionalProperties: true,
 };
 
+/** The answer of a look at drawn pages: one JSON object listing the pages it found problems on. */
+const REVIEW_SCHEMA = {
+  type: 'object',
+  properties: {
+    pages: {
+      type: 'array',
+      items: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'], additionalProperties: true },
+    },
+  },
+  required: ['pages'],
+};
+
 /** Every call to an AI goes through here: where the material may go, the call limits, masking, automatic retries and usage. */
 export class AiCalls {
   constructor(private readonly engine: SessionEngine) {}
@@ -141,7 +153,9 @@ export class AiCalls {
           ? { schema: pagesSchema(request.targetSlides.length) }
           : task === 'plan'
             ? { schema: PLAN_SCHEMA }
-            : {}),
+            : task === 'review'
+              ? { schema: REVIEW_SCHEMA }
+              : {}),
       });
       this.addUsage(state.session.usage, response.usage);
       return this.unmask(state, parseJsonResponse(response.text));

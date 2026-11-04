@@ -1,10 +1,12 @@
 import type {
   ChartElement,
   DeckSpec,
+  Rect,
   RenderDocument,
   RenderResult,
   SceneElement,
   SmartArtElement,
+  TableElement,
   TextElement,
 } from '../../shared/contracts';
 import { compileDeck } from '../../shared/layouts';
@@ -16,6 +18,7 @@ import { assertTextFits } from '../../server/text-fit';
  * charts with embedded data, diagrams as grouped editable shapes, and notes. */
 type Pptx = import('pptxgenjs').default;
 type Slide = ReturnType<Pptx['addSlide']>;
+type BorderProps = import('pptxgenjs').default.BorderProps;
 const inch = (points: number) => points / 72;
 const hex = (color: string | undefined, fallback = '000000') =>
   (color && /^#[0-9a-f]{6}$/i.test(color) ? color.slice(1) : fallback).toUpperCase();
@@ -57,27 +60,25 @@ function textRuns(e: Pick<TextElement, 'text' | 'runs'>) {
   });
   return out;
 }
+type TextLook = Pick<
+  TextElement,
+  | 'text'
+  | 'fontSize'
+  | 'color'
+  | 'bold'
+  | 'align'
+  | 'font'
+  | 'fontFarEast'
+  | 'noWrap'
+  | 'italic'
+  | 'verticalAlign'
+  | 'lineHeight'
+  | 'runs'
+  | 'spacing'
+>;
 function addText(
   slide: Slide,
-  e: Pick<
-    TextElement,
-    | 'x'
-    | 'y'
-    | 'w'
-    | 'h'
-    | 'text'
-    | 'fontSize'
-    | 'color'
-    | 'bold'
-    | 'align'
-    | 'font'
-    | 'fontFarEast'
-    | 'noWrap'
-    | 'italic'
-    | 'verticalAlign'
-    | 'lineHeight'
-    | 'runs'
-  >,
+  e: TextLook & Pick<TextElement, 'x' | 'y' | 'w' | 'h'>,
   valign: 'top' | 'middle' | 'bottom' = e.verticalAlign ?? 'top',
   margin = 0,
 ) {
@@ -86,6 +87,16 @@ function addText(
     y: inch(e.y),
     w: inch(e.w),
     h: inch(e.h),
+    ...textOptions(e, valign, margin),
+  });
+}
+/** A text's look as PptxGenJS options; margin in pt (left, right, bottom, top). */
+function textOptions(
+  e: TextLook,
+  valign: 'top' | 'middle' | 'bottom',
+  margin: number | [number, number, number, number],
+) {
+  return {
     margin,
     fontFace: safeFont(japanese.test(e.text) ? (e.fontFarEast ?? e.font) : e.font),
     fontSize: e.fontSize,
@@ -97,7 +108,61 @@ function addText(
     wrap: !e.noWrap,
     fit: 'none',
     ...(e.lineHeight ? { lineSpacing: e.lineHeight } : { lineSpacingMultiple: 1.05 }),
+    ...(e.spacing ? { charSpacing: e.spacing } : {}),
     paraSpaceAfter: 0,
+  } as const;
+}
+
+/** A PowerPoint table: each cell keeps its own fill, borders, margins and text look. */
+function addTable(slide: Slide, e: TableElement) {
+  const side = (border?: { width: number; color: string } | null) =>
+    border ? { type: 'solid' as const, pt: border.width, color: hex(border.color) } : { type: 'none' as const };
+  const rows = e.cells.map(row =>
+    row.map(cell => {
+      // PptxGenJS reads a margin as points when the first (top) one is 1 or more, else as inches.
+      const margin: [number, number, number, number] = cell.margin
+        ? [cell.margin[1], cell.margin[2], cell.margin[3], cell.margin[0]]
+        : [0, 0, 0, 0];
+      return {
+        text: cell.runs?.length ? textRuns(cell) : cell.text,
+        options: {
+          fontFace: safeFont(japanese.test(cell.text) ? (e.fontFarEast ?? e.font) : e.font),
+          fontSize: cell.fontSize,
+          color: hex(cell.color),
+          bold: !!cell.bold,
+          italic: !!cell.italic,
+          align: cell.align ?? 'left',
+          valign: cell.verticalAlign ?? 'top',
+          margin: margin[0] >= 1 ? margin : (margin.map(inch) as typeof margin),
+          border: [0, 1, 2, 3].map(i => side(cell.borders?.[i])) as [
+            BorderProps,
+            BorderProps,
+            BorderProps,
+            BorderProps,
+          ],
+          ...(cell.fill
+            ? {
+                fill: {
+                  color: hex(cell.fill),
+                  ...(cell.opacity !== undefined && cell.opacity < 1
+                    ? { transparency: Math.round((1 - cell.opacity) * 100) }
+                    : {}),
+                },
+              }
+            : {}),
+          // Not in the cell type, but every line of the cell takes it (as in a text box).
+          ...(cell.lineHeight ? { lineSpacing: cell.lineHeight } : {}),
+        },
+      };
+    }),
+  );
+  slide.addTable(rows, {
+    x: inch(e.x),
+    y: inch(e.y),
+    w: inch(e.w),
+    h: inch(e.h),
+    colW: e.columns.map(inch),
+    rowH: e.rows.map(inch),
   });
 }
 
@@ -113,7 +178,8 @@ function addChart(pptx: Pptx, slide: Slide, e: ChartElement, font: string, ink: 
           ? pptx.ChartType.doughnut
           : pptx.ChartType.bar;
   const values = e.series.flatMap(series => series.values),
-    fractional = values.some(value => value !== Math.trunc(value));
+    fractional = values.some(value => value !== Math.trunc(value)),
+    number = fractional ? 'General' : '#,##0';
   const colors = (e.colors.length ? e.colors : ['#245DA8']).map(color => hex(color));
   slide.addChart(
     type,
@@ -154,10 +220,12 @@ function addChart(pptx: Pptx, slide: Slide, e: ChartElement, font: string, ink: 
       dataLabelFontBold: true,
       dataLabelFontFace: font,
       dataLabelColor: stacked || share ? 'FFFFFF' : ink,
-      dataLabelFormatCode: share ? '0.0%' : fractional ? 'General' : '#,##0',
+      // A zero part of a stacked bar has nothing to label (the empty third section hides it).
+      dataLabelFormatCode: share ? '0.0%' : stacked ? `${number};-${number};` : number,
       ...(stacked || share ? { dataLabelPosition: 'ctr' } : {}),
       ...(e.chartType === 'line' ? { lineSize: 2.5, lineDataSymbol: 'circle', lineDataSymbolSize: 7 } : {}),
       ...(e.chartType === 'doughnut' ? { holeSize: 42 } : {}),
+      ...(e.alt ? { altText: e.alt } : {}),
     },
   );
 }
@@ -262,7 +330,7 @@ function addDiagram(pptx: Pptx, slide: Slide, e: SmartArtElement, font: string) 
   });
 }
 
-function addElement(pptx: Pptx, slide: Slide, e: SceneElement, doc: RenderDocument) {
+function addElement(pptx: Pptx, slide: Slide, e: SceneElement, doc: RenderDocument, label?: TextElement) {
   if (e.kind === 'text') {
     addText(slide, e);
     return;
@@ -290,6 +358,10 @@ function addElement(pptx: Pptx, slide: Slide, e: SceneElement, doc: RenderDocume
   }
   if (e.kind === 'smartart') {
     addDiagram(pptx, slide, e, safeFont(doc.theme.font));
+    return;
+  }
+  if (e.kind === 'table') {
+    addTable(slide, e);
     return;
   }
   if (e.kind === 'image') {
@@ -320,7 +392,12 @@ function addElement(pptx: Pptx, slide: Slide, e: SceneElement, doc: RenderDocume
     donut: pptx.ShapeType.donut,
   } as const;
   const transparent = (color?: string) => !color || color === 'none' || color === 'transparent';
-  slide.addShape(shapes[e.shape] ?? pptx.ShapeType.rect, {
+  // PptxGenJS draws no gradient: the shape keeps its first colour.
+  // A freeform is PptxGenJS's custom geometry (drawn from its points; the name is missing from its types).
+  const type = e.path
+    ? ('custGeom' as unknown as import('pptxgenjs').default.SHAPE_NAME)
+    : (shapes[e.shape] ?? pptx.ShapeType.rect);
+  const options: import('pptxgenjs').default.ShapeProps = {
     x: inch(e.x),
     y: inch(e.y),
     w: inch(e.w),
@@ -333,8 +410,58 @@ function addElement(pptx: Pptx, slide: Slide, e: SceneElement, doc: RenderDocume
           color: hex(e.fill),
           ...(e.opacity !== undefined && e.opacity < 1 ? { transparency: Math.round((1 - e.opacity) * 100) } : {}),
         },
-    line: transparent(e.stroke) ? { type: 'none' } : { color: hex(e.stroke), width: e.strokeWidth ?? 1 },
-  });
+    line: transparent(e.stroke)
+      ? { type: 'none' }
+      : {
+          color: hex(e.stroke),
+          width: e.strokeWidth ?? 1,
+          ...(e.dash ? { dashType: 'dash' } : {}),
+          ...(e.arrow ? { endArrowType: 'triangle' } : {}),
+          ...(e.arrowStart ? { beginArrowType: 'triangle' } : {}),
+        },
+    ...(e.path ? { points: freeformPoints(e.path, e) } : {}),
+    ...(e.shadow
+      ? {
+          shadow: {
+            type: 'outer',
+            blur: e.shadow.blur,
+            offset: Math.hypot(e.shadow.x, e.shadow.y),
+            angle: Math.round(((Math.atan2(e.shadow.y, e.shadow.x) * 180) / Math.PI + 360) % 360),
+            color: hex(e.shadow.color),
+            opacity: e.shadow.opacity,
+          },
+        }
+      : {}),
+  };
+  // The one text of a box is written in its shape, where the browser drew it (PptxGenJS has no groups).
+  if (label?.inShape) {
+    const [left, top, right, bottom] = label.inShape.margin;
+    slide.addText(label.runs?.length ? textRuns(label) : label.text, {
+      ...options,
+      shape: type,
+      ...textOptions(label, label.inShape.middle ? 'middle' : 'top', [left, right, bottom, top]),
+    });
+  } else slide.addShape(type, options);
+}
+
+/** A freeform's outline (M, L, C and Z in slide points) as PptxGenJS points, in inches from its box's corner. */
+function freeformPoints(path: string, box: Rect) {
+  const t = path.split(' '),
+    at = (k: number, origin: number) => inch(Number(t[k]) - origin),
+    points: NonNullable<import('pptxgenjs').default.ShapeProps['points']> = [];
+  for (let i = 0; i < t.length;) {
+    const c = t[i++];
+    if (c === 'Z') points.push({ close: true });
+    else if (c === 'C') {
+      const [x1, y1, x2, y2] = [at(i, box.x), at(i + 1, box.y), at(i + 2, box.x), at(i + 3, box.y)];
+      points.push({ x: at(i + 4, box.x), y: at(i + 5, box.y), curve: { type: 'cubic', x1, y1, x2, y2 } });
+      i += 6;
+    } else {
+      points.push({ x: at(i, box.x), y: at(i + 1, box.y), ...(c === 'M' ? { moveTo: true } : {}) });
+      i += 2;
+    }
+  }
+  return points;
 }
 
 /** Builds the PPTX for a deck. Decks that follow the company template leave the
@@ -354,8 +481,13 @@ export async function deckToPptx(deck: DeckSpec): Promise<{ blob: Blob; warnings
   };
   for (const scene of doc.slides) {
     const slide = pptx.addSlide();
-    if (deck.themeId !== TEMPLATE_THEME_ID) slide.background = { color: hex(doc.theme.background, 'FFFFFF') };
-    for (const element of scene.elements) addElement(pptx, slide, element, doc);
+    const ground = scene.background ?? (deck.themeId !== TEMPLATE_THEME_ID ? doc.theme.background : undefined);
+    if (ground) slide.background = { color: hex(ground, 'FFFFFF') };
+    scene.elements.forEach((element, i) => {
+      const next = scene.elements[i + 1];
+      if (element.kind === 'text' && element.inShape && scene.elements[i - 1]?.kind === 'shape') return;
+      addElement(pptx, slide, element, doc, next?.kind === 'text' && next.inShape ? next : undefined);
+    });
     if (scene.notes.trim()) slide.addNotes(scene.notes.trim());
   }
   const blob = (await pptx.write({ outputType: 'blob', compression: true })) as Blob;

@@ -15,6 +15,7 @@ import { DEFAULT_PROJECT_ID, ProjectStore } from './projects.js';
 import { AssistService } from './assist.js';
 import { apiRoutes } from './routes.js';
 import { layoutHtmlSlides } from './html-layout.js';
+import { createImageStore } from './images.js';
 import type { HistoryCipher } from './history.js';
 
 export interface AppOptions {
@@ -54,6 +55,7 @@ export async function createApp(options: AppOptions) {
     options.providerFactory ??
     ((current: Settings, key?: string) =>
       current.provider === 'subscription' ? subscriptions.createProvider(current) : createProvider(current, key));
+  const images = createImageStore(path.join(options.dataDir, 'images'));
   const engine = new SessionEngine({
     settings,
     projects,
@@ -63,6 +65,7 @@ export async function createApp(options: AppOptions) {
     open: options.open,
     providerFactory,
     htmlLayout: layoutHtmlSlides,
+    images,
     showcase: () => readFile(path.join(options.webRoot, 'showcase', 'showcase.json'), 'utf8').then(JSON.parse),
     subscriptionBinding: service => subscriptions.binding(service),
     historyCipher: options.historyCipher,
@@ -161,6 +164,13 @@ export async function createApp(options: AppOptions) {
     next();
   });
   app.use(express.json({ limit: '1mb' }));
+  // A photo of the image store, for the slide previews.
+  app.get('/api/images/:src', (req, res, next) => {
+    const file = images.file(req.params.src);
+    if (!file) return next(new AppError(404, '画像が見つかりません。'));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.sendFile(file);
+  });
   app.get('/api/chat-connector-config', (_req, res) => {
     const projectRoot = path.resolve(options.webRoot, '..', '..');
     res.attachment('Designer-Extention-Claude-Desktop.json').json({

@@ -28,6 +28,7 @@ export interface PromptOptions {
   editorial?: boolean;
   proposals?: number;
   local?: boolean;
+  images?: boolean;
 }
 
 const layoutDetails = (ids?: string[]) =>
@@ -96,6 +97,7 @@ export function systemPrompt(task: ModelTask, candidateIds?: string[], options: 
       editorial: options.editorial,
       proposals: options.proposals,
       local: options.local,
+      images: options.images,
       kitFile: AI_KIT_FILE,
       kitVersion: aiKitVersion(),
     });

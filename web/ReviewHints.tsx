@@ -2,9 +2,9 @@ import type { PolishState, ReviewHint, ReviewReport } from '../shared/contracts'
 
 const grade = { high: '重い', medium: '中', low: '軽い' } as const;
 
-/** What the AI saw on the drawn pages: what was made again for a high problem (with a way back to the
- * earlier version), and the findings left to the user (medium and low ones, and high ones that could
- * not be fixed automatically). */
+/** What the AI saw on the drawn pages: what was touched up for a high or medium problem (with a way back to
+ * the earlier version), and the findings left to the user (low ones, those of the second look, and the ones that
+ * could not be fixed automatically). */
 export function ReviewHints({
   hints,
   report,
@@ -21,7 +21,7 @@ export function ReviewHints({
   pageOf: (slideId: string) => number;
 }) {
   const unresolved = hints.some(h => h.unresolved);
-  // One switch per remade page, on its first finding (also for a remake not used because it had a problem of its own).
+  // One switch per remade page, on its first finding (also for a remake not used because it was not better).
   const switchAt = new Set<number>(),
     seen = new Set<string>();
   hints.forEach((hint, index) => {
@@ -39,7 +39,7 @@ export function ReviewHints({
       {report && (
         <p className="review-summary">
           描画した{report.checked}枚を画像で見直し
-          {report.fixed.length ? `、重い問題のあった${report.fixed.length}枚を作り直しました` : 'ました'}
+          {report.fixed.length ? `、${report.fixed.length}枚を手直ししました` : 'ました'}
           。この見直しのAI呼び出し：{report.calls}回
         </p>
       )}
@@ -54,11 +54,11 @@ export function ReviewHints({
                 <div>
                   <strong>
                     {hint.unresolved
-                      ? '重い・自動で直せませんでした'
+                      ? `${grade[hint.severity]}・自動で直せませんでした`
                       : hint.fixed
                         ? reverted
-                          ? '重い・直す前に戻しました'
-                          : '重い・作り直し済み'
+                          ? `${grade[hint.severity]}・直す前に戻しました`
+                          : `${grade[hint.severity]}・直し済み`
                         : grade[hint.severity]}
                   </strong>{' '}
                   {hint.what}
@@ -74,7 +74,7 @@ export function ReviewHints({
                       disabled={busy}
                       onClick={() => onSwitch(hint.slideId, reverted ? 'after' : 'before')}
                     >
-                      {reverted ? (hint.unresolved ? '作り直した版を使う' : '直したページに戻す') : '直す前に戻す'}
+                      {reverted ? (hint.unresolved ? '直した版を使う' : '直したページに戻す') : '直す前に戻す'}
                     </button>
                   )}
                 </div>
@@ -86,7 +86,7 @@ export function ReviewHints({
         <p className="review-summary">気になる点は見つかりませんでした。</p>
       )}
       <small className="review-note">
-        中・軽い気づきは自動では直していません。直す場合は、スライドを選んで入力欄から指示してください。
+        「直し済み」のない気づきは自動では直していません。直す場合は、スライドを選んで入力欄から指示してください。
       </small>
     </details>
   );

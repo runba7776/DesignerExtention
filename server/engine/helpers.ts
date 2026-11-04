@@ -9,6 +9,7 @@ import { slideContent } from '../../shared/slots.js';
 import type { DesignPacket, SlotContent } from '../../shared/confidential.js';
 import { draftMarks } from '../../shared/blanks.js';
 import { compositionOf, repeatedPages } from '../../shared/composition.js';
+import { pageFindings } from '../../shared/tidy.js';
 
 /** Text compared without spacing, line breaks and punctuation, which PDF extraction changes. */
 export const looseText = (text: string) =>
@@ -120,8 +121,9 @@ export function plainOutline(outline: Outline) {
   });
 }
 
-/** What the app finds on finished pages without an AI: notes to the maker or empty dates left on a slide,
- * and the same kind of page (a table, a row of cards) three pages in a row. */
+/** What the app finds on finished pages without an AI: notes to the maker or empty dates left on a slide, a part
+ * running close to a side or a large empty band (see pageFindings), and the same kind of page (a table, a row of
+ * cards) three pages in a row. */
 export function deckFindings(slides: SlideSpec[]): ReviewHint[] {
   const out: ReviewHint[] = [];
   for (const slide of slides) {
@@ -144,6 +146,7 @@ export function deckFindings(slides: SlideSpec[]): ReviewHint[] {
         what: `空欄（「${blank[0].sample}」）が記入欄の形になっていません`,
         fix: '未定の事実は［実施日］のような記入欄にする',
       });
+    out.push(...pageFindings(slide).map(found => ({ slideId: slide.id, title: slide.title, ...found })));
   }
   for (const page of repeatedPages(slides)) {
     const slide = slides.find(s => s.id === page.slideId)!;
