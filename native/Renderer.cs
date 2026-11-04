@@ -329,8 +329,9 @@ namespace DesignerExtension.Native
                 int digits = text.Length - text.TrimStart("0123456789".ToCharArray()).Length;
                 if (digits > 0) { range.Text = text.Substring(digits); shape.TextFrame.TextRange.Characters(1, 0).InsertSlideNumber(); }
             }
-            // Browser-measured text keeps its lines; only report if PowerPoint sets it wider.
-            if (Boolean(e, "exact")) { if ((float)range.BoundWidth > w * 1.08f) Warnings.Add("スライド " + slideNumber + ": 文字がわずかに枠より広く表示されます（" + Short(Convert.ToString(range.Text)) + "）。"); }
+            // Browser-measured text keeps its lines; only report if PowerPoint sets it wider. BoundWidth runs up to a
+            // quarter of the size past the characters whatever their number ("4.8" at 130: 24pt wider, its ink is not).
+            if (Boolean(e, "exact")) { if ((float)range.BoundWidth - 0.25f * Number(e, "fontSize", 22) > w * 1.08f) Warnings.Add("スライド " + slideNumber + ": 文字がわずかに枠より広く表示されます（" + Short(Convert.ToString(range.Text)) + "）。"); }
             else FitNativeText(frame, w, h, Number(e,"fontSize",22), slideNumber, Number(e, "minFontSize", 0));
             return shape;
         }

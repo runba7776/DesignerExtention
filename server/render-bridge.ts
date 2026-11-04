@@ -11,9 +11,30 @@ import { AppError } from './errors';
 import { assertTextFits } from './text-fit';
 
 const execute = promisify(execFile);
+const RENDERER = path.join('bin', 'DesignerExtension.Renderer.exe');
+async function compileRenderer(nativeRoot: string) {
+  const compiler = ['Framework64', 'Framework']
+    .map(dir => path.join(process.env.WINDIR ?? 'C:\\Windows', 'Microsoft.NET', dir, 'v4.0.30319', 'csc.exe'))
+    .find(existsSync);
+  if (!compiler) throw new Error('no compiler');
+  await execute(compiler, [`/out:${RENDERER}`, '@Renderer.rsp'], { cwd: nativeRoot, windowsHide: true });
+}
+/** Restarting after a code update runs the new app with the renderer of the last setup, and what that one does not know
+ * is lost from the deck without a word. A renderer older than its sources is built again; says so if it could not be
+ * (a copy still running keeps its file, and the next deck tries again). */
+export async function updateRenderer(nativeRoot: string, compile = compileRenderer) {
+  try {
+    const time = async (file: string) => (await fs.stat(path.join(nativeRoot, file))).mtimeMs;
+    const sources = await Promise.all(['Renderer.rsp', 'Renderer.cs', 'ChartIntegrity.cs'].map(time));
+    if (Math.max(...sources) > (await time(RENDERER))) await compile(nativeRoot);
+  } catch {
+    return 'PowerPointの描画部分を更新できなかったため、更新前の描画部分で作成しました。正しく表示されないときは、PowerPointを閉じてSetup-DesignerExtension.cmdを実行してください。';
+  }
+}
 export function createRenderBridge(projectRoot: string) {
   const artifactRoot = path.join(projectRoot, 'runtime', 'artifacts');
-  const executable = path.join(projectRoot, 'native', 'bin', 'DesignerExtension.Renderer.exe');
+  const nativeRoot = path.join(projectRoot, 'native');
+  const executable = path.join(nativeRoot, RENDERER);
   const imageRoot = path.join(projectRoot, 'runtime', 'images');
   let queue = Promise.resolve();
   const serialized = <T>(operation: () => Promise<T>): Promise<T> => {
@@ -51,6 +72,7 @@ export function createRenderBridge(projectRoot: string) {
     const inputFile = path.join(directory, 'scene.json');
     await fs.writeFile(inputFile, JSON.stringify(scene), 'utf8');
     return serialized(async () => {
+      const outdated = await updateRenderer(nativeRoot);
       try {
         const deadline = Date.now() + Math.max(180_000, deck.slides.length * 20_000);
         for (let attempt = 0; ; attempt++) {
@@ -114,7 +136,13 @@ export function createRenderBridge(projectRoot: string) {
         artifactId,
         pptxUrl: url(result.pptx),
         thumbnails: result.thumbnails.map(url),
-        warnings: [...new Set([...scene.slides.flatMap(s => s.warnings), ...(result.warnings ?? [])])],
+        warnings: [
+          ...new Set([
+            ...scene.slides.flatMap(s => s.warnings),
+            ...(result.warnings ?? []),
+            ...(outdated ? [outdated] : []),
+          ]),
+        ],
         native: result.native === true,
       };
     });

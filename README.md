@@ -4,7 +4,7 @@ PowerPoint向けのスライド作成アドインです。APIキーを使わず�
 
 用途を固定せず、発表用と読む資料用を選べます。表紙を含む2〜30枚、PDF・CSV・XLSX・PPTX・TXT・MDの参考資料、構成相談、ページごとの修正、比較案、テーマ・書体・構図・グラフ形式の変更、お気に入りデザインの投票とチーム共有を備えています。
 
-**v0.15.0の主な機能**
+**v0.15の主な機能**
 
 - **できたページをAIが目で見直す**：PowerPointで描いたページの画像をAIに見せ、図と説明の食い違いや崩れのあるページだけを手直しします。直す前と見比べて良くなったページだけを使い、直す前にも戻せます（月額版。[スライドの作り方](#スライドの作り方デザインはaiの能力に任せる既定)）。
 - **PowerPointの部品になる**：AIのデザインを、編集できる文字枠・図形・グラフ・表にします。題名とページ番号はPowerPoint本来のものになり、カードの部品はグループに、図をつなぐ線はコネクタになり、写真とグラフには代替テキストが付きます。
@@ -35,7 +35,7 @@ PowerPoint向けのスライド作成アドインです。APIキーを使わず�
 
 ローカルアプリはPowerPointの起動時に自動で起動します（`Start-DesignerExtension.cmd`を毎回実行する必要はありません）。PowerPointのアドインは、PowerShellを使わず、Node.jsで起動用のスクリプト（`scripts/launch.mjs`）を直接実行します。すでに起動していれば何もしません。ブラウザー版を使う場合は`Start-DesignerExtension.cmd`をダブルクリックします。詳しい操作と証明書の扱いは[PowerPoint右側ペインとプロジェクト共有](docs/taskpane-and-projects.md)、企業で配布する場合は[企業向け配布方針](docs/enterprise-deployment.md)を確認してください。登録の解除は`Uninstall-PowerPoint-Addin.cmd`です。
 
-コードを更新した後は、PowerPointを閉じてから`Setup-DesignerExtension.cmd`を再実行してください。Web画面とPowerPoint連携を再ビルドし、ローカルアプリを再起動します。履歴は引き続き利用できます。Claude APIの旧設定は新しい接続画面へ移行し、旧APIキーや環境変数のキーを読み込みません。
+コードを更新した後は、PowerPointを閉じてから`Setup-DesignerExtension.cmd`を再実行してください。Web画面とPowerPoint連携を再ビルドし、ローカルアプリを再起動します。描画部分だけは、再起動で済ませた場合も、次に資料を描くときに自動で再ビルドします（できなかったときは、更新前の描画部分で作成して警告を表示します）。履歴は引き続き利用できます。Claude APIの旧設定は新しい接続画面へ移行し、旧APIキーや環境変数のキーを読み込みません。
 
 右側ペインに「接続が拒否されました」と出る場合は、`Restart-DesignerExtension.cmd`を実行してからペインを開き直し、改善しなければ`runtime/server-error.log`を確認してください。
 

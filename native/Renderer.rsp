@@ -1,0 +1,4 @@
+/nologo /optimize+ /target:exe /platform:anycpu
+/reference:Microsoft.CSharp.dll /reference:System.Drawing.dll /reference:System.Security.dll /reference:System.Web.Extensions.dll
+/reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll
+Renderer.cs ChartIntegrity.cs

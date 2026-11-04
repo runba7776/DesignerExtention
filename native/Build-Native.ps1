@@ -20,12 +20,13 @@ function Assert-Writable([string]$binary, [string]$message) {
     if (-not (Test-Path -LiteralPath $binary)) { return }
     try { $stream = [IO.File]::Open($binary, 'Open', 'ReadWrite', 'None'); $stream.Dispose() } catch { throw $message }
 }
-$rendererSource = Join-Path $nativeRoot 'Renderer.cs'
 $rendererBinary = Join-Path $bin 'DesignerExtension.Renderer.exe'
-$rendererSources = @($rendererSource, (Join-Path $nativeRoot 'ChartIntegrity.cs'))
+# Renderer.rsp holds the renderer's options and sources; the app also builds from it (server/render-bridge.ts).
+$rendererSources = @('Renderer.rsp', 'Renderer.cs', 'ChartIntegrity.cs') | ForEach-Object { Join-Path $nativeRoot $_ }
 if (Test-NeedsBuild $rendererBinary $rendererSources) {
     Assert-Writable $rendererBinary 'The PowerPoint renderer is in use. Wait for slide creation to finish, then run setup again.'
-    & $compiler /nologo /optimize+ /target:exe /platform:anycpu /reference:Microsoft.CSharp.dll /reference:System.Drawing.dll /reference:System.Security.dll /reference:System.Web.Extensions.dll /reference:System.IO.Compression.dll /reference:System.IO.Compression.FileSystem.dll "/out:$rendererBinary" $rendererSources
+    Push-Location $nativeRoot
+    try { & $compiler "/out:$rendererBinary" '@Renderer.rsp' } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { throw 'PowerPoint renderer build failed.' }
 }
 $addinSource = Join-Path $nativeRoot 'AddIn.cs'

@@ -9,7 +9,7 @@ The renderer runs in an STA .NET Framework process and accepts only the bounded 
 ./native/bin/DesignerExtension.Renderer.exe --input ./native/smoke-scene.json --output ./runtime/native-smoke
 ```
 
-Requires Windows, .NET Framework 4.x and desktop PowerPoint. Embedded native charts also require Excel. `Build-Native.ps1` uses the installed .NET Framework compiler and needs no NuGet packages or Office interop assemblies. All JSON input/output files use UTF-8.
+Requires Windows, .NET Framework 4.x and desktop PowerPoint. Embedded native charts also require Excel. `Build-Native.ps1` uses the installed .NET Framework compiler and needs no NuGet packages or Office interop assemblies. The app also rebuilds the renderer from `Renderer.rsp` before drawing when it is older than its sources (`updateRenderer` in `server/render-bridge.ts`). All JSON input/output files use UTF-8.
 
 Renderer CLI:
 

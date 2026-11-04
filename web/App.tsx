@@ -77,7 +77,7 @@ const providerLabel = {
   demo: 'サンプル体験',
 };
 const updateMessage =
-  '更新を反映する準備ができました。作成中の資料と入力中の指示・返答を保存してから、Restart-DesignerExtension.cmd を実行し、この画面を開き直してください。';
+  '更新を反映する準備ができました。作成中の資料と入力中の指示・返答を保存してから、この画面を開き直してください。この表示が消えないときは、PowerPointを閉じて Setup-DesignerExtension.cmd を実行してから、もう一度開き直してください。';
 const activeSessionStorageKey = 'designer-extension.current-session';
 const opaqueSessionId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function storedSessionId(): string | undefined {
