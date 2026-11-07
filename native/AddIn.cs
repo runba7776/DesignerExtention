@@ -7,7 +7,7 @@ using System.Windows.Forms;
 
 [assembly: ComVisible(false)]
 [assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyTitle("Designer Extention PowerPoint Add-in")]
+[assembly: AssemblyTitle("Designer Extension PowerPoint Add-in")]
 
 namespace DesignerExtension.Native
 {
@@ -44,12 +44,12 @@ namespace DesignerExtension.Native
         public void OnBeginShutdown(ref Array custom) { }
         public string GetCustomUI(string ribbonID)
         {
-            return "<customUI xmlns=\"http://schemas.microsoft.com/office/2009/07/customui\"><ribbon><tabs><tab id=\"DesignerExtensionTab\" label=\"Designer Extention\"><group id=\"DesignerExtensionGroup\" label=\"スライドを作成\"><button id=\"DesignerExtensionOpen\" label=\"作成画面を開く\" size=\"large\" imageMso=\"SlideNew\" onAction=\"OpenDesigner\" screentip=\"Designer Extention\" supertip=\"ローカルの作成画面で資料と指示を入力します。\"/></group></tab></tabs></ribbon></customUI>";
+            return "<customUI xmlns=\"http://schemas.microsoft.com/office/2009/07/customui\"><ribbon><tabs><tab id=\"DesignerExtensionTab\" label=\"Designer Extension\"><group id=\"DesignerExtensionGroup\" label=\"スライドを作成\"><button id=\"DesignerExtensionOpen\" label=\"作成画面を開く\" size=\"large\" imageMso=\"SlideNew\" onAction=\"OpenDesigner\" screentip=\"Designer Extension\" supertip=\"ローカルの作成画面で資料と指示を入力します。\"/></group></tab></tabs></ribbon></customUI>";
         }
         public void OpenDesigner([MarshalAs(UnmanagedType.IDispatch)] object control)
         {
             try { StartLocalApp(true); }
-            catch (Exception ex) { MessageBox.Show(ex.Message, "Designer Extention", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "Designer Extension", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         }
         static void StartLocalApp(bool openBrowser)
         {

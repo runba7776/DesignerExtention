@@ -129,7 +129,7 @@ export function ChatHandoffPanel({
     const url = URL.createObjectURL(new Blob([handoff.instruction], { type: 'text/plain;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Designer-Extention-${handoff.task}.txt`;
+    link.download = `Designer-Extension-${handoff.task}.txt`;
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     setNotice('指示を保存しました。長い場合はAIのチャットにこのTXTファイルを添付してください。');

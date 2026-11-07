@@ -3,7 +3,7 @@
 `TaskPaneStarter.pptx` is the `PowerPointPresentationWithTaskPane.pptx` template from
 [office-addin-dev-settings](https://github.com/OfficeDev/Office-Addin-Scripts) 2.3.6.
 `native/Register.ps1` replaces the placeholder add-in ID and version and writes
-`Designer-Extention-Start.pptx`, which opens the task pane when PowerPoint opens it.
+`Designer-Extension-Start.pptx`, which opens the task pane when PowerPoint opens it.
 
 MIT License
 

@@ -32,7 +32,7 @@ if (Test-NeedsBuild $rendererBinary $rendererSources) {
 $addinSource = Join-Path $nativeRoot 'AddIn.cs'
 $addinBinary = Join-Path $bin 'DesignerExtension.AddIn.dll'
 if (Test-NeedsBuild $addinBinary @($addinSource)) {
-    Assert-Writable $addinBinary 'PowerPoint is using the Designer Extention add-in. Close PowerPoint, then run setup again.'
+    Assert-Writable $addinBinary 'PowerPoint is using the Designer Extension add-in. Close PowerPoint, then run setup again.'
     & $compiler /nologo /optimize+ /target:library /platform:anycpu /reference:System.Windows.Forms.dll "/out:$addinBinary" $addinSource
     if ($LASTEXITCODE -ne 0) { throw 'PowerPoint add-in build failed.' }
 }

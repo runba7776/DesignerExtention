@@ -21,7 +21,7 @@ async function running() {
     const state = JSON.parse(readFileSync(path.join(runtime, 'server.json'), 'utf8'));
     process.kill(state.pid, 0);
     const response = await fetch(`http://127.0.0.1:${state.port}/api/health`, { signal: AbortSignal.timeout(2000) });
-    if (response.ok && (await response.json()).app === 'Designer Extention') return state;
+    if (response.ok && (await response.json()).app === 'Designer Extension') return state;
   } catch {
     return undefined;
   }
@@ -38,7 +38,7 @@ async function lock() {
     if (await listen(pipe, `\\\\.\\pipe\\DesignerExtensionStart-${name}`)) return pipe;
     await sleep(250);
   }
-  throw new Error('Another start of Designer Extention did not finish.');
+  throw new Error('Another start of Designer Extension did not finish.');
 }
 /** 4317 (or DESIGNER_PORT) when free, otherwise a free local port; never the task pane's 4318. */
 async function choosePort() {
@@ -51,7 +51,7 @@ async function choosePort() {
     await new Promise(resolve => probe.close(resolve));
     if (port !== 4318) return port;
   }
-  throw new Error('Could not find an available local port for Designer Extention.');
+  throw new Error('Could not find an available local port for Designer Extension.');
 }
 
 const pipe = await lock();
@@ -81,7 +81,7 @@ try {
     for (let attempt = 0; attempt < 240 && !exited && !(state = await running()); attempt++) await sleep(250);
   }
   if (!state) {
-    console.error('Could not start Designer Extention. See runtime/server-error.log.');
+    console.error('Could not start Designer Extension. See runtime/server-error.log.');
     process.exitCode = 1;
   } else console.log(state.url);
 } finally {

@@ -36,7 +36,7 @@ if ($Remove) {
   }
   Remove-Item -LiteralPath @($pfxPath,$certificatePath,$passphrasePath,$thumbprintPath) -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $runtimeDirectory -Force -ErrorAction SilentlyContinue
-  Write-Host 'Designer ExtentionのPowerPointタスクペイン用証明書と秘密鍵を削除しました。'
+  Write-Host 'Designer ExtensionのPowerPointタスクペイン用証明書と秘密鍵を削除しました。'
   exit 0
 }
 
@@ -59,11 +59,11 @@ if (-not $certificate) {
     $oldThumbprint = (Get-Content -LiteralPath $thumbprintPath -Raw).Trim()
     if ($oldThumbprint -match '^[A-Fa-f0-9]{40}$') {
       Get-ChildItem Cert:\CurrentUser\Root | Where-Object Thumbprint -eq $oldThumbprint | Remove-Item -ErrorAction SilentlyContinue
-      Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Thumbprint -eq $oldThumbprint -and $_.FriendlyName -eq 'Designer Extention PowerPoint Task Pane' } | Remove-Item -ErrorAction SilentlyContinue
+      Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Thumbprint -eq $oldThumbprint } | Remove-Item -ErrorAction SilentlyContinue
     }
   }
   Remove-Item -LiteralPath @($pfxPath,$certificatePath,$passphrasePath,$thumbprintPath) -Force -ErrorAction SilentlyContinue
-  $certificate = New-SelfSignedCertificate -DnsName 'localhost' -CertStoreLocation Cert:\CurrentUser\My -FriendlyName 'Designer Extention PowerPoint Task Pane' -NotAfter (Get-Date).AddYears(2) -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy Exportable -KeyUsage DigitalSignature,KeyEncipherment -Type SSLServerAuthentication -HashAlgorithm SHA256
+  $certificate = New-SelfSignedCertificate -DnsName 'localhost' -CertStoreLocation Cert:\CurrentUser\My -FriendlyName 'Designer Extension PowerPoint Task Pane' -NotAfter (Get-Date).AddYears(2) -KeyAlgorithm RSA -KeyLength 2048 -KeyExportPolicy Exportable -KeyUsage DigitalSignature,KeyEncipherment -Type SSLServerAuthentication -HashAlgorithm SHA256
   $thumbprint = $certificate.Thumbprint
   $randomBytes = New-Object byte[] 32
   $randomGenerator = [System.Security.Cryptography.RandomNumberGenerator]::Create()

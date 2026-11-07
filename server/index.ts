@@ -71,7 +71,7 @@ const server = app.listen(port, '127.0.0.1', async () => {
     }),
     'utf8',
   );
-  console.log(`Designer Extention is ready on 127.0.0.1:${port}. Open Start-DesignerExtension.ps1 to launch.`);
+  console.log(`Designer Extension is ready on 127.0.0.1:${port}. Open Start-DesignerExtension.ps1 to launch.`);
 });
 server.on('error', (err: NodeJS.ErrnoException) => {
   console.error(

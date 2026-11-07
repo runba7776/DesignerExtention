@@ -5,11 +5,11 @@
 1. PowerPointを閉じて`Setup-DesignerExtension.cmd`を実行します。PowerPointのタスクペイン用に、現在のWindowsユーザー向け`localhost`証明書を作成します。
 2. 表示される確認で証明書を信頼すると、Windowsの現在のユーザーの「信頼されたルート証明機関」に登録されます。証明書の秘密鍵とパスフレーズは`runtime/office-taskpane`に保存され、現在のユーザーとSYSTEMだけが読めるように設定します。信頼を拒否するとブラウザー版は使えますが、PowerPoint内ペインは開きません。
 3. Setupは`native/Register.ps1`で次の2つを現在のユーザーに登録します（管理者権限・ファイルのアップロードは不要）。
-   - `HKCU\Software\Microsoft\Office\16.0\WEF\Developer`に`Designer-Extention-TaskPane.xml`を登録（Officeの開発ツールと同じサイドロード方式）。
-   - COMアドイン`DesignerExtension.Connect`。PowerPointの起動時にローカルアプリを自動起動し、「Designer Extention」タブを追加します。
-4. 生成された`Designer-Extention-Start.pptx`を開くと右側ペインが開きます。一度開いた後は、ホームタブの**スライド作成**からどの資料でも開けます。表示されない場合は**ホーム → アドイン**の一覧からDesigner Extentionを選びます。
+   - `HKCU\Software\Microsoft\Office\16.0\WEF\Developer`に`Designer-Extension-TaskPane.xml`を登録（Officeの開発ツールと同じサイドロード方式）。
+   - COMアドイン`DesignerExtension.Connect`。PowerPointの起動時にローカルアプリを自動起動し、「Designer Extension」タブを追加します。
+4. 生成された`Designer-Extension-Start.pptx`を開くと右側ペインが開きます。一度開いた後は、ホームタブの**スライド作成**からどの資料でも開けます。表示されない場合は**ホーム → アドイン**の一覧からDesigner Extensionを選びます。
 
-ローカルアプリ版はデスクトップ版PowerPoint専用です。PowerPoint for the webに`Designer-Extention-TaskPane.xml`を追加すると、Edge・Chrome（142以降）のローカル ネットワーク アクセスの制限により「接続がブロックされました」と表示されます。Web版では[インストール不要版](no-install.md)を公開URLで使ってください。
+ローカルアプリ版はデスクトップ版PowerPoint専用です。PowerPoint for the webに`Designer-Extension-TaskPane.xml`を追加すると、Edge・Chrome（142以降）のローカル ネットワーク アクセスの制限により「接続がブロックされました」と表示されます。Web版では[インストール不要版](no-install.md)を公開URLで使ってください。
 
 タスクペインは`https://localhost:4318`を使い、`127.0.0.1`と`::1`の両方で待ち受けます（クライアントによって`localhost`の解決先が異なり、片方だけでは接続が拒否されるため）。ブラウザー版は通常`http://127.0.0.1:4317`ですが、このポートが使えない場合は起動スクリプトが空いているローカルポートを選びます。通信はこのPCのループバックに限定します。タスクペイン用の起動認証はHttpOnly・Secure Cookieで受け渡し、認証トークンを画面のJavaScriptやPowerPointマニフェストへ含めません。Task paneはOffice.jsをMicrosoftのCDNから読み込みます。Office.jsの読み込みのためインターネット接続が必要ですが、資料やプロンプトをMicrosoftのCDNへ送る処理はありません。Office.jsが初期化できない場合も3秒後に画面を表示します。
 

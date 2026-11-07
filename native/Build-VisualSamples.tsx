@@ -31,7 +31,7 @@ for(const [id,spec] of [['business',deck],['midnight',{...deck,themeId:'midnight
   const scene=compileDeck(spec),fingerprint=createHash('sha256').update(JSON.stringify(scene)+rendererHash).digest('hex');assert.deepEqual(scene.slides.flatMap(s=>s.textIssues??[]),[],id);
   const prior=results.find(r=>r.id===id&&r.fingerprint===fingerprint);if(prior){console.log(JSON.stringify({reused:prior}));continue;}
   const rendered=await bridge.render(spec,id);assert.equal(rendered.native,true);assert.deepEqual(rendered.warnings,[],id);
-  const file=`Designer-Extention-v07-${id}-${fingerprint.slice(0,7)}.pptx`;
+  const file=`Designer-Extension-v07-${id}-${fingerprint.slice(0,7)}.pptx`;
   await fs.copyFile(path.join(bridge.artifactRoot,rendered.artifactId,'presentation.pptx'),path.join(out,file),fs.constants.COPYFILE_EXCL);
   results.push({id,fingerprint,artifact:rendered.artifactId,file,slides:spec.slides.length,warnings:rendered.warnings});await fs.writeFile(report,JSON.stringify(results,null,2));console.log(JSON.stringify(results.at(-1)));
 }

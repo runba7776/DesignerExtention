@@ -38,7 +38,7 @@ Claude DesktopのローカルMCP機能を使うと、コピー操作を減らせ
 3. Claude Desktopの開発者設定からローカルMCP設定を開き、保存したJSONのmcpServers内のdesigner-extensionを既存設定へ追加します。既存の接続設定を丸ごと置き換えないでください。企業端末では管理者による制限が適用される場合があります。
 4. Claude Desktopを再起動し、designer-extensionのツールが表示されることを確認します。設定画面やローカル拡張機能の位置はアプリ版によって異なります。[公式の導入説明](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)を参照してください。
 5. アドインで「構成を考える」「この構成で作成」「修正する」のいずれかを押します。
-6. Claudeへ「Designer Extentionの現在の作業を取得して指示に従い、返答を取り込んでください」と依頼します。必要に応じてツール利用を許可します。
+6. Claudeへ「Designer Extensionの現在の作業を取得して指示に従い、返答を取り込んでください」と依頼します。必要に応じてツール利用を許可します。
 7. 構成承認や次の作業の開始はアドイン画面で行います。複数の作業がある場合はdesigner_list_tasksで作業IDを確認してください。
 
 返答を取り込むと、待機しているアドイン画面にも自動で反映されます。分割作成の場合は次の対象ページの指示へ進みます。

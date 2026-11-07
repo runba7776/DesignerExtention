@@ -34,7 +34,7 @@ export function Topbar({
           <Icon name="slides" size={20} />
         </span>
         <div>
-          <div className="brand-name">Designer Extention</div>
+          <div className="brand-name">Designer Extension</div>
           <div className="brand-caption">FOR POWERPOINT</div>
         </div>
       </div>

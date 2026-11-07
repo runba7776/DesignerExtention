@@ -2272,6 +2272,7 @@ html.taskpane .design-share-actions .button {
 }
 .connector-help p {
   margin: 10px 0;
+  overflow-wrap: anywhere;
 }
 .connector-help small {
   display: block;
@@ -2833,14 +2834,22 @@ html.taskpane .slide-action-buttons {
   color: var(--muted);
 }
 .hosted-banner {
-  font-size: 11px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  font-size: 13px;
   color: var(--ink);
   background: #eef5f0;
   border: 1px solid #cfe3d6;
   border-radius: 8px;
-  padding: 9px 12px;
+  padding: 10px 12px;
   margin-bottom: 18px;
   line-height: 1.7;
+}
+.hosted-banner p {
+  flex: 1 1 280px;
+  margin: 0;
 }
 .hosted-banner .text-link,
 .footer-link {

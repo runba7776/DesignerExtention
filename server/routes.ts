@@ -86,7 +86,7 @@ export function apiRoutes(ctx: RouteContext): Route[] {
     {
       method: 'GET',
       path: '/projects/:id/design-pack',
-      headers: { 'Content-Disposition': 'attachment; filename="Designer-Extention-design-set.json"' },
+      headers: { 'Content-Disposition': 'attachment; filename="Designer-Extension-design-set.json"' },
       handler: ({ params }) => engine.exportDesignPack(params.id),
     },
     {

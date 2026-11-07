@@ -61,7 +61,7 @@ export function BlankFields({
   if (!blanks.length) return null;
   const filled = Object.fromEntries(Object.entries(values).filter(([, v]) => v.trim()));
   return (
-    <details className="blank-fields" open>
+    <details className="blank-fields">
       <summary>記入欄（まだ決まっていない事実） · {blanks.length}項目</summary>
       <p>
         スライドに［項目名］の形で色付きで残っている欄です。入力すると、資料のすべてのページに反映します（AIは呼び出しません）。空欄のままでも書き出せます。

@@ -31,10 +31,11 @@ export function ReviewHints({
     }
   });
   return (
-    <details className="review-hints" open={unresolved || seen.size > 0}>
+    <details className="review-hints" open={unresolved}>
       <summary>
         確認のヒント{report ? '（画像での見直し）' : ''}
         {hints.length ? ` · ${hints.length}件` : ''}
+        {report?.fixed.length ? ` · ${report.fixed.length}枚を手直し` : ''}
       </summary>
       {report && (
         <p className="review-summary">

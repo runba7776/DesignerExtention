@@ -11,6 +11,6 @@ if not "%setupExitCode%"=="0" (
   exit /b %setupExitCode%
 )
 echo.
-echo Setup complete. Start Designer Extention with Start-DesignerExtension.cmd.
+echo Setup complete. Start Designer Extension with Start-DesignerExtension.cmd.
 pause
 exit /b 0

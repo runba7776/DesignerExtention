@@ -187,7 +187,7 @@ export function freeSystemPrompt(task: 'plan' | 'generate' | 'revise', options: 
     mode = options.outputMode ?? 'presentation';
   const intro = `${
     project
-      ? `この指示は、ChatGPT・Claudeのプロジェクト「Designer Extention」で使う短縮版です。アイコンのIDの一覧はプロジェクトのファイル${options.kitFile}（版 ${options.kitVersion}）にあります。
+      ? `この指示は、ChatGPT・Claudeのプロジェクト「Designer Extension」で使う短縮版です。アイコンのIDの一覧はプロジェクトのファイル${options.kitFile}（版 ${options.kitVersion}）にあります。
 
 `
       : ''

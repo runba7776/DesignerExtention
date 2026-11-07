@@ -24,6 +24,9 @@ const hex = (color: string | undefined, fallback = '000000') =>
   (color && /^#[0-9a-f]{6}$/i.test(color) ? color.slice(1) : fallback).toUpperCase();
 const safeFont = (font: string | undefined) => (font ?? 'Yu Gothic').replace(/[&<>"]/g, '');
 const japanese = /[　-ヿ㐀-鿿＀-￯]/;
+/** PptxGenJS loads an SVG into an image to make its PNG fallback, so it needs a full data URL. Without "data:" the
+ * image fails and so does the whole file. */
+export const svgDataUrl = (svg: string) => `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
 
 /** A text with coloured or bold parts (runs, such as the blanks still to fill) as PowerPoint text runs, line by line. */
 function textRuns(e: Pick<TextElement, 'text' | 'runs'>) {
@@ -365,11 +368,7 @@ function addElement(pptx: Pptx, slide: Slide, e: SceneElement, doc: RenderDocume
     return;
   }
   if (e.kind === 'image') {
-    const data = e.svg
-      ? `image/svg+xml;base64,${btoa(unescape(encodeURIComponent(e.svg)))}`
-      : e.png
-        ? `image/png;base64,${e.png}`
-        : '';
+    const data = e.svg ? svgDataUrl(e.svg) : e.png ? `image/png;base64,${e.png}` : '';
     if (data) slide.addImage({ data, x: inch(e.x), y: inch(e.y), w: inch(e.w), h: inch(e.h) });
     return;
   }
@@ -473,7 +472,7 @@ export async function deckToPptx(deck: DeckSpec): Promise<{ blob: Blob; warnings
   const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_WIDE';
   pptx.title = doc.title;
-  pptx.author = 'Designer Extention';
+  pptx.author = 'Designer Extension';
   pptx.company = '';
   pptx.theme = {
     headFontFace: safeFont(doc.theme.headingFont ?? doc.theme.font),

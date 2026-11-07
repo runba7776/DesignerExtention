@@ -48,12 +48,12 @@ foreach ($registryView in $registryViews) {
         $category = $baseKey.CreateSubKey("$classPath\Implemented Categories\{62C8FE65-4EBB-45e7-B440-6E39B2CDBF29}")
         $category.Dispose()
         $progKey = $baseKey.CreateSubKey($progIdPath)
-        try { $progKey.SetValue('', 'Designer Extention') } finally { $progKey.Dispose() }
+        try { $progKey.SetValue('', 'Designer Extension') } finally { $progKey.Dispose() }
         $idKey = $baseKey.CreateSubKey("$progIdPath\CLSID")
         try { $idKey.SetValue('', $addinGuid) } finally { $idKey.Dispose() }
         $officeKey = $baseKey.CreateSubKey($officePath)
         try {
-            $officeKey.SetValue('FriendlyName', 'Designer Extention')
+            $officeKey.SetValue('FriendlyName', 'Designer Extension')
             $officeKey.SetValue('Description', '資料と指示から編集可能なスライドを作成します。')
             $officeKey.SetValue('LoadBehavior', 3, [Microsoft.Win32.RegistryValueKind]::DWord)
             # OnConnection performs no UI or network work, including when PowerPoint
@@ -66,7 +66,7 @@ foreach ($registryView in $registryViews) {
 # Task pane (Office web add-in). The WEF\Developer value is the documented
 # per-user sideload used by Office's own dev tools: PowerPoint loads the manifest
 # at startup and shows its ribbon button without "Upload My Add-in".
-$manifestPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\Designer-Extention-TaskPane.xml'))
+$manifestPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\Designer-Extension-TaskPane.xml'))
 $developerKeyPath = 'Software\Microsoft\Office\16.0\WEF\Developer'
 $manifestId = ([xml](Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8)).OfficeApp.Id
 $developerKey = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey($developerKeyPath)
@@ -92,7 +92,7 @@ if (-not $Unregister) {
 # A registry-sideloaded add-in shows its ribbon button only after it has been
 # opened once. This starter deck references the sideloaded add-in, so opening it
 # shows the right-side pane immediately (same mechanism as Office's dev tools).
-$starterPath = Join-Path (Split-Path $manifestPath) 'Designer-Extention-Start.pptx'
+$starterPath = Join-Path (Split-Path $manifestPath) 'Designer-Extension-Start.pptx'
 if ($Unregister) { Remove-Item -LiteralPath $starterPath -Force -ErrorAction SilentlyContinue }
 else {
     Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
@@ -109,5 +109,5 @@ else {
     } finally { $archive.Dispose() }
 }
 
-if ($Unregister) { Write-Output 'Designer Extention の現在のユーザー向け登録（リボンと右側ペイン）を解除しました。' }
-else { Write-Output 'Designer Extention を現在のユーザーに登録しました。PowerPointを閉じてから Designer-Extention-Start.pptx を開くと、右側に作成ペインが表示されます。' }
+if ($Unregister) { Write-Output 'Designer Extension の現在のユーザー向け登録（リボンと右側ペイン）を解除しました。' }
+else { Write-Output 'Designer Extension を現在のユーザーに登録しました。PowerPointを閉じてから Designer-Extension-Start.pptx を開くと、右側に作成ペインが表示されます。' }

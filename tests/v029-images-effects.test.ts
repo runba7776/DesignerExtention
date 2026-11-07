@@ -67,7 +67,7 @@ test('a photo place is filled from Wikimedia Commons with a freely licensed pict
     assert.equal(place.credit, 'Example & Co, CC BY-SA 4.0');
     assert.equal(place.page, 'https://commons.wikimedia.org/wiki/File:Solar wide.jpg');
     assert.ok(existsSync(store.file(String(place.src))!));
-    assert.ok(calls.every(c => /^DesignerExtention\/.*runba7776\.github\.io/.test(c.agent ?? '')));
+    assert.ok(calls.every(c => /^DesignerExtension\/.*runba7776\.github\.io/.test(c.agent ?? '')));
     assert.ok(
       calls.every(c => !c.url.includes('@')),
       'nothing about the user is sent',

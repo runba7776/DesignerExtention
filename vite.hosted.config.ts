@@ -6,14 +6,16 @@ import { cp } from 'node:fs/promises';
 // the browser. Node built-ins used by the shared server modules are replaced
 // with browser shims; nothing here talks to a local server.
 const shim = (name: string) => path.resolve('web/hosted/shims', name);
-function pdfCharacterMaps(): Plugin {
+/** Files the page reads or links to that are not part of the app bundle: the PDF character maps and the portfolio. */
+function copiedFiles(): Plugin {
   return {
-    name: 'pdfjs-character-maps',
+    name: 'copied-files',
     apply: 'build',
     async closeBundle() {
       await cp(path.resolve('node_modules/pdfjs-dist/cmaps'), path.resolve('dist/hosted/pdfjs/cmaps'), {
         recursive: true,
       });
+      await cp(path.resolve('portfolio'), path.resolve('dist/hosted/portfolio'), { recursive: true });
     },
   };
 }
@@ -38,5 +40,5 @@ export default defineConfig({
     rollupOptions: { input: { main: path.resolve('web/index.html'), taskpane: path.resolve('web/taskpane.html') } },
   },
   optimizeDeps: { exclude: ['pdfjs-dist'] },
-  plugins: [pdfCharacterMaps()],
+  plugins: [copiedFiles()],
 });

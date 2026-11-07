@@ -31,7 +31,7 @@ export interface ImageStore {
 }
 
 const API = 'https://commons.wikimedia.org/w/api.php';
-const AGENT = 'DesignerExtention/1.0 (PowerPoint add-in; +https://runba7776.github.io/DesignerExtention/)';
+const AGENT = 'DesignerExtension/1.0 (PowerPoint add-in; +https://runba7776.github.io/DesignerExtention/)';
 const FREE = /^(cc0|public domain|pd|cc by(-sa)? \d)/i;
 /** Words in a file's name, categories or description saying a person is in it: a slide is not to show a real
  * person (few files say so in their structured data, so the search itself cannot leave them out). */

@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1260 616" width="1260" height="616" role="img" aria-label="全体構成図。利用者のPCの中にPowerPointと作成ペイン、インストール不要版とローカルアプリ版があり、どちらも同じコードの処理エンジンで動く。PCの外へ出るのは、人がAIチャットへ貼る内容、同意して選んだ範囲だけを送る月額版のAI、写真の検索語の3つだけで、資料を受け取る作者のサーバーはない" font-family="'BIZ UDPGothic','Hiragino Kaku Gothic ProN','Yu Gothic','Meiryo',sans-serif" font-size="16" fill="#12233D">
+  <defs>
+    <marker id="arch-tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#4A5568"/></marker>
+    <marker id="arch-tip-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="11" markerHeight="11" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#1B5FD6"/></marker>
+    <marker id="arch-tip-out" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="13" markerHeight="13" markerUnits="userSpaceOnUse" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#E0681C"/></marker>
+  </defs>
+
+  <rect width="1260" height="616" fill="#FFFFFF"/>
+
+  <!-- The two zones: the arrows that cross the gap between them are everything that moves in or out of the PC. -->
+  <rect x="16" y="16" width="824" height="584" rx="16" fill="#EEF2F8" stroke="#C9D2DE" stroke-width="1.5"/>
+  <text x="32" y="44" font-size="20" font-weight="700">利用者のPC</text>
+  <rect x="960" y="16" width="284" height="584" rx="16" fill="#FBE6D6" stroke="#EDBE9C" stroke-width="1.5"/>
+  <text x="976" y="44" font-size="20" font-weight="700">PCの外</text>
+
+  <!-- PowerPoint and the pane -->
+  <rect x="32" y="58" width="792" height="80" rx="10" fill="#12233D"/>
+  <text x="52" y="90" font-size="22" font-weight="700" fill="#F6F4EE">PowerPoint ＋ 作成ペイン</text>
+  <text x="52" y="118" fill="#C3CEDD">React・Office.js。できたスライドは、選択中のスライドの後ろへ追加する</text>
+
+  <!-- No-install version -->
+  <rect x="32" y="162" width="792" height="128" rx="10" fill="#FFFFFF" stroke="#C9D2DE"/>
+  <text x="48" y="186" font-weight="700">インストール不要版</text>
+  <text x="200" y="186" font-size="14" fill="#4A5568">ブラウザーの中で完結</text>
+  <g fill="#FFFFFF" stroke="#8A99AE">
+    <rect x="48" y="198" width="252" height="34" rx="6"/>
+    <rect x="48" y="242" width="252" height="34" rx="6"/>
+  </g>
+  <text x="62" y="220" font-size="15">PptxGenJS：PPTXを作る</text>
+  <text x="62" y="264" font-size="15">IndexedDB：履歴（暗号化なし）</text>
+  <rect x="540" y="198" width="252" height="78" rx="8" fill="#1B5FD6"/>
+  <text x="666" y="231" text-anchor="middle" font-size="18" font-weight="700" fill="#FFFFFF">処理エンジン</text>
+  <text x="666" y="255" text-anchor="middle" font-size="14" fill="#E4ECFB">指示の作成・AI呼び出し・検査</text>
+  <g fill="none" stroke="#4A5568" stroke-width="1.5">
+    <path d="M540 215H301" marker-end="url(#arch-tip)"/>
+    <path d="M540 259H301" marker-end="url(#arch-tip)"/>
+  </g>
+  <g font-size="14" fill="#4A5568" text-anchor="middle">
+    <text x="420" y="208">描く</text>
+    <text x="420" y="252">保存</text>
+  </g>
+
+  <!-- Local app version -->
+  <rect x="32" y="354" width="792" height="232" rx="10" fill="#FFFFFF" stroke="#C9D2DE"/>
+  <text x="48" y="378" font-weight="700">ローカルアプリ版</text>
+  <text x="186" y="378" font-size="14" fill="#4A5568">Windows。COMアドインがサーバーを起動</text>
+  <g fill="#FFFFFF" stroke="#8A99AE">
+    <rect x="48" y="392" width="252" height="52" rx="6"/>
+    <rect x="48" y="454" width="252" height="52" rx="6"/>
+    <rect x="48" y="516" width="252" height="52" rx="6"/>
+  </g>
+  <text x="62" y="414" font-weight="700">画面に出さないEdge</text>
+  <text x="62" y="434" font-size="14" fill="#4A5568">AIのHTMLから位置と色を読む</text>
+  <text x="62" y="476" font-weight="700">C#描画＋PowerPoint</text>
+  <text x="62" y="496" font-size="14" fill="#4A5568">編集できる部品でPPTXを作る</text>
+  <text x="62" y="538" font-weight="700">runtime/</text>
+  <text x="62" y="558" font-size="14" fill="#4A5568">履歴はAES-256-GCM＋DPAPI</text>
+  <rect x="540" y="388" width="252" height="184" rx="8" fill="#1B5FD6"/>
+  <text x="666" y="466" text-anchor="middle" font-size="18" font-weight="700" fill="#FFFFFF">処理エンジン</text>
+  <text x="666" y="490" text-anchor="middle" font-size="14" fill="#E4ECFB">Node.js・Express</text>
+  <text x="666" y="510" text-anchor="middle" font-size="14" fill="#E4ECFB">127.0.0.1だけで待ち受け</text>
+  <g fill="none" stroke="#4A5568" stroke-width="1.5">
+    <path d="M540 418H301" marker-end="url(#arch-tip)"/>
+    <path d="M540 480H301" marker-end="url(#arch-tip)"/>
+    <path d="M540 542H301" marker-end="url(#arch-tip)"/>
+  </g>
+  <g font-size="14" fill="#4A5568" text-anchor="middle">
+    <text x="420" y="411">HTMLを読み取る</text>
+    <text x="420" y="473">部品を描く</text>
+    <text x="420" y="535">保存</text>
+  </g>
+
+  <!-- Local LLM, reachable from both versions, and the shared code. Drawn after both versions so the lines stay on top of them. -->
+  <rect x="580" y="300" width="212" height="44" rx="8" fill="#FFFFFF" stroke="#1B5FD6" stroke-width="1.5"/>
+  <text x="686" y="328" text-anchor="middle" font-weight="700">ローカルLLM（PC・社内）</text>
+  <g fill="none" stroke="#4A5568" stroke-width="1.5">
+    <path d="M686 276V299" marker-end="url(#arch-tip)"/>
+    <path d="M686 388V345" marker-end="url(#arch-tip)"/>
+  </g>
+  <path d="M556 276V388" fill="none" stroke="#1B5FD6" stroke-width="2" stroke-dasharray="6 5"/>
+  <text x="546" y="327" text-anchor="end" font-size="15" font-weight="700" fill="#1B5FD6">同じコード</text>
+
+  <!-- Pane to engines -->
+  <g fill="none" stroke="#4A5568" stroke-width="1.5">
+    <path d="M666 138V197" marker-end="url(#arch-tip)"/>
+    <path d="M808 138V412H793" marker-end="url(#arch-tip)"/>
+  </g>
+  <g font-size="14" fill="#4A5568">
+    <text x="656" y="155" text-anchor="end">同じページの中</text>
+    <text x="800" y="155" text-anchor="end">localhost:4318</text>
+  </g>
+
+  <!-- Outside the PC -->
+  <g fill="#FFFFFF" stroke="#D9A27C">
+    <rect x="976" y="56" width="252" height="44" rx="8"/>
+    <rect x="976" y="106" width="252" height="44" rx="8"/>
+    <rect x="976" y="430" width="252" height="64" rx="8"/>
+    <rect x="976" y="510" width="252" height="64" rx="8"/>
+  </g>
+  <text x="988" y="74" font-size="14" font-weight="700">GitHub Pages・Microsoft CDN</text>
+  <text x="988" y="92" font-size="13" fill="#4A5568">ファイルを配るだけ</text>
+  <text x="988" y="124" font-size="14" font-weight="700">AIチャット（ChatGPTなど）</text>
+  <text x="988" y="142" font-size="13" fill="#4A5568">アプリからは送らない</text>
+  <text x="988" y="456" font-weight="700">Claude・ChatGPT（月額版）</text>
+  <text x="988" y="478" font-size="14" fill="#4A5568">同意したあとに、選んだ範囲だけ</text>
+  <text x="988" y="536" font-weight="700">Wikimedia Commons</text>
+  <text x="988" y="558" font-size="14" fill="#4A5568">写真を探す。設定で止められる</text>
+  <text x="1102" y="276" text-anchor="middle" font-size="18" font-weight="700">資料を受け取る</text>
+  <text x="1102" y="304" text-anchor="middle" font-size="18" font-weight="700">作者のサーバーはない</text>
+
+  <!-- What crosses the boundary -->
+  <path d="M975 78H825" fill="none" stroke="#1B5FD6" stroke-width="1.5" marker-end="url(#arch-tip-blue)"/>
+  <text x="900" y="69" text-anchor="middle" font-size="14" fill="#1B5FD6">画面とOffice.js</text>
+  <g fill="none" stroke="#E0681C" stroke-width="3">
+    <path d="M824 128H974" marker-end="url(#arch-tip-out)"/>
+    <path d="M792 462H974" marker-end="url(#arch-tip-out)"/>
+    <path d="M792 542H974" marker-end="url(#arch-tip-out)"/>
+  </g>
+  <g font-size="15" font-weight="700" fill="#B24E10" text-anchor="middle">
+    <text x="900" y="118">人が貼る内容</text>
+    <text x="900" y="451">選んだ範囲</text>
+    <text x="900" y="531">写真の検索語</text>
+  </g>
+</svg>

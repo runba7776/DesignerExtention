@@ -229,7 +229,7 @@ namespace DesignerExtension.Native
                 using (var stream = entry.Open())
                 using (var reader = XmlReader.Create(stream, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null })) doc.Load(reader);
                 foreach (string name in new[] { "creator", "lastModifiedBy" })
-                    foreach (XmlNode node in doc.GetElementsByTagName(name, "*")) node.InnerText = "Designer Extention";
+                    foreach (XmlNode node in doc.GetElementsByTagName(name, "*")) node.InnerText = "Designer Extension";
                 using (var stream = entry.Open())
                 {
                     stream.SetLength(0);
@@ -280,7 +280,7 @@ namespace DesignerExtension.Native
                 dynamic addin = addinObject;
                 addin.Connect = true;
                 if (!(bool)addin.Connect) throw new InvalidOperationException("PowerPointがアドインを読み込みませんでした。");
-                Console.WriteLine("Designer Extention add-in is connected.");
+                Console.WriteLine("Designer Extension add-in is connected.");
                 return 0;
             }
             catch (Exception ex) { Console.Error.WriteLine("アドイン確認: " + ex.Message); return 1; }
@@ -466,7 +466,7 @@ namespace DesignerExtension.Native
                 return "<a:latin typeface=\"" + font + "\"/><a:ea typeface=\"" + font + "\"/><a:cs typeface=\"\"/><a:font script=\"Jpan\" typeface=\"" + font + "\"/>";
             };
             string file = Path.Combine(folder, "theme-fonts.xml");
-            File.WriteAllText(file, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><a:fontScheme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Designer Extention\"><a:majorFont>"
+            File.WriteAllText(file, "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><a:fontScheme xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" name=\"Designer Extension\"><a:majorFont>"
                 + set(HeadingFont) + "</a:majorFont><a:minorFont>" + set(FontName) + "</a:minorFont></a:fontScheme>", new UTF8Encoding(false));
             try { fonts.Load(file); } finally { File.Delete(file); }
         }

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Designer Extention: local-first extensible PowerPoint authoring",
+  "description": "Designer Extension: local-first extensible PowerPoint authoring",
   "scripts": {
     "dev": "tsx server/index.ts",
     "start": "tsx server/index.ts",

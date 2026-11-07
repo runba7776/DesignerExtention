@@ -646,6 +646,19 @@ export default function App() {
       setError(e instanceof Error ? e.message : '作り方を切り替えられませんでした。');
     }
   }
+  // The sample starts from one button, or from a link to the page with ?sample in it, without going through the choices.
+  const [sampleWanted, setSampleWanted] = useState(
+    () => __HOSTED__ && new URLSearchParams(location.search).has('sample'),
+  );
+  useEffect(() => {
+    if (!sampleWanted || loading || busy || session) return;
+    if (!isDemo) {
+      void chooseRoute('demo');
+      return;
+    }
+    setSampleWanted(false);
+    void submit();
+  }, [sampleWanted, loading, busy, session, isDemo]);
   async function ensureSubscription(signal: AbortSignal) {
     const connections = await api<SubscriptionStatus>('/subscriptions', { signal }),
       connection = connections.services.find(value => value.service === subscriptionService);
@@ -1494,12 +1507,20 @@ export default function App() {
           </p>
         )}
         {__HOSTED__ && !officeHost && !session && (
-          <p className="hosted-banner">
-            インストール不要のブラウザ版です。このままブラウザで作成してPPTXを保存できます。
-            <button className="text-link" onClick={() => setGuideOpen(true)}>
-              PowerPointに追加する方法
+          <div className="hosted-banner">
+            <button className="button primary small" disabled={!!busy || loading} onClick={() => setSampleWanted(true)}>
+              サンプルを見る
             </button>
-          </p>
+            <p>
+              AIを呼び出さず、実際に作った記録を再生します。入力も登録も要りません。
+              <button className="text-link" onClick={() => setGuideOpen(true)}>
+                PowerPointに追加する方法
+              </button>
+              <a className="text-link" href="./portfolio/">
+                設計と検証の説明
+              </a>
+            </p>
+          </div>
         )}
         {!session ? (
           <Intro />
@@ -1803,7 +1824,7 @@ export default function App() {
       </main>
       <footer className="app-footer">
         <span>
-          DESIGNER EXTENTION <span style={{ opacity: 0.65 }}>{status ? ` / v${status.version}` : ''}</span>
+          DESIGNER EXTENSION <span style={{ opacity: 0.65 }}>{status ? ` / v${status.version}` : ''}</span>
         </span>
         {__HOSTED__ && !officeHost ? (
           <button className="text-link footer-link" onClick={() => setGuideOpen(true)}>

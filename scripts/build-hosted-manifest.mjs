@@ -25,13 +25,13 @@ const manifest = `<?xml version="1.0" encoding="UTF-8"?>
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
   <Id>${id}</Id>
-  <Version>1.2.0.0</Version>
-  <ProviderName>Designer Extention</ProviderName>
+  <Version>1.2.1.0</Version>
+  <ProviderName>Designer Extension</ProviderName>
   <DefaultLocale>ja-JP</DefaultLocale>
-  <DisplayName DefaultValue="Designer Extention" />
+  <DisplayName DefaultValue="Designer Extension" />
   <Description DefaultValue="資料と指示から、PowerPointのスライド作成を支援します（インストール不要版）。" />
   <IconUrl DefaultValue="${escape(at('office-icon-32.png'))}" />
-  <HighResolutionIconUrl DefaultValue="${escape(at('office-icon-80.png'))}" />
+  <HighResolutionIconUrl DefaultValue="${escape(at('office-icon-64.png'))}" />
   <SupportUrl DefaultValue="${escape(at('index.html'))}" />
   <AppDomains>
     <AppDomain>${escape(base.origin)}</AppDomain>
@@ -73,7 +73,7 @@ const manifest = `<?xml version="1.0" encoding="UTF-8"?>
                     <bt:Image size="80" resid="icon.80" />
                   </Icon>
                   <Action xsi:type="ShowTaskpane">
-                    <TaskpaneId>DesignerExtentionWebTaskPane</TaskpaneId>
+                    <TaskpaneId>DesignerExtensionWebTaskPane</TaskpaneId>
                     <SourceLocation resid="taskpane.url" />
                   </Action>
                 </Control>
@@ -93,9 +93,9 @@ const manifest = `<?xml version="1.0" encoding="UTF-8"?>
         <bt:Url id="taskpane.url" DefaultValue="${taskpane}" />
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="group.label" DefaultValue="Designer Extention" />
+        <bt:String id="group.label" DefaultValue="Designer Extension" />
         <bt:String id="button.label" DefaultValue="スライド作成" />
-        <bt:String id="start.title" DefaultValue="Designer Extention" />
+        <bt:String id="start.title" DefaultValue="Designer Extension" />
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String id="button.tip" DefaultValue="資料と指示からスライドを作成し、選択中のスライドの図解・要約や発表準備を行います。" />

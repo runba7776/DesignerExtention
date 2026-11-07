@@ -17,7 +17,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'node_modules/tsx/dist
 if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'dist/web/index.html'))) { throw 'The app has not been built. Run Setup-DesignerExtension.ps1 first.' }
 # The same launcher PowerPoint's add-in uses: it starts the server once and prints its address.
 $url = & (Get-NodeExecutable) (Join-Path $PSScriptRoot 'scripts/launch.mjs')
-if ($LASTEXITCODE -ne 0 -or -not $url) { throw 'Could not start Designer Extention. See runtime/server-error.log.' }
+if ($LASTEXITCODE -ne 0 -or -not $url) { throw 'Could not start Designer Extension. See runtime/server-error.log.' }
 if (-not $NoOpen) { Start-Process -FilePath $url -WindowStyle Hidden }
-Write-Host "Designer Extention is running on $(([Uri]$url).GetLeftPart('Authority'))."
+Write-Host "Designer Extension is running on $(([Uri]$url).GetLeftPart('Authority'))."
 Write-Host 'PowerPoint task pane endpoint: https://localhost:4318/taskpane.html?taskpane=1'

@@ -249,7 +249,7 @@ export class ChatGptSubscription {
       code_challenge: createHash('sha256').update(verifier).digest('base64url'),
     }))
       url.searchParams.set(key, value);
-    if (!account) url.searchParams.set('agent_name_hint', 'Designer Extention');
+    if (!account) url.searchParams.set('agent_name_hint', 'Designer Extension');
     else if (account.email) url.searchParams.set('login_hint', account.email);
     // No id_token_hint is put on the command line or exposed to the browser UI.
     if (account?.accessToken && !account.scopes.includes('chatgpt.tokens.use.direct'))
@@ -275,7 +275,7 @@ export class ChatGptSubscription {
         'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
       });
       res.end(
-        `<!doctype html><html lang="ja"><meta charset="utf-8"><title>Designer Extention</title><body style="font-family:system-ui;margin:3rem"><h1>Designer Extention</h1><p>${message}</p><p>このタブを閉じて、アドインの画面に戻ってください。</p></body></html>`,
+        `<!doctype html><html lang="ja"><meta charset="utf-8"><title>Designer Extension</title><body style="font-family:system-ui;margin:3rem"><h1>Designer Extension</h1><p>${message}</p><p>このタブを閉じて、アドインの画面に戻ってください。</p></body></html>`,
       );
     };
     if (!attempt) {

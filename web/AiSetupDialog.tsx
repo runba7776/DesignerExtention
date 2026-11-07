@@ -13,12 +13,12 @@ export interface AiKit {
 }
 const steps: Partial<Record<ChatService, { create: string; instructions: string; file: string }>> = {
   claude: {
-    create: 'Claudeの左側の「プロジェクト」→「プロジェクトを作成」で、名前を「Designer Extention」にして作成します。',
+    create: 'Claudeの左側の「プロジェクト」→「プロジェクトを作成」で、名前を「Designer Extension」にして作成します。',
     instructions: 'プロジェクトの「指示を設定」（Instructions）に貼り付けて保存します。',
     file: 'プロジェクトの「ファイルを追加」から保存したファイルをアップロードします（または「テキストコンテンツを追加」に全文を貼り付け、名前をファイル名と同じにします）。',
   },
   chatgpt: {
-    create: 'ChatGPTの左側の「プロジェクト」→「新しいプロジェクト」で、名前を「Designer Extention」にして作成します。',
+    create: 'ChatGPTの左側の「プロジェクト」→「新しいプロジェクト」で、名前を「Designer Extension」にして作成します。',
     instructions: 'プロジェクトの「指示」（Instructions）に貼り付けて保存します。',
     file: 'プロジェクトの「ファイルを追加」から保存したファイルをアップロードします。',
   },
@@ -103,7 +103,7 @@ export function AiSetupDialog({
     <Modal title={`AIの準備（${info.name}）`} onClose={onClose}>
       <p className="modal-prose">
         {info.name}に「Designer
-        Extention」用のプロジェクトを1回だけ作り、毎回同じ参考の一覧（アイコン・グラフ・テーマ・書体）をそこに置きます。以降、AIに渡す指示が短くなり、上限にかかりにくくなります。デザインの型や見本は含みません。
+        Extension」用のプロジェクトを1回だけ作り、毎回同じ参考の一覧（アイコン・グラフ・テーマ・書体）をそこに置きます。以降、AIに渡す指示が短くなり、上限にかかりにくくなります。デザインの型や見本は含みません。
       </p>
       {link && kit && (
         <p className={`settings-note ${link.kitVersion === kit.version ? '' : 'warning'}`}>

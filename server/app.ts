@@ -112,7 +112,7 @@ export async function createApp(options: AppOptions) {
       return next(new AppError(403, 'localhostから起動してください。', 'INVALID_HOST'));
     next();
   });
-  app.get('/api/health', (_req, res) => res.json({ app: 'Designer Extention', ok: true }));
+  app.get('/api/health', (_req, res) => res.json({ app: 'Designer Extension', ok: true }));
   // The task-pane page is served only from this loopback HTTPS origin. Bootstrap
   // grants an HttpOnly cookie; it never exposes the bearer token to Office.js.
   app.post('/api/taskpane-bootstrap', (req, res, next) => {
@@ -173,7 +173,7 @@ export async function createApp(options: AppOptions) {
   });
   app.get('/api/chat-connector-config', (_req, res) => {
     const projectRoot = path.resolve(options.webRoot, '..', '..');
-    res.attachment('Designer-Extention-Claude-Desktop.json').json({
+    res.attachment('Designer-Extension-Claude-Desktop.json').json({
       mcpServers: {
         'designer-extension': {
           command: process.execPath,
@@ -270,7 +270,7 @@ export async function createApp(options: AppOptions) {
       return next(new AppError(400, 'ファイル名が正しくありません。'));
     const file = path.join(options.artifactRoot, id, fileName);
     if (fileName.endsWith('.pptx'))
-      res.setHeader('Content-Disposition', 'attachment; filename="Designer-Extention.pptx"');
+      res.setHeader('Content-Disposition', 'attachment; filename="Designer-Extension.pptx"');
     res.sendFile(file, error => {
       if (error && !res.headersSent)
         next(new AppError(404, '生成ファイルが見つかりません。もう一度書き出してください。'));

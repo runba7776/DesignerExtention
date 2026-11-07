@@ -28,7 +28,7 @@ try {
     # Restart so an update takes effect; saved presentations are kept.
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Stop-DesignerExtension.ps1') | Out-Null
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Start-DesignerExtension.ps1') -NoOpen
-    if ($LASTEXITCODE -ne 0) { throw 'Designer Extention could not start. See runtime/server-error.log.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Designer Extension could not start. See runtime/server-error.log.' }
   }
   Write-Host 'Ready. Restart PowerPoint and choose Home > Slide creation (スライド作成). The local app starts automatically with PowerPoint.'
 } finally { Pop-Location }

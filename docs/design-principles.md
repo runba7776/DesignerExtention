@@ -1,6 +1,6 @@
 # 文字と図形の設計基準
 
-2026年10月1日。添付「Designer-Extention (3).pptx」と [Cone / c-slide の39のデザインパターン](https://cone-c-slide.com/see-sla/blog/design-pattern/) を確認して反映しました。
+2026年10月1日。添付「Designer-Extension (3).pptx」と [Cone / c-slide の39のデザインパターン](https://cone-c-slide.com/see-sla/blog/design-pattern/) を確認して反映しました。
 
 記事は、情報同士の関係、関係を持たない情報、表紙などページの役割に分けて配置を選ぶ考え方を紹介しています。短い並列項目には円・四角・アイコン、長い説明には縦の一覧、数値には大きさの強弱を使うという公開見本を参考にしました。販売されているファイルや素材は取り込んでいません。
 

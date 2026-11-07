@@ -132,7 +132,7 @@ export function DesignDialog({
         url = URL.createObjectURL(blob),
         anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = 'Designer-Extention-design-set.json';
+      anchor.download = 'Designer-Extension-design-set.json';
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {

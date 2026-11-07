@@ -6,5 +6,5 @@ runtime/
 native/bin/
 .env
 *.log
-Designer-Extention-Start.pptx
+Designer-Extension-Start.pptx
 .qa-claude-config/

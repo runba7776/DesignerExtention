@@ -25,7 +25,7 @@ async function bootstrapTaskPane() {
     const section = document.createElement('section');
     section.style.cssText = 'font:14px/1.8 Segoe UI,sans-serif;color:#26312f;padding:24px';
     const heading = document.createElement('h1');
-    heading.textContent = 'Designer Extentionを起動できません';
+    heading.textContent = 'Designer Extensionを起動できません';
     const message = document.createElement('p');
     message.textContent =
       'PowerPoint用のローカルアプリが起動しているか確認し、Start-DesignerExtension.cmdから開き直してください。';
