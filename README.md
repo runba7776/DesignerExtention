@@ -50,6 +50,6 @@ npm run build:hosted   # インストール不要版（dist/hosted）
 npm run serve:hosted   # https://localhost:4320/ で公開時と同じ状態を確認
 ```
 
-mainへのpushごとにGitHub Actionsが型検査・書式検査・テストを行い、すべて通ったときだけインストール不要版と紹介サイトを公開します。
+変更はPRで入れ、GitHub Actionsが型検査・書式検査・テストとCodeQLの静的解析を行います。mainに入ってすべて通ったときだけ、インストール不要版と紹介サイトを公開します。依存パッケージとActionsの更新は、Dependabotが週1回提案します。
 
-ライセンスはまだ決めていません。
+ライセンスは [MIT](LICENSE) です。脆弱性の報告は [SECURITY.md](SECURITY.md) を見てください。

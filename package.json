@@ -2,6 +2,7 @@
   "name": "designer-extension",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Designer Extension: local-first extensible PowerPoint authoring",
   "scripts": {
