@@ -156,7 +156,6 @@ export class ChatHandoffService {
               : (text: string) => text)(
               systemPrompt(pending.task as ModelTask, candidateIds, {
                 mode: projectMode ? 'project' : 'full',
-                focusIds: selected,
                 oneShot: request.oneShot === true,
                 ...this.engine.pages.designOptions(state, request.outline),
                 ...(pending.task === 'plan' && request.proposals ? { proposals: request.proposals } : {}),

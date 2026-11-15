@@ -15,7 +15,7 @@
 | 全体を短く見たい | [紹介サイト](https://runba7776.github.io/DesignerExtention/portfolio/)（[PDF](portfolio/Designer-Extension-portfolio.pdf)） |
 | 動くところを見たい | [サンプルを再生](https://runba7776.github.io/DesignerExtention/?sample=1)（入力もログインも不要。AIを呼ばず、実際に作った記録を再生します） |
 | できた資料を見たい | [サンプルのPPTX](portfolio/Designer-Extension-sample.pptx) |
-| 要件・構成・非機能・導入審査・運用計画 | [設計書](docs/system-design.md) |
+| 背景・こだわり・要件・構成・非機能・判断 | [設計書](docs/system-design.md) |
 | PowerPointに入れたい | [インストール不要版](docs/no-install.md)、Windowsで全機能を使うなら `Setup-DesignerExtension.cmd` |
 | 機能と操作の詳細 | [製品ガイド](docs/product-guide.md) |
 
@@ -27,14 +27,14 @@
 | 1本を作る時間 | Claude 114〜255秒、ローカルLLM 105〜358秒（回数が少ないので目安） |
 | 外部のAIに送る骨組みへの文字の混入 | 0件（アプリとは別の照合） |
 | 実機のPowerPointへの挿入 | 3案とも成功、10枚の案は約3秒 |
-| 自動テスト | 312件合格 |
+| 自動テスト | 323件合格 |
 | 依存パッケージの既知の脆弱性 | 0件（`npm audit`、2026-11-07） |
 
 ## 確かめていないこと
 
 - PowerPoint for the webへの実際の読み込み、Windowsの共有フォルダーでの読み込み、Mac
 - ChatGPT月額版の実際のアカウントでの動作（自動テストまで）
-- 組織での配布（[導入・運用計画](docs/system-design.md#6-導入運用計画想定)は想定で、実施していません）
+- 組織での配布
 - 作者以外の人による試用、外部の脆弱性診断、負荷試験
 
 事実の誤りは検査できません。ローカルアプリ版は未署名なので、このまま全社には配りません。
@@ -45,7 +45,7 @@ Windows、デスクトップ版PowerPoint、Node.js 22以降、.NET Framework 4.
 
 ```powershell
 npm run typecheck
-npm test
+npm test               # 1ファイルずつ順に流します（約2分）
 npm run build:hosted   # インストール不要版（dist/hosted）
 npm run serve:hosted   # https://localhost:4320/ で公開時と同じ状態を確認
 ```

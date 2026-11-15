@@ -20,6 +20,7 @@ import { fitProblems, applySummaries, assertTextFits } from '../text-fit.js';
 import { diversifyDeck, improveTextFit } from '../../shared/layout-selection.js';
 import { applySavedDesign } from '../design-application.js';
 import { deckBlanks, fillBlanks } from '../../shared/blanks.js';
+import { makingNames } from '../../shared/making.js';
 import type { SessionEngine } from '../engine.js';
 import type { FitDraft, GenerationDraft, AiRun, SessionState } from './session-state.js';
 import { MAX_VARIANTS, SESSION_CALL_LIMIT } from './session-state.js';
@@ -125,15 +126,28 @@ export class GenerationService {
         } catch (error) {
           if (!draft?.fit || (!repairReason(error) && !(error instanceof AppError && error.code === 'CALL_LIMIT')))
             throw error;
-          await extras;
-          return this.generationRecovery(
-            state,
-            outline,
-            'text-fit',
-            error instanceof AppError && error.code === 'CALL_LIMIT'
-              ? state.session.usage.calls < SESSION_CALL_LIMIT
-              : !!repairReason(error) && draft.fit.singleFailures < 2,
-          );
+          // Text the AI could not fit either is set smaller on this PC (down to half, no call) instead of stopping;
+          // the pages are named in a warning. Text that does not fit even at half, and any text with automatic repair
+          // turned off, stops here as before, for the user to resume or to split the outline.
+          const smaller =
+            this.engine.options.settings.get().autoRepair === false
+              ? undefined
+              : await this.fitText(state, draft.fit.deck, { ...draft.fit, force: true }).catch(forced => {
+                  if (forced instanceof AppError && forced.code === 'TEXT_FIT_FORCED') return undefined;
+                  throw forced;
+                });
+          if (!smaller) {
+            await extras;
+            return this.generationRecovery(
+              state,
+              outline,
+              'text-fit',
+              error instanceof AppError && error.code === 'CALL_LIMIT'
+                ? state.session.usage.calls < SESSION_CALL_LIMIT
+                : !!repairReason(error) && draft.fit.singleFailures < 2,
+            );
+          }
+          deck = smaller;
         }
         deck = diversifyDeck(deck, state.session.id, this.engine.recentLayouts);
         if (state.settings.preferredDesignId && state.design)
@@ -244,13 +258,13 @@ export class GenerationService {
     draft: GenerationDraft,
     run?: AiRun,
   ): Promise<{ canRetry: boolean } | undefined> {
-    const free = this.engine.pages.freeDesign(state),
-      html = this.engine.pages.htmlFor(state, run),
-      local = (run ? this.engine.ai.targetSettings(state, run.target) : state.settings).provider === 'local',
+    const method = this.engine.pages.making(state, run),
+      free = this.engine.pages.freeDesign(state),
+      html = method === 'html',
       baseBatch = this.baseBatch(state, outline);
     if (state.settings.designMode === 'html' && !html && !state.session.warnings.some(w => w.startsWith('HTML方式')))
       state.session.warnings.push(
-        `HTML方式は、インストール版で月額版の自動作成かローカルLLMを使うときだけ使えます。この資料は${free ? '座標' : '型'}の方式で作成しました。`,
+        `${state.htmlUnavailable ?? 'HTML方式は、インストール版で月額版の自動作成かローカルLLMを使うときだけ使えます。'}この資料は${makingNames[method]}の方式で作成しました。`,
       );
     /** One returned page, checked on its own: a later page's problem never discards an earlier valid page. */
     const accept = (
@@ -323,6 +337,13 @@ export class GenerationService {
         const cap = Math.min(baseBatch, draft.ceiling ?? baseBatch);
         if (draft.batchSize < cap) draft.batchSize = Math.min(cap, draft.batchSize * 2);
       } catch (error) {
+        // The browser that reads HTML could not start on this PC: the same pages are asked again in the other way.
+        if (error instanceof AppError && error.code === 'HTML_LAYOUT_UNAVAILABLE' && state.htmlUnavailable) {
+          state.session.warnings.push(
+            `${state.htmlUnavailable}この資料は${makingNames[this.engine.pages.making(state, run)]}の方式で作成しました。`,
+          );
+          return this.writePages(state, outline, draft, run);
+        }
         // An operation's 12 calls are used up: the next operation may continue, until the presentation's 40.
         if (error instanceof AppError && error.code === 'CALL_LIMIT')
           return { canRetry: !run && state.session.usage.calls < SESSION_CALL_LIMIT };
@@ -379,8 +400,8 @@ export class GenerationService {
             );
           continue;
         }
-        // A local model asked again for one page alone rarely fixed it a second time (0 of 3), so it gives way.
-        const giveWay = local && free && draft.singleFailures > 0;
+        // A page the AI designs itself is not asked a second time alone (a local model fixed none of three that way).
+        const giveWay = free && draft.singleFailures > 0;
         if (
           !giveWay &&
           draft.singleFailures < 2 &&
@@ -393,28 +414,25 @@ export class GenerationService {
           )
         )
           continue;
-        if (local && (free || state.sendScope === 'design')) {
-          await this.substitute(
-            state,
-            outline,
-            draft,
-            response?.slides?.[draft.slides.length - start],
-            accept,
-            error instanceof AppError ? error.message : '',
-            run,
-          );
-          continue;
-        }
-        return { canRetry: draft.singleFailures < 2 };
+        // With automatic repair turned off, the user decides: the deck stops with what passed, as it always did.
+        if (this.engine.options.settings.get().autoRepair === false) return { canRetry: draft.singleFailures < 2 };
+        await this.substitute(
+          state,
+          outline,
+          draft,
+          response?.slides?.[draft.slides.length - start],
+          accept,
+          error instanceof AppError ? error.message : '',
+          run,
+        );
       }
     }
     return undefined;
   }
-  /** A local model designing its own pages, or writing the content that only goes out as a skeleton (on the
-   * app's layouts it stopped 1 of 5 decks there), is not asked without end, and the deck is finished: the page
-   * it could not make is kept as last written when only the reading of its HTML found slips and all its text can
-   * be read, else asked once with the summary layout, else made from the outline with a layout. A hint asks the
-   * user to check it. */
+  /** A page the AI could not get right does not stop the deck, whichever AI writes (stops cost the user time and
+   * quota, and the user fixes the page anyway): it is kept as last written when only the reading of its HTML found
+   * slips and all its text can be read, else asked once with the summary layout, else made from the outline with a
+   * layout. A hint asks the user to check it. */
   private async substitute(
     state: SessionState,
     outline: Outline,

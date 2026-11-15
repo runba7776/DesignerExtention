@@ -408,7 +408,7 @@ test('open facts: answers go with the outline, blanks left are filled across the
   }
 });
 
-test('the look after the deck is shown also remakes a page with a note to the maker, even when the AI saw nothing', async () => {
+test('the look after the deck is shown also lists a page with a note to the maker, even when the AI saw nothing', async () => {
   const layout: HtmlLayout = async (pages, _t, opts) =>
     pages.map(p => {
       const title = /<h1>(.*?)<\/h1>/.exec(p.html)?.[1] ?? '',
@@ -479,13 +479,9 @@ test('the look after the deck is shown also remakes a page with a note to the ma
     assert.equal(shown.polish!.state, 'pending');
     assert.equal(shown.reviewHints, undefined, 'the finding waits for the look');
     const done = await f.engine.polish(s.id);
-    assert.deepEqual(
-      remakes.map(r => r.targetSlides.map((x: any) => x.id)),
-      [['slide-3']],
-    );
-    assert.match(remakes[0].repair.detail, /作り手向けのメモ/);
-    assert.deepEqual(done.reviewReport!.fixed, ['slide-3']);
-    assert.ok(done.variants[0].deck.slides[2].design!.elements.some((e: any) => e.text === '持ち物は［持ち物］'));
+    assert.deepEqual(remakes, [], 'shown for the user to fix, not remade');
+    assert.deepEqual(done.reviewReport!.fixed, []);
+    assert.ok(done.reviewHints!.some(h => h.slideId === 'slide-3' && /作り手向けのメモ/.test(h.what) && !h.fixed));
   } finally {
     await f.dispose();
   }
@@ -628,6 +624,31 @@ test('the sample experience replays a recording: directions with samples, the pi
     );
     assert.equal(done.usage.calls, 0);
     assert.equal(f.requests.length, 0);
+    // Follow-up instructions came after the look: the page as they left it, with no earlier version to switch to.
+    (showcase.decks[1] as any).followUps = {
+      asked: ['「注意」の修正: 図を描いてください'],
+      slides: { 'slide-3': designPage('slide-3', '指示で直した注意') },
+    };
+    const again = await f.engine.create({ prompt: 'サンプルを体験する' }, []);
+    await f.engine.chooseProposal(again.id, 1);
+    await f.engine.generate(again.id);
+    const followed = await f.engine.polish(again.id);
+    assert.ok(followed.variants[0].deck.slides[2].design!.elements.some((e: any) => e.text === '指示で直した注意'));
+    assert.equal(followed.polish!.versions, undefined);
+    assert.ok(followed.messages.some(m => m.role === 'user' && m.text === '「注意」の修正: 図を描いてください'));
+    assert.match(followed.messages.at(-1)!.text, /1枚に1回の修正/);
+    assert.equal(followed.usage.calls, 0);
+    // A direction that was offered but never made into a deck: shown with its samples, and it starts no deck.
+    (showcase.proposals.items[0] as any).sampleOnly = true;
+    (showcase.decks as any)[0] = null;
+    const partly = await f.engine.create({ prompt: 'サンプルを体験する' }, []);
+    assert.equal(partly.warnings[0], SHOWCASE_WARNING, 'still the recording');
+    assert.equal(partly.proposals!.items[0].sampleOnly, true);
+    await f.engine.chooseProposal(partly.id, 0);
+    await assert.rejects(f.engine.generate(partly.id), /この案の記録がありません/);
+    (showcase.decks as any)[2] = null;
+    const broken = await f.engine.create({ prompt: 'サンプルを体験する' }, []);
+    assert.notEqual(broken.warnings[0], SHOWCASE_WARNING, 'a deck missing without the mark: the plain sample');
   } finally {
     await f.dispose();
   }

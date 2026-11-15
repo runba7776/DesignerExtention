@@ -8,18 +8,20 @@ import { themeTokens, FOOTER_TOP, SLIDE_H, SLIDE_W } from '../shared/free-design
  * only the format, the canvas, the parts the app can draw and the rules on facts.
  * The AI decides the composition, colours and fonts; the app checks facts, sources,
  * readability and text fit and turns the result into editable PowerPoint objects. */
-export const FREE_CONTRACT = `
-Outline = {title:string, mode:"presentation"|"reading", palette?:{name:string,background:string,text:string,muted:string,accent:string,accent2:string,surface?:string,headingFont?:string,bodyFont?:string}, audience:string, inputBrief?:string, visualStyle:string, assumptions:string[], openFacts?:[{label:string /* 記入欄の項目名 */,hint?:string,value?:string /* 利用者が入力した事実 */}], slides:[{id:"slide-1",title:string,intent:string,layoutId:"cover"|"free",keyPoints:string[],sourceIds?:string[] /* そのページが参照する資料のdocumentId（unitのidではない）。資料が2つ以上なら各ページに書く。作成時はそのページの資料だけを渡す */}]}
-DeckSpec = {id:string,title:string,mode:"presentation"|"reading",slides:SlideSpec[]}
-SlideSpec = {id:string,title:string,layoutId:"cover"|"free",notes:string,sources:[{documentId:string,locator:string,quote?:string}],design:{background?:Color,elements:Element[]}}
-Element = Text|Box|Line|Icon|Chart|Table
+/** The parts of a page and their fields. */
+const PARTS_CONTRACT = `Element = Text|Box|Line|Icon|Chart|Table
 Text = {t:"text",x,y,w,h,text:string,size:number,color?:Color,bold?:boolean,italic?:boolean,align?:"l"|"c"|"r",va?:"t"|"m"|"b",role?:"title"|"heading"|"body"|"number"|"caption",font?:string,refs?:number[]}
 Box = {t:"box",x,y,w,h,shape?:"rect"|"roundRect"|"ellipse"|"triangle"|"arrow"|"leftArrow"|"upArrow"|"downArrow"|"chevron"|"pentagon"|"hexagon"|"diamond"|"parallelogram"|"trapezoid"|"octagon"|"donut",fill?:Color,line?:Color,lw?:number,op?:number,r?:number,rot?:number,shadow?:{x:number,y:number,blur:number,color?:Color,op?:number},grad?:{angle:number,stops:[{color:Color,at:number,op?:number}]}}
 Line = {t:"line",x1,y1,x2,y2,color?:Color,lw?:number,dash?:boolean,arrow?:"none"|"end"|"start"|"both"}
 Icon = {t:"icon",icon:IconId,x,y,size:number,color?:Color}
 Chart = {t:"chart",x,y,w,h,chart:{type:"bar"|"column"|"line"|"pie"|"doughnut"|"stackedBar"|"stackedColumn"|"waterfall",categories:string[],series:[{name:string,values:number[]}],unit?:string,caption?:string}}
 Table = {t:"table",x,y,w,h,headers:string[],rows:string[][],size?:number}
-Color = "bg"|"ink"|"muted"|"accent"|"accent2"|"surface"|"rule"|"negative"|"onAccent"|"white"|"none"|"#RRGGBB"
+Color = "bg"|"ink"|"muted"|"accent"|"accent2"|"surface"|"rule"|"negative"|"onAccent"|"white"|"none"|"#RRGGBB"`;
+export const FREE_CONTRACT = `
+Outline = {title:string, mode:"presentation"|"reading", palette?:{name:string,background:string,text:string,muted:string,accent:string,accent2:string,surface?:string,headingFont?:string,bodyFont?:string}, audience:string, inputBrief?:string, visualStyle:string, assumptions:string[], openFacts?:[{label:string /* 記入欄の項目名 */,hint?:string,value?:string /* 利用者が入力した事実 */}], slides:[{id:"slide-1",title:string,intent:string,layoutId:"cover"|"free",keyPoints:string[],sourceIds?:string[] /* そのページが参照する資料のdocumentId（unitのidではない）。資料が2つ以上なら各ページに書く。作成時はそのページの資料だけを渡す */}]}
+DeckSpec = {id:string,title:string,mode:"presentation"|"reading",slides:SlideSpec[]}
+SlideSpec = {id:string,title:string,layoutId:"cover"|"free",notes:string,sources:[{documentId:string,locator:string,quote?:string}],design:{background?:Color,elements:Element[]}}
+${PARTS_CONTRACT}
 `;
 
 /** Photos found by the app (installed app, a cloud AI that already receives the content). */
@@ -182,6 +184,23 @@ function proposalGuide(count: number) {
 - request.previousProposalsは、前に示した案です。利用者がその中の1つを直すよう求めているときは、直した1案だけを{"kind":"outline","outline":Outline}で返してかまいません。
 返答はJSON {"kind":"proposals","candidates":[{"direction":"方向の名前","typicality":0.0}],"proposals":[{"direction":"方向の名前（20文字以内）","difference":"ほかの案との違い（80文字以内）","typicality":0.0,"suitedFor":"向いている場面","previewSlide":"slide-3","outline":Outline}],"recommended":0,"reason":"おすすめの理由"} です。確認が必要なら、案を出さずにquestionsで返してかまいません。`;
 }
+/** One page changed on the user's instruction, written as HTML. The page arrives as the parts the app holds
+ * (their places as the browser or the AI set them); written as coordinates again, text the AI adds has no
+ * measured height and a table loses its column widths (tables came back at 10-11pt). */
+const reviseAsHtml = (
+  images = false,
+) => `targetSlideの1枚だけをinstructionに沿って修正し、修正後のページをHTMLで書きます。targetSlide.design.elementsは今のページの部品です（読み方は下）。
+- 指示に関係のない部品は、文章・数値・色・文字の大きさ・位置を変えません。同じ位置に置くには、position:absoluteのleft・top・width・heightに今のx・y・w・hを書きます。
+- 指示で変える部分と、その影響で動く部分は組み直します。文字の折り返しと高さはブラウザが決めるので、文字を足す所の高さは固定しません。
+- 表（t:"table"）は<table>で書きます。列の幅と行の高さはブラウザが決めるので、文字の大きさは今のsizeのままにします。
+- グラフ（t:"chart"）はdata-chart、アイコン（t:"icon"）はdata-icon、名前のある図形（shape）はdata-shape、線と矢印（t:"line"・t:"path"）はインラインSVGで書きます。${
+  images ? '写真（t:"image"）は、今のq（検索語）をそのままdata-imageに書くと同じ写真になります。' : ''
+}
+- 前後のoutlineの役割を保ち、idと表紙の役割を変えず、他のスライドを返しません。指示が見た目の変更なら内容と数値を保ち、内容の変更なら数値の根拠を保ちます。
+返答はJSONのSlideSpec（id・title・layoutId・notes・sources・html）だけです。htmlは<section class="slide">…</section>の文字列です（JSONの文字列なので"は\\"と書きます。HTMLの属性値は'で囲むと書きやすくなります）。titleは題名の文字と同じ文にします。notesとsourcesは、変える必要がなければtargetSlideのものをそのまま返します。ノートは250文字以内を目安にします。
+
+今のページの部品の読み方（x・y・w・h・sizeはpx＝pt、原点は左上。配列の順に描かれ、後の部品ほど手前）:
+${PARTS_CONTRACT}`;
 export function freeSystemPrompt(task: 'plan' | 'generate' | 'revise', options: FreePromptOptions = {}) {
   const project = options.mode === 'project',
     mode = options.outputMode ?? 'presentation';
@@ -200,14 +219,24 @@ ${options.editorial ? `\n${options.local ? EDITORIAL_GUIDE_SHORT : EDITORIAL_GUI
     : `
 アイコン（iconに指定できるID）: ${options.local ? Object.keys(iconCatalog).join(' ') : JSON.stringify(iconCatalog)}
 `;
-  if (task === 'generate' && options.format === 'html')
+  // HTML method: the pages of a deck, and one page changed on the user's instruction, are both written as HTML.
+  if (options.format === 'html' && task !== 'plan')
     return `${intro}
 ${htmlGuide(mode, options.images)}
-${options.local ? `${LOCAL_LAYOUT_GUIDE}\n` : ''}${catalogs}${htmlThemeLine(options.theme)}
+${
+  options.local
+    ? `${LOCAL_LAYOUT_GUIDE}
+`
+    : ''
+}${catalogs}${htmlThemeLine(options.theme)}
 型定義:
 ${HTML_CONTRACT}
-承認済みのoutline全体とoutline.visualStyleを参照し、今回のtargetSlidesに指定されたページだけを作ります。id・枚数・並び・mode・layoutIdを変えません。continuedFromは作成済みのページ（題名と構図の要約）で、資料全体の統一に使えます。${SAME_LAYOUT}
-返答はmode、id、title、slidesの順のJSONです。各スライドはid・title・layoutId・notes・sources・htmlを持ちます。htmlは<section class="slide">…</section>の文字列です（JSONの文字列なので"は\\"と書きます。HTMLの属性値は'で囲むと書きやすくなります）。titleは題名の文字と同じ文にします。各ページを最後まで書いてから次のページを書きます。ノートは話す要点と根拠・条件を、スライドの文字と重複させずに1枚250文字以内を目安にまとめます（話す原稿はアプリの「発表準備」で別に作れます）。compactOutput=trueなら120文字以内を目安にします。生成済みページは再出力しません。
+${
+  task === 'generate'
+    ? `承認済みのoutline全体とoutline.visualStyleを参照し、今回のtargetSlidesに指定されたページだけを作ります。id・枚数・並び・mode・layoutIdを変えません。continuedFromは作成済みのページ（題名と構図の要約）で、資料全体の統一に使えます。${SAME_LAYOUT}
+返答はmode、id、title、slidesの順のJSONです。各スライドはid・title・layoutId・notes・sources・htmlを持ちます。htmlは<section class="slide">…</section>の文字列です（JSONの文字列なので"は\\"と書きます。HTMLの属性値は'で囲むと書きやすくなります）。titleは題名の文字と同じ文にします。各ページを最後まで書いてから次のページを書きます。ノートは話す要点と根拠・条件を、スライドの文字と重複させずに1枚250文字以内を目安にまとめます（話す原稿はアプリの「発表準備」で別に作れます）。compactOutput=trueなら120文字以内を目安にします。生成済みページは再出力しません。`
+    : reviseAsHtml(options.images)
+}
 request.repairがある場合は、アプリの検証で見つかった問題です。detailには問題のページと直し方があります。指摘された部分の位置・大きさ・文字量を直し、同じ問題を繰り返さないでください。
 JSON以外の説明やMarkdownの囲みを付けないでください。`;
   if (task === 'plan')

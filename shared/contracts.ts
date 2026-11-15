@@ -492,7 +492,8 @@ export interface Outline {
 /** One direction the AI offered before the user picked an outline. typicality is the AI's own
  * estimate (0-1) of how many makers would choose this direction for the same request. suitedFor is
  * where the direction fits best; previewSlide the page that shows its look best; preview the cover and
- * that page made in advance (or previewError when they could not be made). */
+ * that page made in advance (or previewError when they could not be made). sampleOnly marks a direction of the
+ * sample replay that was offered but never made into a deck: it is shown, and cannot be picked. */
 export interface OutlineProposal {
   direction: string;
   difference: string;
@@ -502,6 +503,7 @@ export interface OutlineProposal {
   previewSlide?: string;
   preview?: DeckSpec;
   previewError?: string;
+  sampleOnly?: boolean;
 }
 /** The directions offered (items), the wider list the AI compared them against (candidates), the one
  * the AI recommends for this request and why, how the app ordered them from the user's earlier

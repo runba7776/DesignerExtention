@@ -251,7 +251,7 @@ export class DesignRequestService {
       });
       if (variant.deck.customTheme) deck.customTheme = structuredClone(variant.deck.customTheme);
       if (variant.deck.typographyId) deck.typographyId = variant.deck.typographyId;
-      this.engine.pages.verifySources(state, deck.slides);
+      this.engine.pages.verifySources(state, deck.slides, true);
       assertTextFits(deck);
       const ai = chatServiceName(pending.service ?? 'other');
       state.session.variants.push({
@@ -379,7 +379,7 @@ export class DesignRequestService {
     });
     if (deck.customTheme) result.customTheme = structuredClone(deck.customTheme);
     if (deck.typographyId) result.typographyId = deck.typographyId;
-    this.engine.pages.verifySources(state, result.slides);
+    this.engine.pages.verifySources(state, result.slides, true);
     assertTextFits(result);
     return result;
   }

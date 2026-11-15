@@ -112,7 +112,7 @@ export function ProposalPicker({
             </ol>
             <button
               className={`button small ${chosen ? 'secondary' : 'primary'}`}
-              disabled={busy || chosen}
+              disabled={busy || chosen || item.sampleOnly}
               onClick={() => onChoose(index)}
             >
               {chosen ? (
@@ -120,6 +120,8 @@ export function ProposalPicker({
                   <Icon name="check" size={12} />
                   選択中
                 </>
+              ) : item.sampleOnly ? (
+                '見本のみ（この案は作っていません）'
               ) : (
                 'この案で進める'
               )}

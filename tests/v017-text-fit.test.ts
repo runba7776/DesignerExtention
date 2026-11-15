@@ -64,10 +64,17 @@ const cover = {
   design: { elements: [t(64, 160, 832, 100, '文字の収まり', 40)] },
 };
 
-async function fixture(relayout: (request: any, count: number) => unknown) {
+async function fixture(relayout: (request: any, count: number) => unknown, autoRepair = true) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-text-fit-'));
   const settings = await new SettingsStore(dir, '').load();
-  await settings.update({ provider: 'local', model: 'mock', slideCount: 2, mode: 'presentation', themeId: 'business' });
+  await settings.update({
+    provider: 'local',
+    model: 'mock',
+    slideCount: 2,
+    mode: 'presentation',
+    themeId: 'business',
+    autoRepair,
+  });
   const calls: string[] = [];
   let relayouts = 0;
   const engine = new SessionEngine({
@@ -144,8 +151,25 @@ test('an AI-designed page that does not fit is laid out again with the same word
   }
 });
 
-test('when fitting stops, the deck is finished with smaller text and no AI call; nothing is lost', async () => {
+test('text the AI cannot fit either is set smaller on this PC instead of stopping; nothing is lost', async () => {
   const f = await fixture(() => tight());
+  try {
+    const session = await f.engine.create({ prompt: '2枚' }, []);
+    await f.engine.generate(session.id);
+    assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
+    assert.deepEqual(f.calls, ['plan', 'generate', 'relayout', 'relayout'], 'asked once and again, then no more');
+    const body = session.variants[0].deck.slides[1].design!.elements[1] as any;
+    assert.equal(body.text, words);
+    assert.ok(body.size < 15 && body.size >= 10, String(body.size));
+    assert.deepEqual(fitProblems(session.variants[0].deck), []);
+    assert.ok(session.warnings.some(w => w.includes('2枚目は、文字を小さくして枠に収めました')));
+  } finally {
+    await f.dispose();
+  }
+});
+
+test('with automatic repair turned off, fitting stops; the user finishes with smaller text and no AI call', async () => {
+  const f = await fixture(() => tight(), false);
   try {
     const session = await f.engine.create({ prompt: '2枚' }, []);
     await f.engine.generate(session.id);

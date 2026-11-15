@@ -114,7 +114,7 @@ export class LibraryService {
           'PROJECT_MISMATCH',
         );
       const styled = applySavedDesign(variant.deck, design, true, this.engine.pages.templateTheme(state));
-      this.engine.pages.verifySources(state, styled.deck.slides);
+      this.engine.pages.verifySources(state, styled.deck.slides, true);
       variant.deck = styled.deck;
       delete variant.render;
       state.session.messages.push({
@@ -197,7 +197,7 @@ export class LibraryService {
       design: await this.preferredDesign(settings, project.id, session.warnings),
     };
     for (const variant of session.variants) {
-      this.engine.pages.verifySources(state, variant.deck.slides);
+      this.engine.pages.verifySources(state, variant.deck.slides, true);
       assertTextFits(variant.deck);
     }
     if (duplicate) await this.engine.persist(state, true);

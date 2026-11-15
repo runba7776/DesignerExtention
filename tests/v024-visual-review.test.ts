@@ -345,7 +345,17 @@ async function fixture(
 const textOf = (session: { variants: { deck: { slides: any[] } }[] }, index: number) =>
   session.variants[0].deck.slides[index].design.elements[0].text;
 
-test('a photo the look says is not to be used is passed over: at the first look, at the second, and on request', async () => {
+/** A local model's deck whose pages 2 and 3 were made from a layout in place of its design (no HTML at hand). */
+async function fromLayouts(options: Parameters<typeof fixture>[1] = {}) {
+  const f = await fixture({ provider: 'local', model: 'mock' }, options);
+  const ready = await f.engine.generate((await f.engine.create({ prompt: '3枚' }, [])).id);
+  const job = f.engine.state(ready.id).polish!;
+  delete job.html['slide-2'];
+  delete job.html['slide-3'];
+  return { ...f, session: ready };
+}
+
+test('a photo the look says is not to be used is passed over: at the look, at the second look of a remade page, and on request', async () => {
   const passed: string[] = [];
   const store: ImageStore = {
     file: () => undefined,
@@ -357,13 +367,21 @@ test('a photo the look says is not to be used is passed over: at the first look,
     const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
     await f.engine.generate(session.id);
     const polished = await f.engine.polish(session.id);
-    assert.deepEqual(passed, ['slide-2', 'slide-3'], 'what was looked at, and only what was flagged');
+    assert.deepEqual(passed, ['slide-2'], 'what was looked at, and only what was flagged');
     assert.equal(polished.variants[0].render, undefined, 'drawn again with the next picture');
     passed.length = 0;
     await f.engine.refinePage(session.id, polished.variants[0].id, 'slide-2');
     assert.deepEqual(passed, ['slide-2']);
   } finally {
     await f.dispose();
+  }
+  passed.length = 0;
+  const g = await fromLayouts({ photo: true, store, drawn: true });
+  try {
+    await g.engine.polish(g.session.id);
+    assert.deepEqual(passed, ['slide-2', 'slide-3'], 'the second look at the remade pages flags slide-3');
+  } finally {
+    await g.dispose();
   }
   assert.match(reviewPrompt(), /"photo":true/);
 });
@@ -377,15 +395,14 @@ test('a photo cut in the wrong place is moved by the app with no call to the AI,
     const photo = (index: number) =>
       polished.variants[0].deck.slides[index].design!.elements.find(e => e.t === 'image') as { focus?: string };
     assert.equal(photo(1).focus, 'left');
-    assert.deepEqual(
-      f.redos.map(r => r.targetSlides[0].id),
-      ['slide-3'],
+    assert.equal(photo(2).focus, undefined);
+    assert.deepEqual(f.redos, []);
+    assert.equal(polished.variants[0].render, undefined, 'drawn again');
+    assert.equal(polished.reviewHints!.find(h => h.slideId === 'slide-2')!.fixed, true);
+    assert.ok(
+      polished.reviewHints!.some(h => h.slideId === 'slide-3' && !h.fixed && !h.unresolved),
       'a photo cut left and right cannot show more at the top: that one goes on as a finding',
     );
-    assert.equal(photo(2).focus, undefined);
-    assert.equal(polished.variants[0].render, undefined, 'drawn again');
-    const hint = polished.reviewHints!.find(h => h.slideId === 'slide-2')!;
-    assert.equal(hint.fixed, true);
   } finally {
     await f.dispose();
   }
@@ -412,8 +429,8 @@ test('a local model only shows what it saw on a page: nothing is touched up or c
     assert.deepEqual(polished.reviewReport, { checked: 3, fixed: [], unresolved: [], calls: 1 });
     assert.equal(polished.polish?.versions, undefined);
     const told = polished.messages.at(-1)!.text;
-    assert.match(told, /AIの気づき3件は「確認のヒント」にあります（自動では直していません）/);
-    assert.doesNotMatch(told, /手直しが必要な問題はありませんでした/);
+    assert.match(told, /気づいた点3件は「確認のヒント」にあります。自動では直していないので/);
+    assert.doesNotMatch(told, /問題は見つかりませんでした/);
   } finally {
     await f.dispose();
   }
@@ -435,7 +452,7 @@ test('a local model only shows what it saw on a page: nothing is touched up or c
   }
 });
 
-test('the deck is ready before the look; polishing then touches up the pages with a high or medium problem and compares them with how they were', async () => {
+test('the deck is ready before the look; the look then shows what it found for the user to fix, with nothing touched up', async () => {
   const f = await fixture();
   try {
     const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
@@ -444,14 +461,13 @@ test('the deck is ready before the look; polishing then touches up the pages wit
     assert.ok(f.layouts[0].screenshot);
     assert.equal(f.reviews.length, 0, 'nothing is looked at before the deck is shown');
     assert.deepEqual(ready.polish, { state: 'pending', pages: 3 });
-    assert.equal(textOf(ready, 1), '問いの地図');
     assert.ok(
       ready.messages.some(m =>
         /続けて、描画したページを画像で見直して仕上げます。その間も資料を確認できます/.test(m.text),
       ),
     );
     const polished = await f.engine.polish(session.id);
-    assert.equal(f.reviews.length, 2, 'three pages in one look, then the touched-up pages beside how they were');
+    assert.equal(f.reviews.length, 1, 'three pages in one look, and nothing to compare');
     assert.deepEqual(
       f.reviews[0].images!.map(i => i.data),
       ['SHOT-slide-1', 'SHOT-slide-2', 'SHOT-slide-3'],
@@ -464,15 +480,41 @@ test('the deck is ready before the look; polishing then touches up the pages wit
     assert.match(f.reviews[0].system, /high（重い）/);
     assert.match(f.reviews[0].system, /簡易な見本/);
     assert.deepEqual(JSON.parse(f.reviews[0].content).documents, []);
-    // One call per page, given the page's HTML and picture: only what was found is to change.
+    assert.deepEqual(f.redos, [], 'a high finding is not touched up either');
+    assert.equal(textOf(polished, 1), '問いの地図');
+    assert.deepEqual(
+      polished.reviewHints!.map(h => [h.slideId, h.severity, h.what, !!h.unresolved, !!h.fixed]),
+      [
+        ['slide-2', 'high', '図に中身がない', false, false],
+        ['slide-2', 'low', '余白が偏る', false, false],
+        ['slide-3', 'medium', '文章が多い', false, false],
+      ],
+    );
+    assert.deepEqual(polished.reviewReport, { checked: 3, fixed: [], unresolved: [], calls: 1 });
+    assert.equal(polished.polish?.state, 'done');
+    assert.equal(polished.polish?.versions, undefined);
+    assert.equal(
+      polished.messages.at(-1)!.text,
+      '描画した3枚を画像で見直しました。気づいた点3件は「確認のヒント」にあります。自動では直していないので、直すページを選んで指示するか「見直す」を押してください。この見直しのAI呼び出しは1回です。',
+    );
+    await assert.rejects(f.engine.polish(session.id), /見直す資料がありません/, 'once only');
+  } finally {
+    await f.dispose();
+  }
+});
+
+test('a local model has the pages made from a layout made again in HTML, one per call, and compared with how they were; the user can go back', async () => {
+  const f = await fromLayouts();
+  try {
+    const polished = await f.engine.polish(f.session.id);
+    assert.equal(f.reviews.length, 2, 'three pages in one look, then the remade pages beside how they were');
     assert.deepEqual(
       f.redos.map(r => r.targetSlides.map((s: any) => s.id)),
       [['slide-2'], ['slide-3']],
     );
     assert.match(f.redos[0].repair.detail, /slide-2：図に中身がない。問いの点を置く/);
-    assert.equal(f.redos[0].repair.html, '<section class="slide"><h1>問いの地図</h1></section>');
-    assert.match(f.redos[0].repair.instruction, /指摘された所だけを直して/);
-    assert.deepEqual(f.redos[0].shots, ['SHOT-slide-2']);
+    assert.equal(f.redos[0].repair.html, undefined);
+    assert.deepEqual(f.redos[0].shots, []);
     const second = JSON.parse(f.reviews[1].content).request;
     assert.equal(second.compare, true);
     assert.deepEqual(
@@ -485,8 +527,7 @@ test('the deck is ready before the look; polishing then touches up the pages wit
       'each page before and after',
     );
     assert.equal(textOf(polished, 1), '直した問いの地図');
-    assert.equal(textOf(polished, 2), '直したまとめ', 'a medium finding is touched up too');
-    assert.equal(polished.variants[0].deck.slides[1].notes, '', 'a touched-up page keeps its notes');
+    assert.equal(textOf(polished, 2), '直したまとめ', 'a medium finding counts too');
     assert.deepEqual(
       polished.reviewHints!.map(h => [h.slideId, h.severity, h.what, !!h.unresolved, !!h.fixed]),
       [
@@ -495,44 +536,37 @@ test('the deck is ready before the look; polishing then touches up the pages wit
         ['slide-3', 'medium', '文章が多い', false, true],
         ['slide-3', 'low', '行間が狭い', false, false],
       ],
-      'what was touched up is listed too; a touched-up page has the findings of the second look',
+      'what was acted on is listed too; a remade page has the findings of the second look',
     );
     assert.deepEqual(polished.reviewReport, { checked: 3, fixed: ['slide-2', 'slide-3'], unresolved: [], calls: 4 });
-    assert.equal(polished.polish?.state, 'done');
     assert.equal(polished.polish?.versions?.['slide-2'].applied, 'after');
-    assert.ok(
-      polished.messages.some(m =>
-        /描画した3枚を画像で見直しました。2枚を手直ししました。直す前と見比べて、良くなったページだけを使っています（「確認のヒント」から直す前に戻せます）。細かな気づき2件/.test(
-          m.text,
-        ),
-      ),
+    assert.match(
+      polished.messages.at(-1)!.text,
+      /^描画した3枚を画像で見直しました。型で作った2枚をデザインし直しました。直す前と見比べて、良くなったページだけを使っています（「確認のヒント」から直す前に戻せます）。気づいた点2件/,
     );
-    await assert.rejects(f.engine.polish(session.id), /見直す資料がありません/, 'once only');
     // Going back to the page before the look, and to the remade one again; no AI call.
     const calls = polished.usage.calls;
-    const back = await f.engine.reviewVersion(session.id, 'slide-2', 'before');
+    const back = await f.engine.reviewVersion(f.session.id, 'slide-2', 'before');
     assert.equal(textOf(back, 1), '問いの地図');
     assert.equal(back.polish?.versions?.['slide-2'].applied, 'before');
-    const again = await f.engine.reviewVersion(session.id, 'slide-2', 'after');
+    const again = await f.engine.reviewVersion(f.session.id, 'slide-2', 'after');
     assert.equal(textOf(again, 1), '直した問いの地図');
     assert.equal(again.usage.calls, calls);
-    await assert.rejects(f.engine.reviewVersion(session.id, 'slide-1', 'before'), /戻すページと版を選んでください/);
+    await assert.rejects(f.engine.reviewVersion(f.session.id, 'slide-1', 'before'), /戻すページと版を選んでください/);
     again.variants[0].deck.slides[1].design!.elements[0] = {
       ...again.variants[0].deck.slides[1].design!.elements[0],
       text: 'あとで書き換えた',
     } as any;
-    await assert.rejects(f.engine.reviewVersion(session.id, 'slide-2', 'before'), /見直しの後に変更されたため/);
+    await assert.rejects(f.engine.reviewVersion(f.session.id, 'slide-2', 'before'), /見直しの後に変更されたため/);
   } finally {
     await f.dispose();
   }
 });
 
-test('a touch-up with a high problem of its own is not used: the page stays as it was and the touch-up can still be chosen', async () => {
-  const f = await fixture({}, { remakeBroken: true });
+test('a remade page with a high problem of its own is not used: the page stays as it was and the remake can still be chosen', async () => {
+  const f = await fromLayouts({ remakeBroken: true });
   try {
-    const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
-    await f.engine.generate(session.id);
-    const polished = await f.engine.polish(session.id);
+    const polished = await f.engine.polish(f.session.id);
     assert.equal(f.redos.length, 2);
     assert.equal(textOf(polished, 1), '問いの地図', 'the earlier page stays');
     assert.equal(polished.polish?.versions?.['slide-2'].applied, 'before');
@@ -540,37 +574,33 @@ test('a touch-up with a high problem of its own is not used: the page stays as i
     assert.deepEqual(polished.reviewReport?.unresolved, ['slide-2', 'slide-3']);
     assert.ok(
       polished.reviewHints!.some(
-        h => h.slideId === 'slide-2' && h.unresolved && /手直しした版にも重い問題：文字が丸に隠れる/.test(h.what),
+        h => h.slideId === 'slide-2' && h.unresolved && /作り直した版にも重い問題：文字が丸に隠れる/.test(h.what),
       ),
       JSON.stringify(polished.reviewHints),
     );
-    const chosen = await f.engine.reviewVersion(session.id, 'slide-2', 'after');
-    assert.equal(textOf(chosen, 1), '直した問いの地図', 'the user may still take the touch-up');
+    const chosen = await f.engine.reviewVersion(f.session.id, 'slide-2', 'after');
+    assert.equal(textOf(chosen, 1), '直した問いの地図', 'the user may still take the remake');
   } finally {
     await f.dispose();
   }
 });
 
-test('a touch-up that did not make its page better is not used; a finding about a place to fill in is only a hint', async () => {
-  const f = await fixture({}, { notBetter: true });
+test('a remade page that did not get better is not used; a finding about a place to fill in is only a hint', async () => {
+  const f = await fromLayouts({ notBetter: true });
   try {
-    const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
-    await f.engine.generate(session.id);
-    const polished = await f.engine.polish(session.id);
+    const polished = await f.engine.polish(f.session.id);
     assert.equal(textOf(polished, 1), '直した問いの地図');
     assert.equal(textOf(polished, 2), 'まとめ', 'not better: the page stays as it was');
     assert.equal(polished.polish?.versions?.['slide-3'].applied, 'before');
     assert.deepEqual(polished.reviewReport?.fixed, ['slide-2']);
     assert.deepEqual(polished.reviewReport?.unresolved, ['slide-3']);
-    assert.ok(polished.messages.some(m => /1枚を手直ししました。.*1枚は自動で直せなかったため/.test(m.text)));
+    assert.ok(polished.messages.some(m => /1枚をデザインし直しました。.*1枚は自動で直せなかったため/.test(m.text)));
   } finally {
     await f.dispose();
   }
-  const blank = await fixture({}, { blank: true });
+  const blank = await fromLayouts({ blank: true });
   try {
-    const session = await blank.engine.create({ prompt: '3枚', cloudConsent: true }, []);
-    await blank.engine.generate(session.id);
-    const polished = await blank.engine.polish(session.id);
+    const polished = await blank.engine.polish(blank.session.id);
     assert.deepEqual(
       blank.redos.map(r => r.targetSlides.map((s: any) => s.id)),
       [['slide-2']],
@@ -586,23 +616,16 @@ test('a touch-up that did not make its page better is not used; a finding about 
   }
 });
 
-test('the look sees the pages drawn in PowerPoint, and the touched-up pages are drawn there again to be compared', async () => {
-  const f = await fixture({}, { drawn: true });
+test('the look sees the pages drawn in PowerPoint, and the remade pages are drawn there again to be compared', async () => {
+  const f = await fromLayouts({ drawn: true });
   const text = (data: string) => Buffer.from(data, 'base64').toString();
   try {
-    const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
-    await f.engine.generate(session.id);
-    await f.engine.polish(session.id);
+    await f.engine.polish(f.session.id);
     const [first, second] = f.reviews;
     assert.equal(JSON.parse(first.content).request.final, true);
     assert.deepEqual(
       first.images!.map(i => text(i.data)),
       ['PPT1-slide-1', 'PPT1-slide-2', 'PPT1-slide-3'],
-    );
-    assert.deepEqual(
-      f.redos.map(r => r.shots.map(text)),
-      [['PPT1-slide-2'], ['PPT1-slide-3']],
-      'a touch-up gets the picture the look saw',
     );
     assert.equal(JSON.parse(second.content).request.final, true);
     assert.deepEqual(
@@ -614,12 +637,10 @@ test('the look sees the pages drawn in PowerPoint, and the touched-up pages are 
   }
 });
 
-test('pages are touched up one per call, so one long answer cannot lose them all', async () => {
-  const f = await fixture({}, { bothHigh: true });
+test('a page with a high problem is remade first, and each page in its own call', async () => {
+  const f = await fromLayouts({ bothHigh: true });
   try {
-    const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
-    await f.engine.generate(session.id);
-    const polished = await f.engine.polish(session.id);
+    const polished = await f.engine.polish(f.session.id);
     assert.deepEqual(
       f.redos.map(r => r.targetSlides.map((s: any) => s.id)),
       [['slide-2'], ['slide-3']],
@@ -632,11 +653,9 @@ test('pages are touched up one per call, so one long answer cannot lose them all
 });
 
 test('a page whose new version fails the checks keeps its earlier version and is listed as not fixed', async () => {
-  const f = await fixture({}, { fixFails: true });
+  const f = await fromLayouts({ fixFails: true });
   try {
-    const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
-    await f.engine.generate(session.id);
-    const polished = await f.engine.polish(session.id);
+    const polished = await f.engine.polish(f.session.id);
     assert.equal(textOf(polished, 1), '問いの地図');
     assert.deepEqual(polished.reviewReport?.unresolved, ['slide-2', 'slide-3']);
     assert.equal(polished.polish?.versions, undefined);
