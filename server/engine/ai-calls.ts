@@ -8,6 +8,7 @@ import { systemPrompt, type ModelTask } from '../prompts.js';
 import { repairReason, repairInstruction } from '../repair-policy.js';
 import { candidateLayoutIds } from '../../shared/layout-selection.js';
 import { Masker, sha256 } from '../../shared/confidential.js';
+import { writerTraits } from '../../shared/making.js';
 import type { SessionEngine } from '../engine.js';
 import type { RepairOperation, AiRun, SessionState } from './session-state.js';
 import { OPERATION_CALL_LIMIT, SESSION_CALL_LIMIT } from './session-state.js';
@@ -244,11 +245,10 @@ export class AiCalls {
   private operationCalls(state: SessionState) {
     return state.session.usage.calls - (state.repairOperation?.startedCalls ?? 0);
   }
-  /** Automatic retries of one operation: a local model designing its own pages costs no quota and slips
-   * more often, so it has four. */
+  /** Automatic retries of one operation: two, or what the writing AI gets while it designs its own pages. */
   repairs(state: SessionState, settings: Settings) {
     if (this.engine.options.settings.get().autoRepair === false) return 0;
-    return settings.provider === 'local' && this.engine.pages.freeDesign(state) ? 4 : 2;
+    return this.engine.pages.freeDesign(state) ? writerTraits(settings.provider).designRetries : 2;
   }
   newRun(state: SessionState, target: AiTarget): AiRun {
     return {

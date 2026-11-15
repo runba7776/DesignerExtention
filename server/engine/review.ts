@@ -20,6 +20,7 @@ import { improveTextFit } from '../../shared/layout-selection.js';
 import { applySavedDesign } from '../design-application.js';
 import { draftMarks } from '../../shared/blanks.js';
 import { coverCrop } from '../../shared/free-design.js';
+import { writerTraits } from '../../shared/making.js';
 import type { SessionEngine } from '../engine.js';
 import type { SessionState } from './session-state.js';
 import { continued, plainOutline } from './helpers.js';
@@ -53,11 +54,11 @@ function photoToMove(slide: SlideSpec, side: PhotoSide) {
 export class ReviewService {
   constructor(private readonly engine: SessionEngine) {}
 
-  /** Shows the drawn pages to the AI, a deck of usual length in one look so that its pages are compared too, and
-   * once touches up each page with a high or medium problem or one the app found (up to TOUCH_UPS, high ones
-   * first); a page whose HTML is not at hand is made again instead. Returns the new pages (checked, not yet
-   * finished), the findings acted on by page, the other findings, and the pages that could not be made again.
-   * Nothing in the deck is changed here. */
+  /** Shows the drawn pages to the AI, a deck of usual length in one look so that its pages are compared too. What it
+   * finds is shown for the user to fix; only a local model has a page made from a layout in place of its design (no
+   * HTML at hand) made again once, when the page has a high or medium problem or one the app found (up to
+   * TOUCH_UPS, high ones first). Returns the new pages (checked, not yet finished), the findings acted on by page,
+   * the other findings, and the pages that could not be made again. Nothing in the deck is changed here. */
   private async reviewPages(
     state: SessionState,
     outline: Outline,
@@ -72,7 +73,7 @@ export class ReviewService {
       replaced: Record<string, RemadePage> = {},
       unresolved: string[] = [];
     // What the app found itself (a note to the maker left on a slide, a part close to a side, the same kind of page
-    // three in a row) is acted on too.
+    // three in a row) is weighed with what the AI finds.
     for (const hint of known) severe.set(hint.slideId, [...(severe.get(hint.slideId) ?? []), hint]);
     const crops = new Map<string, PhotoSide>();
     let checked = 0,
@@ -114,15 +115,15 @@ export class ReviewService {
         );
       }
     }
-    // A local model's findings on a page are only shown: asked to touch them up, gemma4 left most of its high ones as
-    // they were and made some pages worse, and called all of them better. A page made from a layout has no HTML yet,
-    // and is still asked for again.
-    if (state.settings.provider === 'local')
-      for (const [id, found] of severe)
-        if (look.html[id]) {
-          hints.push(...found);
-          severe.delete(id);
-        }
+    // Findings are shown, not acted on: touching pages up took about four in ten of a deck's calls, one in four
+    // touched-up pages came out no better and was put back, and pages were left for the user anyway (Claude, 8 and
+    // 12 pages, 2026-11-11); gemma4 made some pages worse and called all of them better.
+    const remakes = writerTraits(state.settings.provider).remakesInLook;
+    for (const [id, found] of severe)
+      if (look.html[id] || !remakes) {
+        hints.push(...found);
+        severe.delete(id);
+      }
     // One page per call (several pages in one answer can run past its limit, and then all of them are lost), the
     // pages with a high problem first.
     const high = (found: ReviewHint[]) => (found.some(h => h.severity === 'high') ? 0 : 1);
@@ -136,8 +137,6 @@ export class ReviewService {
               [id],
               found.map(h => `${id}：${h.what}。${h.fix}`).join(' '),
               compact,
-              true,
-              look.html[id] && look.shots[id] ? { html: look.html[id], shot: look.shots[id] } : undefined,
             )
           : {};
       if (done[id]) replaced[id] = done[id];
@@ -151,10 +150,8 @@ export class ReviewService {
     await this.engine.options.images?.passOver(slide);
     return true;
   }
-  /** Makes the given pages again with the finding from the look at them; a page whose HTML and picture are at hand
-   * (current) is touched up instead: the AI gets both back and changes only what was found, and the page keeps
-   * its notes and sources. Returns the new versions that pass the checks, with their pictures when drawn in a
-   * browser; a page missing from the result keeps its earlier version. */
+  /** Makes the given pages again with the finding from the look at them. Returns the new versions that pass the
+   * checks, with their pictures when drawn in a browser; a page missing from the result keeps its earlier version. */
   private async redoPages(
     state: SessionState,
     outline: Outline,
@@ -163,7 +160,6 @@ export class ReviewService {
     detail: string,
     compact: boolean,
     again = true,
-    current?: { html: string; shot: string },
   ): Promise<Record<string, RemadePage>> {
     const targetSlides = outline.slides.filter(s => ids.includes(s.id));
     try {
@@ -178,22 +174,14 @@ export class ReviewService {
           continuedFrom: slides.filter(s => !ids.includes(s.id)).map(continued),
           repair: {
             reason: 'VISUAL_REVIEW',
-            instruction: current
-              ? '描画したページを画像で見直して見つかった問題です。repair.htmlはこのページの今のHTMLで、画像はそれを描いたものです。このHTMLの指摘された所だけを直して返してください。指摘のない文章・数値・配置・色・写真は変えません。ノートと出典はアプリが今のものを使うので、notesは""、sourcesは[]にします。'
-              : '描画したページを画像で見直して見つかった問題です。文章・数値・出典は保ったまま、指摘されたページの図と配置を直してください。',
+            instruction:
+              '描画したページを画像で見直して見つかった問題です。文章・数値・出典は保ったまま、指摘されたページの図と配置を直してください。',
             detail: detail.slice(0, 1500),
-            ...(current ? { html: current.html } : {}),
           },
         },
         Math.min(GENERATION_OUTPUT_TOKENS, 3000 + targetSlides.length * 5500),
-        undefined,
-        current ? [current.shot] : undefined,
       );
       if (!response || response.mode !== outline.mode || !Array.isArray(response.slides)) return {};
-      const page = response.slides[0],
-        before = current && slides.find(s => s.id === ids[0]);
-      if (before && page && typeof page === 'object')
-        Object.assign(page, { notes: before.notes, sources: structuredClone(before.sources) });
       if (this.engine.pages.htmlFor(state))
         await this.engine.pages.layoutPages(state, outline, response.slides.slice(0, targetSlides.length));
       const done: Record<string, RemadePage> = {},
@@ -227,7 +215,6 @@ export class ReviewService {
             `${detail} / 作り直した案は次の検査で通りませんでした。見直しの指摘を生かしたまま直してください：${refused.map(r => r.why).join(' ')}`,
             compact,
             false,
-            current,
           ),
         );
       return done;
@@ -388,7 +375,7 @@ export class ReviewService {
                 slideId,
                 title,
                 ...p,
-                what: `手直しした版にも重い問題：${p.what}`,
+                what: `作り直した版にも重い問題：${p.what}`,
                 unresolved: true,
               })),
             );
@@ -413,8 +400,7 @@ export class ReviewService {
           (a, b) => order(a.slideId) - order(b.slideId) || rank[a.severity] - rank[b.severity],
         );
         const calls = state.session.usage.calls - startCalls,
-          local = state.settings.provider === 'local',
-          notes = hints.filter(h => (local || h.severity !== 'high') && !h.fixed && !h.unresolved).length;
+          notes = hints.filter(h => !h.fixed && !h.unresolved).length;
         state.session.reviewReport = { checked: result.checked, fixed, unresolved, calls };
         state.session.polish = {
           state: 'done',
@@ -426,7 +412,7 @@ export class ReviewService {
         if (result.checked)
           state.session.messages.push({
             role: 'assistant',
-            text: `描画した${result.checked}枚を画像で見直しました。${fixed.length ? `${fixed.length}枚を手直ししました${fixed.every(slideId => second[slideId]?.better) ? '。直す前と見比べて、良くなったページだけを使っています' : ''}（「確認のヒント」から直す前に戻せます）。` : unresolved.length || (local && notes) ? '' : '手直しが必要な問題はありませんでした。'}${unresolved.length ? `${unresolved.length}枚は自動で直せなかったため、確認のヒントに載せています。` : ''}${notes ? (local ? `AIの気づき${notes}件は「確認のヒント」にあります（自動では直していません）。` : `細かな気づき${notes}件は「確認のヒント」にあります。`) : ''}この見直しのAI呼び出しは${calls}回です。`,
+            text: `描画した${result.checked}枚を画像で見直しました。${fixed.length ? `型で作った${fixed.length}枚をデザインし直しました${fixed.every(slideId => second[slideId]?.better) ? '。直す前と見比べて、良くなったページだけを使っています' : ''}（「確認のヒント」から直す前に戻せます）。` : ''}${unresolved.length ? `${unresolved.length}枚は自動で直せなかったため、確認のヒントに載せています。` : ''}${notes ? `気づいた点${notes}件は「確認のヒント」にあります。自動では直していないので、直すページを選んで指示するか「見直す」を押してください。` : fixed.length || unresolved.length ? '' : '直したほうがよい問題は見つかりませんでした。'}この見直しのAI呼び出しは${calls}回です。`,
           });
       } catch {
         state.session.polish = { state: 'failed' };

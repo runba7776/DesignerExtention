@@ -7,6 +7,8 @@ import {
   type Theme,
 } from '../../shared/contracts.js';
 import { AppError } from '../errors.js';
+import { repairReason } from '../repair-policy.js';
+import type { ParsedDocument } from '../document-model.js';
 import { createProvider } from '../providers.js';
 import { validateSlide } from '../validation.js';
 import type { HtmlPageLayout } from '../html-layout.js';
@@ -16,9 +18,43 @@ import { AI_THEME_ID, paletteTheme } from '../../shared/ai-theme.js';
 import { templateToTheme } from '../../shared/template-style.js';
 import { sourceValues } from '../../shared/source-audit.js';
 import { numbersIn } from '../../shared/numbers.js';
+import { makingMethod, writerTraits, type MakingMethod } from '../../shared/making.js';
 import type { SessionEngine } from '../engine.js';
 import type { AiRun, SessionState } from './session-state.js';
 import { looseText } from './helpers.js';
+
+/** A location that does not exist but lies between two that do, for locators that end in a number (行 4 between
+ * 行 3 and 行 5; ページ 3; Sheet1!行 12): the AI meant a line beside an empty one. Returns the two around it, written
+ * from what the documents hold (the AI's own text is not repeated). Anything else, a location past the end or of
+ * another kind, is not a slip of one line and gets no such help. */
+function locatorsAround(document: ParsedDocument, locator: string) {
+  const match = /^(.*?)(\d+)$/.exec(locator.trim());
+  if (!match) return undefined;
+  const [, prefix, digits] = match,
+    wanted = Number(digits),
+    numbers = document.sources.flatMap(unit =>
+      unit.locator.startsWith(prefix) && /^\d+$/.test(unit.locator.slice(prefix.length))
+        ? [Number(unit.locator.slice(prefix.length))]
+        : [],
+    ),
+    below = Math.max(...numbers.filter(n => n < wanted)),
+    above = Math.min(...numbers.filter(n => n > wanted));
+  return Number.isFinite(below) && Number.isFinite(above)
+    ? { wanted: `${prefix}${wanted}`, near: [`${prefix}${below}`, `${prefix}${above}`] }
+    : undefined;
+}
+/** Takes one citation off a page and renumbers the marks that point to the later ones. */
+function dropSource(slide: SlideSpec, at: number) {
+  slide.sources.splice(at, 1);
+  const gone = at + 1,
+    renumber = (holder: { refs?: number[] }) => {
+      const refs = holder.refs?.filter(n => n !== gone).map(n => (n > gone ? n - 1 : n));
+      if (refs?.length) holder.refs = refs;
+      else delete holder.refs;
+    };
+  for (const item of [...slide.items, ...(slide.diagram?.items ?? [])]) renumber(item);
+  for (const element of slide.design?.elements ?? []) if (element.t === 'text') renumber(element);
+}
 
 /** How pages are designed and checked: AI design or layouts, the HTML method, the theme and palette, and the checks every page passes. */
 export class PageRules {
@@ -63,41 +99,37 @@ export class PageRules {
         );
     }
   }
-  /** Style hints for the model. A company template is applied by the app, so the
-   * model only learns its palette/fonts and keeps choosing a built-in theme id. */
-  /** The AI designs every page with its own ability (HTML or coordinates). Template layouts remain for the
-   * demo, when the user chooses them in settings, and for a local model where HTML cannot be read (it wrote
-   * coordinates poorly: most pages of a 12B model broke or did not finish in a comparison). */
-  freeDesign(state: SessionState) {
-    const mode = state.settings.designMode ?? 'html';
-    return (
-      state.settings.provider !== 'demo' &&
-      mode !== 'template' &&
-      !(mode === 'html' && state.settings.provider === 'local' && !this.engine.options.htmlLayout)
-    );
+  /** The AI that writes: the session's, or the AI of this run when the session has several. */
+  writer(state: SessionState, run?: AiRun) {
+    return (run ? this.engine.ai.targetSettings(state, run.target) : state.settings).provider;
   }
-  /** HTML method (default): an AI of a monthly plan or a local model writes the pages as HTML and the
-   * installed app's browser reads them. Elsewhere (browser version, manual chat, content kept on this PC)
-   * the JSON method is used. */
+  /** How this session's pages are written (see shared/making.ts for the table). Once the browser that reads HTML
+   * could not start in this session, the rest is written as if it were not there (coordinates, or the layouts for
+   * a local model). */
+  making(state: SessionState, run?: AiRun): MakingMethod {
+    return makingMethod({
+      provider: state.settings.provider,
+      writer: run && this.writer(state, run),
+      designMode: state.settings.designMode,
+      sendScope: state.sendScope,
+      canReadHtml: !!this.engine.options.htmlLayout && !state.htmlUnavailable,
+    });
+  }
+  /** The AI designs every page with its own ability (HTML or coordinates), not from the app's layouts. */
+  freeDesign(state: SessionState) {
+    return this.making(state) !== 'template';
+  }
   htmlFor(state: SessionState, run?: AiRun) {
-    const settings = run ? this.engine.ai.targetSettings(state, run.target) : state.settings;
-    return (
-      this.freeDesign(state) &&
-      (state.settings.designMode ?? 'html') === 'html' &&
-      !!this.engine.options.htmlLayout &&
-      (settings.provider === 'subscription' || settings.provider === 'local') &&
-      state.sendScope !== 'design'
-    );
+    return this.making(state, run) === 'html';
   }
   /** Photos from Wikimedia Commons for the places the AI marks (installed app): the AI's search words leave
    * this PC, so only when the content already goes to a cloud AI as it is (not masked, not kept on this PC). */
   imagesFor(state: SessionState, run?: AiRun) {
-    const settings = run ? this.engine.ai.targetSettings(state, run.target) : state.settings;
     return (
       !!this.engine.options.images &&
       this.freeDesign(state) &&
       state.settings.imageSearch !== false &&
-      ![settings.provider, state.settings.provider].some(p => p === 'local' || p === 'demo') &&
+      [this.writer(state, run), state.settings.provider].every(p => writerTraits(p).photos) &&
       state.sendScope !== 'design' &&
       !this.engine.ai.masking(state)
     );
@@ -121,15 +153,12 @@ export class PageRules {
         {
           minTextSize: MIN_TEXT_SIZE[state.settings.mode === 'reading' ? 'reading' : 'presentation'],
           screenshot: !run && this.wantsReview(state),
-          keepSmall: (run ? this.engine.ai.targetSettings(state, run.target) : state.settings).provider === 'local',
+          keepSmall: writerTraits(this.writer(state, run)).keepsSmallText,
         },
       );
     } catch (error) {
-      throw new AppError(
-        503,
-        error instanceof Error ? error.message : 'HTMLを図形に変換できませんでした。',
-        'HTML_LAYOUT_UNAVAILABLE',
-      );
+      state.htmlUnavailable = error instanceof Error ? error.message : 'HTMLを図形に変換できませんでした。';
+      throw new AppError(503, state.htmlUnavailable, 'HTML_LAYOUT_UNAVAILABLE');
     }
     work.forEach((raw, i) => {
       const result = results[i],
@@ -140,7 +169,7 @@ export class PageRules {
         return;
       }
       raw.design = { ...(result.background ? { background: result.background } : {}), elements: result.elements };
-      // The page's HTML stays beside its picture: the look at the pages gives both back to the AI for a touch-up.
+      // The page's HTML stays beside its picture: the look at the pages tells a page in HTML from one made from a layout.
       if (result.shot) Object.assign(raw, { shot: result.shot, shotHtml: html });
       const name = `「${typeof raw.title === 'string' ? raw.title.slice(0, 40) : raw.id}」`;
       if (result.problems.length) {
@@ -178,7 +207,7 @@ export class PageRules {
     return {
       design: 'free' as const,
       format,
-      local: (run ? this.engine.ai.targetSettings(state, run.target) : state.settings).provider === 'local',
+      local: writerTraits(this.writer(state, run)).localGuide,
       images: this.imagesFor(state, run),
       editorial: state.settings.editorialGuide !== false,
       outputMode: state.settings.mode,
@@ -189,6 +218,8 @@ export class PageRules {
           ),
     };
   }
+  /** Style hints for the model. A company template is applied by the app, so the
+   * model only learns its palette/fonts and keeps choosing a built-in theme id. */
   stylePreferences(state: SessionState) {
     const template =
       state.settings.themeId === TEMPLATE_THEME_ID
@@ -300,28 +331,65 @@ export class PageRules {
       throw error;
     }
   }
-  verifySources(state: SessionState, slides: SlideSpec[]) {
+  /** A citation the documents do not hold (an empty line beside the one meant, as 行 2, 4, 152 and 169 of one file;
+   * a location past the end; another document) or a quote whose numbers are not in the cited text is asked for once
+   * more, an empty line with the two locations around it. After that, or where nothing is asked again (samples, a
+   * pasted reply), that citation is left out and the user is told, instead of stopping the deck: the empty lines
+   * alone stopped one at 0 of 8 pages three times. The numbers it was given for then show as uncited. */
+  /** With automatic repair turned off, a citation the documents do not hold at all, or an invented quote, is refused
+   * as it always was, so that the user decides; an empty line beside the one meant is still left out. */
+  private refuses() {
+    return this.engine.options.settings.get().autoRepair === false;
+  }
+  private asksAgain(state: SessionState, code: 'INVALID_SOURCE' | 'INVALID_QUOTE') {
+    const reason = repairReason(new AppError(422, '', code))?.reason;
+    return (
+      (state.repairOperation?.remaining ?? 0) > 0 &&
+      !state.session.repairReport?.steps.some(step => step.reason === reason)
+    );
+  }
+  /** stored: a deck that was checked when it was made (history, a saved design, a combination) is refused when a
+   * citation no longer holds, and nothing is left out of it. */
+  verifySources(state: SessionState, slides: SlideSpec[], stored = false) {
     for (const slide of slides) {
-      for (const source of slide.sources) {
+      for (let at = 0; at < slide.sources.length; at++) {
+        const source = slide.sources[at];
         const document = state.documents.find(document => document.id === source.documentId);
         const unit = document?.sources.find(unit => unit.locator === source.locator);
-        if (!document || !unit)
-          throw new AppError(
-            422,
-            `「${slide.title}」の出典位置が資料に存在しません。内容を再生成してください。`,
-            'INVALID_SOURCE',
-          );
-        if (source.quote && !looseText(unit.text).includes(looseText(source.quote))) {
-          // A quote whose numbers are not in the cited text is invented evidence and is refused.
-          // One that only differs in spacing, line breaks or punctuation of the PDF text is
-          // dropped (the location itself is verified), instead of costing a whole regeneration.
-          const values = sourceValues(unit.text);
-          if (numbersIn(source.quote).some(value => !values.has(value)))
+        if (!document || !unit) {
+          const around = document && locatorsAround(document, source.locator);
+          if (stored || this.asksAgain(state, 'INVALID_SOURCE') || (!around && this.refuses()))
             throw new AppError(
               422,
-              `「${slide.title}」の引用が原資料と一致しません。内容を再生成してください。`,
-              'INVALID_QUOTE',
+              `「${slide.title}」の出典位置が資料に存在しません。${around ? `${around.wanted}は資料にない位置です（空行など）。近くにある位置は${around.near.join('と')}です。` : ''}documentsにあるunitのdocumentIdとlocatorを、そのままの文字で使ってください。`,
+              'INVALID_SOURCE',
             );
+          dropSource(slide, at--);
+          state.session.warnings.push(
+            around
+              ? `「${slide.title}」の出典のうち、資料の空行などを指していた1件（${around.wanted}）を外しました。根拠の位置を確認してください。`
+              : `「${slide.title}」の出典のうち、資料にない位置を指していたものを外しました。根拠を確認してください。`,
+          );
+          continue;
+        }
+        if (source.quote && !looseText(unit.text).includes(looseText(source.quote))) {
+          // A quote whose numbers are not in the cited text is invented evidence: asked again once, then the
+          // citation goes. One that only differs in spacing, line breaks or punctuation of the PDF text loses
+          // its quote only (the location itself is verified), instead of costing a whole regeneration.
+          const values = sourceValues(unit.text);
+          if (numbersIn(source.quote).some(value => !values.has(value))) {
+            if (stored || this.asksAgain(state, 'INVALID_QUOTE') || this.refuses())
+              throw new AppError(
+                422,
+                `「${slide.title}」の引用が原資料と一致しません。quoteは資料の原文をそのまま短く使うか、省いてください。`,
+                'INVALID_QUOTE',
+              );
+            dropSource(slide, at--);
+            state.session.warnings.push(
+              `「${slide.title}」の出典のうち、引用の数値が資料のその位置にないものを外しました。根拠を確認してください。`,
+            );
+            continue;
+          }
           delete source.quote;
           state.session.warnings.push(
             `「${slide.title}」の引用文が原文の表記と一致しないため、引用文を外しました。出典の位置は確認済みです。`,

@@ -202,7 +202,7 @@ test('reading generation retains validated batches and rejects wrong, stale and 
   }
 });
 
-test('document context and locators are in copy instructions; nonexistent sources and mismatched quotes are rejected', async () => {
+test('document context and locators are in copy instructions; a citation the documents do not hold is left out with a notice', async () => {
   const f = await fixture();
   try {
     const doc = await parseDocument('条件.txt', Buffer.from('売上12億円。期間2026年。'));
@@ -211,18 +211,23 @@ test('document context and locators are in copy instructions; nonexistent source
     assert.match(JSON.stringify(packet(session).documents), /売上12億円/);
     await f.response(session, { kind: 'outline', outline: f.outline });
     await f.engine.generate(session.id);
-    const bad = structuredClone(f.deck);
-    bad.slides[1].sources = [{ documentId: doc.id, locator: '架空のページ' }];
-    await f.response(session, bad);
-    assert.match(session.chatHandoff!.validationIssues!.join(' '), /存在しません/);
-    assert.equal(session.chatHandoff?.completedSlides, 0);
-    bad.slides[1].sources = [{ documentId: doc.id, locator: doc.sources[0].locator, quote: '売上99億円' }];
-    await f.response(session, bad);
-    assert.match(session.chatHandoff!.validationIssues!.join(' '), /引用/);
-    bad.slides[1].sources = [{ documentId: doc.id, locator: doc.sources[0].locator, quote: '売上12億円' }];
-    await f.response(session, bad);
+    const pasted = structuredClone(f.deck);
+    pasted.slides[1].sources = [
+      { documentId: doc.id, locator: '架空のページ' },
+      { documentId: doc.id, locator: doc.sources[0].locator, quote: '売上99億円' },
+      { documentId: doc.id, locator: doc.sources[0].locator, quote: '売上12億円' },
+    ];
+    // A pasted reply is not asked again: what the documents do not hold goes, and the deck is finished.
+    await f.response(session, pasted);
     assert.equal(session.phase, 'ready');
-    assert.equal(session.variants[0].deck.slides[1].sources[0].documentName, doc.name);
+    const sources = session.variants[0].deck.slides[1].sources;
+    assert.deepEqual(
+      sources.map(s => s.quote),
+      ['売上12億円'],
+    );
+    assert.equal(sources[0].documentName, doc.name);
+    assert.ok(session.warnings.some(w => /資料にない位置を指していたものを外しました/.test(w)));
+    assert.ok(session.warnings.some(w => /引用の数値が資料のその位置にないものを外しました/.test(w)));
     assert.equal(f.factories(), 0);
   } finally {
     await f.dispose();

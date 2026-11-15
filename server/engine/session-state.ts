@@ -119,6 +119,8 @@ export interface SessionState {
   showcase?: Showcase;
   targets?: AiTarget[];
   sendScope?: SendScope;
+  /** Why the browser that reads HTML could not start in this session; the rest of it is written another way. */
+  htmlUnavailable?: string;
   polish?: {
     shots: Record<string, string>;
     html: Record<string, string>;

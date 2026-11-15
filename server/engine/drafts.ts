@@ -169,7 +169,7 @@ export class DraftService {
       if (themeSource.deck.customTheme) deck.customTheme = structuredClone(themeSource.deck.customTheme);
       if (themeSource.deck.typographyId) deck.typographyId = themeSource.deck.typographyId;
       deck.title = base.title;
-      this.engine.pages.verifySources(state, deck.slides);
+      this.engine.pages.verifySources(state, deck.slides, true);
       assertTextFits(deck);
       const existing = variants.findIndex(v => v.origin?.kind === 'combined');
       const variant: DeckVariant = {

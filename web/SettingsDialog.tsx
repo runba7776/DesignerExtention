@@ -6,6 +6,7 @@ import { MAX_SLIDES } from '../shared/contracts';
 import { themes, TEMPLATE_THEME_ID } from '../shared/themes';
 import { templateToTheme } from '../shared/template-style';
 import { typographyProfiles, withTypography } from '../shared/typography';
+import { makingMethod, makingNames } from '../shared/making';
 import { chatServices } from './ChatHandoffPanel';
 import { SubscriptionConnectionPanel } from './SubscriptionConnectionPanel';
 import { inWebPowerPoint } from './office';
@@ -321,7 +322,7 @@ export function SettingsDialog({
             生成・修正の不備を自動で対処
           </span>
           <small>
-            出力上限や形式・出典・文字量の不備に、1回の操作で最大2回再試行します。処理後に対処内容を表示します。
+            出力上限や形式・出典・文字量の不備に、1回の操作で最大2回再試行します。それでも通らないページは型で作る・出典を外す・文字を小さくするなどして止めずに仕上げ、「確認のヒント」でお知らせします。切ると、通らなかった所で止めます。
             {draft.provider === 'subscription' ? '再試行も月額版の利用枠を消費します。' : ''}
             変更は次の操作から有効です。
           </small>
@@ -339,7 +340,15 @@ export function SettingsDialog({
           <option value="template">型に当てはめる — 121種類の配置から選ぶ</option>
         </select>
         <small>
-          どちらの書かせ方でも、デザインの型や見本はAIに渡しません。AIが構図・図形・アイコン・グラフの位置と色まで自分で決め、アプリは数値・出典・文字のはみ出し・重なり・読みやすさだけを確認して、編集できるPowerPointの図形にします。HTML/CSSで書かせるのは、インストール版で月額版の自動作成かローカルLLMを使うときだけです。それ以外では自動で座標で書かせます（インストールしない版のローカルLLMは型に当てはめます）。
+          この設定では
+          <b>
+            {
+              makingNames[
+                makingMethod({ provider: draft.provider, designMode: draft.designMode, canReadHtml: !__HOSTED__ })
+              ]
+            }
+          </b>
+          で作ります。HTML/CSSを読み取れるのは、インストール版で月額版の自動作成かローカルLLMを使うときです。それ以外は自動で座標に、インストールしない版のローカルLLMは型に切り替えます。HTML/CSSと座標では、デザインの型や見本をAIに渡しません。
         </small>
       </label>
       {draft.designMode !== 'template' && (

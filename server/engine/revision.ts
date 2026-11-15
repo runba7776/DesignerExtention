@@ -89,6 +89,10 @@ export class RevisionService {
     }
     if (pending.failures >= 3 && !force)
       throw new AppError(429, '同じ修正の不備が繰り返されました。優先する条件を整理して再送してください。');
+    // A page of a deck written as HTML is changed as HTML too, so the browser sets the heights of the new text and
+    // the widths of a table. A page made from a layout (a local model's substitute) keeps its layout.
+    const outline = state.session.outline;
+    let asHtml = !!outline && this.engine.pages.htmlFor(state) && ['free', 'cover'].includes(slide.layoutId);
     while (!pending.result) {
       const warnings = [...state.session.warnings];
       try {
@@ -109,6 +113,11 @@ export class RevisionService {
               );
         if ((raw as any)?.id !== slide.id)
           throw new AppError(422, '修正されたページの識別子が一致しません。', 'INVALID_CONTENT');
+        if (asHtml) {
+          await this.engine.pages.layoutPages(state, outline!, [raw]);
+          const problem = (raw as any).htmlProblem;
+          if (typeof problem === 'string') throw new AppError(422, problem, 'INVALID_CONTENT');
+        }
         const result = validateSlide(raw, slide.id);
         if ((slide.layoutId === 'cover') !== (result.layoutId === 'cover'))
           throw new AppError(422, '表紙と本文の役割は変更できません。', 'INVALID_CONTENT');
@@ -116,6 +125,12 @@ export class RevisionService {
         pending.result = result;
       } catch (error) {
         state.session.warnings = warnings;
+        // The browser that reads HTML could not start: the page is asked again in coordinates.
+        if (asHtml && error instanceof AppError && error.code === 'HTML_LAYOUT_UNAVAILABLE') {
+          asHtml = false;
+          state.session.warnings.push(`${state.htmlUnavailable}このページは座標の方式で直しました。`);
+          continue;
+        }
         if (!repairReason(error) && !(error instanceof AppError && error.code === 'CALL_LIMIT')) throw error;
         pending.failures++;
         pending.compact = true;
@@ -163,6 +178,7 @@ export class RevisionService {
       diagram: '図解',
       equation: '数式',
       layoutId: '構図',
+      design: '配置と文字',
     })
       .filter(
         ([key]) => JSON.stringify(slide[key as keyof SlideSpec]) !== JSON.stringify(result[key as keyof SlideSpec]),
