@@ -6,7 +6,7 @@ import { MAX_SLIDES } from '../shared/contracts';
 import { themes, TEMPLATE_THEME_ID } from '../shared/themes';
 import { templateToTheme } from '../shared/template-style';
 import { typographyProfiles, withTypography } from '../shared/typography';
-import { makingMethod, makingNames } from '../shared/making';
+import { makingMethod, makingNames, writerTraits } from '../shared/making';
 import { chatServices } from './ChatHandoffPanel';
 import { SubscriptionConnectionPanel } from './SubscriptionConnectionPanel';
 import { inWebPowerPoint } from './office';
@@ -102,6 +102,7 @@ export function SettingsDialog({
         onClose={() => (initialSetup ? onClose() : setSetupOpen(false))}
       />
     );
+  const making = makingMethod({ provider: draft.provider, designMode: draft.designMode, canReadHtml: !__HOSTED__ });
   return (
     <Modal
       title="設定"
@@ -322,7 +323,9 @@ export function SettingsDialog({
             生成・修正の不備を自動で対処
           </span>
           <small>
-            出力上限や形式・出典・文字量の不備に、1回の操作で最大2回再試行します。それでも通らないページは型で作る・出典を外す・文字を小さくするなどして止めずに仕上げ、「確認のヒント」でお知らせします。切ると、通らなかった所で止めます。
+            出力上限や形式・出典・文字量の不備に、1回の操作で最大
+            {making === 'template' ? 2 : writerTraits(draft.provider).designRetries}
+            回再試行します。それでも通らないページは型で作る・出典を外す・文字を小さくするなどして止めずに仕上げ、「確認のヒント」でお知らせします。切ると、通らなかった所で止めます。
             {draft.provider === 'subscription' ? '再試行も月額版の利用枠を消費します。' : ''}
             変更は次の操作から有効です。
           </small>
@@ -341,13 +344,7 @@ export function SettingsDialog({
         </select>
         <small>
           この設定では
-          <b>
-            {
-              makingNames[
-                makingMethod({ provider: draft.provider, designMode: draft.designMode, canReadHtml: !__HOSTED__ })
-              ]
-            }
-          </b>
+          <b>{makingNames[making]}</b>
           で作ります。HTML/CSSを読み取れるのは、インストール版で月額版の自動作成かローカルLLMを使うときです。それ以外は自動で座標に、インストールしない版のローカルLLMは型に切り替えます。HTML/CSSと座標では、デザインの型や見本をAIに渡しません。
         </small>
       </label>
@@ -367,7 +364,7 @@ export function SettingsDialog({
           </small>
         </label>
       )}
-      {(draft.designMode ?? 'html') === 'html' && (draft.provider === 'subscription' || draft.provider === 'local') && (
+      {making === 'html' && (
         <label className="field auto-repair-setting">
           <span>
             <input
@@ -379,7 +376,7 @@ export function SettingsDialog({
             描画したページを画像でAIに見直させて仕上げる
           </span>
           <small>
-            資料を表示したあと、描いたページの画像をAIに見せます。図と説明の食い違いや目立つ崩れのあるページは、指摘された所だけを手直しし、もう一度描いて直す前と見比べ、良くなったときだけ使います（直す前に戻せます）。細かな気づきは「確認のヒント」として表示します。1本あたり1分〜1分半ほどかかります。ローカルLLMでは、画像を読めるモデルのときだけ見直し、気づきを表示するまでにします（自動で作り直すのは、型に切り替えたページだけです）。伏せ字を使うプロジェクトでは行いません。オフでも、各ページの「見直す」で選んだページだけ見直せます。
+            資料を表示したあと、描いたページの画像をAIに見せ、図と説明の食い違いや目立つ崩れなどの気づきを「確認のヒント」に表示します。自動では直しません。直すページは、選んで指示するか「見直す」を押します。数十秒ほどかかります。ローカルLLMでは、画像を読めるモデルのときだけ見直します（型に切り替えたページに目立つ問題が見つかったときだけ、そのページをHTMLで作り直します。直す前に戻せます）。伏せ字を使うプロジェクトでは行いません。オフでも、各ページの「見直す」で選んだページだけ見直せます。
           </small>
         </label>
       )}
