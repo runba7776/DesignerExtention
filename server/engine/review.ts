@@ -284,8 +284,9 @@ export class ReviewService {
     }
     return single.slides[0];
   }
-  /** The look at the drawn pages, after the deck is shown: pages with a high or medium problem are touched up and
-   * swapped in when they got better (the earlier version is kept to go back to); the other findings become hints. */
+  /** The look at the drawn pages, after the deck is shown: what it finds becomes hints for the user to fix. Only a
+   * local model's page made from a layout is made again (the earlier version is kept to go back to), and a photo
+   * the look rejects or finds cut in the wrong place is replaced or moved by the app. */
   async polish(id: string) {
     return this.engine.lock(id, async state => {
       const job = state.polish,
@@ -512,7 +513,7 @@ export class ReviewService {
       if (!this.engine.pages.canLook(state))
         throw new AppError(
           409,
-          'ページの見直しは、月額版のAIがデザインした資料で使えます（伏せ字を使うプロジェクトを除く）。',
+          'ページの見直しは、月額版か画像を読めるローカルLLMで、AIがデザインした資料に使えます（伏せ字を使うプロジェクトを除く）。',
           'LOOK_UNAVAILABLE',
         );
       const slide = variant.deck.slides[at],

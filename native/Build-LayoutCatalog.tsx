@@ -11,7 +11,8 @@ import {SlidePreview} from '../web/SlidePreview';
 import {createRenderBridge} from '../server/render-bridge';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
-const layouts=listLayouts(),out=path.join(root,'docs');await fs.mkdir(out,{recursive:true});
+// The page an AI designs freely is not a layout to fill, so the catalog leaves it out.
+const layouts=listLayouts().filter(l=>l.group!=='free'),out=path.join(root,'docs');await fs.mkdir(out,{recursive:true});
 const problems=layouts.flatMap(l=>[1,l.maxItems].filter((n,i,a)=>a.indexOf(n)===i).flatMap(n=>{
   const scene=compileDeck(sampleDeck([sampleSlide(l.id,n)]));return scene.slides.flatMap(s=>(s.textIssues??[]).map(issue=>({layout:l.id,count:n,...issue})));
 }));
