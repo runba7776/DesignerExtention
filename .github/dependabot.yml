@@ -1,5 +1,6 @@
 # Weekly update proposals. Minor and patch updates come as one pull request;
 # major updates come one by one so each can be checked on its own.
+# React and its types move together: one without the others does not install.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -11,6 +12,16 @@ updates:
       minor-and-patch:
         patterns: ['*']
         update-types: [minor, patch]
+      react:
+        patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
+    # Put off on 2026-11-16: React 19 and TypeScript 7 need changes in the code first.
+    ignore:
+      - dependency-name: 'react*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/react*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:
