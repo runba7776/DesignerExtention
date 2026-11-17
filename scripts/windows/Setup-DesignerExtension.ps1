@@ -1,12 +1,14 @@
 ﻿[CmdletBinding()]
 param([switch]$SkipRegister, [switch]$SkipTaskPane, [switch]$NoStart)
 $ErrorActionPreference = 'Stop'
-Push-Location $PSScriptRoot
+# This script lives in scripts/windows; the app is two folders up.
+$root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+Push-Location $root
 try {
   & npm.cmd install --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
   # Ensure the official Claude Code platform binary is placed even when npm lifecycle scripts are disabled.
-  & node (Join-Path $PSScriptRoot 'node_modules/@anthropic-ai/claude-code/install.cjs')
+  & node (Join-Path $root 'node_modules/@anthropic-ai/claude-code/install.cjs')
   if ($LASTEXITCODE -ne 0) { throw 'Claude Code runtime setup failed.' }
   & npm.cmd run typecheck
   if ($LASTEXITCODE -ne 0) { throw 'Type check failed.' }
@@ -16,12 +18,12 @@ try {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'Setup-Office-TaskPane.ps1')
     if ($LASTEXITCODE -ne 0) { throw 'PowerPoint task pane setup failed.' }
   }
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'native/Build-Native.ps1')
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'native/Build-Native.ps1')
   if ($LASTEXITCODE -ne 0) { throw 'PowerPoint adapter build failed.' }
   # Registers the ribbon/auto-start COM add-in and sideloads the task pane
   # manifest for the current Windows user only (no administrator rights).
   if (-not $SkipRegister) {
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'native/Register.ps1') -Register
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'native/Register.ps1') -Register
     if ($LASTEXITCODE -ne 0) { throw 'PowerPoint add-in registration failed.' }
   }
   if (-not $NoStart) {

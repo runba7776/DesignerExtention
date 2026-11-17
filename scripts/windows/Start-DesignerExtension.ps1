@@ -1,5 +1,7 @@
 ﻿param([switch]$NoOpen)
 $ErrorActionPreference = 'Stop'
+# This script lives in scripts/windows; the app is two folders up.
+$root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 function Get-NodeExecutable {
   $command = Get-Command node.exe -ErrorAction SilentlyContinue
   if ($command) { return $command.Source }
@@ -13,10 +15,10 @@ function Get-NodeExecutable {
   }
   throw 'Node.js was not found. Install Node.js 22 or later (https://nodejs.org/) and run Setup-DesignerExtension.cmd again.'
 }
-if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'node_modules/tsx/dist/cli.mjs'))) { throw 'Dependencies are missing. Run Setup-DesignerExtension.ps1 first.' }
-if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'dist/web/index.html'))) { throw 'The app has not been built. Run Setup-DesignerExtension.ps1 first.' }
+if (-not (Test-Path -LiteralPath (Join-Path $root 'node_modules/tsx/dist/cli.mjs'))) { throw 'Dependencies are missing. Run Setup-DesignerExtension.cmd first.' }
+if (-not (Test-Path -LiteralPath (Join-Path $root 'dist/web/index.html'))) { throw 'The app has not been built. Run Setup-DesignerExtension.cmd first.' }
 # The same launcher PowerPoint's add-in uses: it starts the server once and prints its address.
-$url = & (Get-NodeExecutable) (Join-Path $PSScriptRoot 'scripts/launch.mjs')
+$url = & (Get-NodeExecutable) (Join-Path $root 'scripts/launch.mjs')
 if ($LASTEXITCODE -ne 0 -or -not $url) { throw 'Could not start Designer Extension. See runtime/server-error.log.' }
 if (-not $NoOpen) { Start-Process -FilePath $url -WindowStyle Hidden }
 Write-Host "Designer Extension is running on $(([Uri]$url).GetLeftPart('Authority'))."

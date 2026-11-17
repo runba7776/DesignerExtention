@@ -55,7 +55,7 @@ try {
   console.error(
     error?.code === 'ENOENT'
       ? 'PowerPoint task pane certificate is missing. Run Setup-DesignerExtension.cmd to enable the PowerPoint task pane.'
-      : `PowerPoint task pane certificate could not be loaded: ${error.message}. Run Setup-Office-TaskPane.ps1 again.`,
+      : `PowerPoint task pane certificate could not be loaded: ${error.message}. Run Setup-DesignerExtension.cmd again.`,
   );
 }
 const server = app.listen(port, '127.0.0.1', async () => {
@@ -71,7 +71,7 @@ const server = app.listen(port, '127.0.0.1', async () => {
     }),
     'utf8',
   );
-  console.log(`Designer Extension is ready on 127.0.0.1:${port}. Open Start-DesignerExtension.ps1 to launch.`);
+  console.log(`Designer Extension is ready on 127.0.0.1:${port}. Open Start-DesignerExtension.cmd to launch.`);
 });
 server.on('error', (err: NodeJS.ErrnoException) => {
   console.error(

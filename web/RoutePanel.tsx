@@ -62,7 +62,7 @@ const SCOPES: { id: SendScope; label: string; description: string }[] = [
     id: 'masked',
     label: '伏せ字にして送る',
     description:
-      '社名・人名・連絡先・数値を【社名1】のような記号に置き換えて渡し、返ってきた答えをこのPCで元に戻します。',
+      '社名・連絡先・数値と、プロジェクトに登録した語（人名など）を【社名1】のような記号に置き換えて渡し、返ってきた答えをこのPCで元に戻します。',
   },
   {
     id: 'design',

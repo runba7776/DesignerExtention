@@ -20,7 +20,7 @@
 証明書を削除する場合は、PowerPointのタスクペインを使わないことを確認してから次を実行します。
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Setup-Office-TaskPane.ps1 -Remove
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\Setup-Office-TaskPane.ps1 -Remove
 ```
 
 このコマンドはスクリプトが記録した証明書だけをWindowsの現在のユーザーから削除し、タスクペイン用の鍵ファイルを消します。アドインマニフェストの登録解除はPowerPointのアドイン画面から行います。
