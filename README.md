@@ -19,6 +19,19 @@
 | PowerPointに入れたい | [インストール不要版](docs/no-install.md)、Windowsで全機能を使うなら `Setup-DesignerExtension.cmd` |
 | 機能と操作の詳細 | [製品ガイド](docs/product-guide.md) |
 
+## 試してもらうとき
+
+作者がサーバーを立てる必要はありません。公開ページはGitHub Pagesに置いたファイルだけで、処理は開いた人のブラウザーの中で動きます。入力や資料が作者に届くこともありません。
+
+| 手軽な順 | 相手がすること | 要るもの |
+|---|---|---|
+| 1. サンプルを再生する（いちばん手軽） | [このリンク](https://runba7776.github.io/DesignerExtention/?sample=1)を開き、B案の「この案で進める」→「この構成で作成」を押す。12枚ができ、PPTXも保存できる | ブラウザーだけ。入力・ログイン・インストール・AIは要らない |
+| 2. 自分の資料で作る | [公開ページ](https://runba7776.github.io/DesignerExtention/)で「AIチャットに貼り付ける」を選び、指示をふだん使うAIチャットに貼って、返答を取り込む | ブラウザーとAIチャット。APIキーは要らない |
+| 3. PowerPointの中で使う | 公開ページから `manifest.xml` を保存して、PowerPointに読み込む（[手順](docs/no-install.md)） | PowerPoint。Web版への読み込みは未確認 |
+| 4. 全機能を使う（月額版のClaude・ChatGPTでの自動作成など） | このリポジトリを取得して `Setup-DesignerExtension.cmd` を実行する | Windows、デスクトップ版PowerPoint、Node.js 22以降 |
+
+まず1のリンクを送るのが確実です。ページを開けない環境には、[紹介のPDF](portfolio/Designer-Extension-portfolio.pdf)と[サンプルのPPTX](portfolio/Designer-Extension-sample.pptx)をファイルで渡せます。
+
 ## 確かめたこと
 
 | 確かめたこと | 結果 |
@@ -36,7 +49,9 @@
 - ChatGPT月額版の実際のアカウントでの動作（自動テストまで）
 - 組織での配布
 - 作者以外の人による試用、外部の脆弱性診断、負荷試験
+
 事実の誤りは検査できません。
+
 ## 開発
 
 Windows、デスクトップ版PowerPoint、Node.js 22以降、.NET Framework 4.xを前提とします。
