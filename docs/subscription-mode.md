@@ -34,7 +34,7 @@ Claude接続では、各利用者のPCにある未改変の公式Claude Codeを�
 Claude DesktopのローカルMCP機能を使うと、コピー操作を減らせます。アドインの月額チャット作業の指示をClaudeが取得し、返答をアドインへ返します。アドインから有料APIを呼ぶことはありませんが、Claudeの利用枠を消費します。
 
 1. アドインを起動し、設定でClaudeを選びます。
-2. 設定内の「Claude Desktopで直接連携」から接続設定JSONを保存します。固定PC用の例はルートのClaude-Desktop-Connector.example.jsonです。
+2. 設定内の「Claude Desktopで直接連携」から接続設定JSONを保存します。固定PC用の例は `docs/Claude-Desktop-Connector.example.json` です。
 3. Claude Desktopの開発者設定からローカルMCP設定を開き、保存したJSONのmcpServers内のdesigner-extensionを既存設定へ追加します。既存の接続設定を丸ごと置き換えないでください。企業端末では管理者による制限が適用される場合があります。
 4. Claude Desktopを再起動し、designer-extensionのツールが表示されることを確認します。設定画面やローカル拡張機能の位置はアプリ版によって異なります。[公式の導入説明](https://support.claude.com/en/articles/10949351-getting-started-with-local-mcp-servers-on-claude-desktop)を参照してください。
 5. アドインで「構成を考える」「この構成で作成」「修正する」のいずれかを押します。

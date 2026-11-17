@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param([switch]$Remove)
 $ErrorActionPreference = 'Stop'
-$projectRoot = $PSScriptRoot
+$projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $runtimeDirectory = Join-Path $projectRoot 'runtime/office-taskpane'
 $thumbprintPath = Join-Path $runtimeDirectory 'certificate-thumbprint.txt'
 $certificatePath = Join-Path $runtimeDirectory 'localhost.cer'

@@ -1,12 +1,14 @@
 param()
 $ErrorActionPreference = 'Stop'
-$statePath = Join-Path $PSScriptRoot 'runtime/server.json'
+# This script lives in scripts/windows; the app is two folders up.
+$root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$statePath = Join-Path $root 'runtime/server.json'
 if (-not (Test-Path -LiteralPath $statePath)) { Write-Output 'Designer Extension is not running.'; exit 0 }
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 $serverPid = [int]$state.pid
 $serverProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$serverPid"
 if (-not $serverProcess) { Write-Output 'Designer Extension is already stopped.'; exit 0 }
-$entryPath = Join-Path $PSScriptRoot 'server/index.ts'
+$entryPath = Join-Path $root 'server/index.ts'
 $normalizedCommand = ([string]$serverProcess.CommandLine).Replace('\','/')
 $isOurEntry = $normalizedCommand.IndexOf($entryPath.Replace('\','/'), [StringComparison]::OrdinalIgnoreCase) -ge 0
 # A server started with a relative path is still ours when it owns the recorded port.

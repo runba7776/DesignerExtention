@@ -8,11 +8,11 @@
   "scripts": {
     "dev": "tsx server/index.ts",
     "start": "tsx server/index.ts",
-    "build": "vite build --config vite.config.ts",
+    "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test --test-concurrency=1 tests/*.test.ts",
     "build:native": "powershell -NoProfile -ExecutionPolicy Bypass -File native/Build-Native.ps1",
-    "build:hosted": "vite build --config vite.hosted.config.ts && node scripts/build-hosted-manifest.mjs",
+    "build:hosted": "vite build --mode hosted && node scripts/build-hosted-manifest.mjs",
     "serve:hosted": "node scripts/serve-hosted.mjs",
     "eval:local": "tsx scripts/eval-local.ts",
     "format": "prettier --write \"server/**/*.ts\" \"shared/**/*.ts\" \"web/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.{mjs,ts}\" \"vite*.config.ts\"",
@@ -52,5 +52,11 @@
     "pptxgenjs": {
       "image-size": "^2.0.4"
     }
+  },
+  "prettier": {
+    "printWidth": 120,
+    "singleQuote": true,
+    "arrowParens": "avoid",
+    "endOfLine": "auto"
   }
 }

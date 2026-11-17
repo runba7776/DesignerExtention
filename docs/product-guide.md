@@ -41,11 +41,11 @@
 2. 生成された`Designer-Extension-Start.pptx`を開くと、PowerPointの右側に作成ペインが開きます。一度開いた後は、どの資料でも**ホーム → スライド作成**から開けます。
 3. 作成したスライドは、右側ペインの**この資料に挿入**で、開いている資料の選択中スライドの後ろへ追加できます。元のスライドは変更しません。
 
-ローカルアプリはPowerPointの起動時に自動で起動します（`Start-DesignerExtension.cmd`を毎回実行する必要はありません）。PowerPointのアドインは、PowerShellを使わず、Node.jsで起動用のスクリプト（`scripts/launch.mjs`）を直接実行します。すでに起動していれば何もしません。ブラウザー版を使う場合は`Start-DesignerExtension.cmd`をダブルクリックします。詳しい操作と証明書の扱いは[PowerPoint右側ペインとプロジェクト共有](taskpane-and-projects.md)を確認してください。登録の解除は`Uninstall-PowerPoint-Addin.cmd`です。
+ローカルアプリはPowerPointの起動時に自動で起動します（`Start-DesignerExtension.cmd`を毎回実行する必要はありません）。PowerPointのアドインは、PowerShellを使わず、Node.jsで起動用のスクリプト（`scripts/launch.mjs`）を直接実行します。すでに起動していれば何もしません。ブラウザー版を使う場合は`Start-DesignerExtension.cmd`をダブルクリックします。詳しい操作と証明書の扱いは[PowerPoint右側ペインとプロジェクト共有](taskpane-and-projects.md)を確認してください。登録の解除は`scripts\windows\Uninstall-PowerPoint-Addin.cmd`です。
 
 コードを更新した後は、PowerPointを閉じてから`Setup-DesignerExtension.cmd`を再実行してください。Web画面とPowerPoint連携を再ビルドし、ローカルアプリを再起動します。描画部分だけは、再起動で済ませた場合も、次に資料を描くときに自動で再ビルドします（できなかったときは、更新前の描画部分で作成して警告を表示します）。履歴は引き続き利用できます。Claude APIの旧設定は新しい接続画面へ移行し、旧APIキーや環境変数のキーを読み込みません。
 
-右側ペインに「接続が拒否されました」と出る場合は、`Restart-DesignerExtension.cmd`を実行してからペインを開き直し、改善しなければ`runtime/server-error.log`を確認してください。
+右側ペインに「接続が拒否されました」と出る場合は、`scripts\windows\Restart-DesignerExtension.cmd`を実行してからペインを開き直し、改善しなければ`runtime/server-error.log`を確認してください。
 
 ## 作成する方法
 
