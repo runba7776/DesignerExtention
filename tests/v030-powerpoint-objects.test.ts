@@ -356,6 +356,50 @@ test(
   },
 );
 
+test(
+  'an SVG drawing that reaches past its own frame comes out whole: as lines, or as a picture taking the part past it',
+  { skip: !findBrowser() },
+  async () => {
+    const theme = paletteTheme({
+      name: 't',
+      background: '#FFFFFF',
+      text: '#1F2A44',
+      muted: '#6B7280',
+      accent: '#1F4E8C',
+      accent2: '#C37527',
+    });
+    // Drawn by Claude (2026-11-20): a branch running left of its frame, cut there as a picture.
+    const [page] = await layoutHtmlSlides(
+      [
+        {
+          id: 'slide-2',
+          html: `<section class="slide"><h1 style="position:absolute;left:56px;top:30px;margin:0;font-size:30px">線</h1>
+<svg style="position:absolute;left:400px;top:200px" width="150" height="44"><line x1="5" y1="0" x2="5" y2="20" stroke="#C37527" stroke-width="3"/><line x1="5" y1="20" x2="-155" y2="20" stroke="#C37527" stroke-width="3"/><line x1="5" y1="20" x2="145" y2="20" stroke="#C37527" stroke-width="3"/></svg>
+<svg style="position:absolute;left:100px;top:300px" width="100" height="50" viewBox="0 0 50 25"><rect width="50" height="25" fill="#EEF2F7"/><text x="5" y="15" font-size="10">文字</text><line x1="50" y1="12" x2="100" y2="12" stroke="#1F4E8C" stroke-width="2"/></svg></section>`,
+        },
+      ],
+      theme,
+    );
+    assert.ok(!('error' in page));
+    if ('error' in page) return;
+    const elements = page.elements as FreeElement[];
+    assert.deepEqual(
+      elements.flatMap(e => (e.t === 'line' ? [[e.x1, e.y1, e.x2, e.y2]] : [])),
+      [
+        [405, 200, 405, 220],
+        [405, 220, 245, 220],
+        [405, 220, 545, 220],
+      ],
+    );
+    const pictures = elements.filter(e => e.t === 'svg');
+    assert.equal(pictures.length, 1, 'a drawing with text stays a picture');
+    const [picture] = pictures;
+    assert.ok(picture.t === 'svg');
+    assert.deepEqual([picture.x, picture.y, picture.w, picture.h], [100, 300, 200, 50]);
+    assert.match(picture.svg, /viewBox="0 0 100 25"/);
+  },
+);
+
 test('a line running square into the middle of a box side is glued to it as a connector and drawn up to it', () => {
   const box = (x: number, shape: 'rect' | 'ellipse' = 'rect'): FreeElement => ({
     t: 'box',
