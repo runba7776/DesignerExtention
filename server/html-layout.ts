@@ -78,6 +78,7 @@ export function slidePage(html: string, theme: Theme) {
 <style>section.slide{width:960px!important;height:540px!important;position:relative!important;overflow:hidden!important;box-sizing:border-box!important;margin:0!important}
 section.slide,section.slide *{text-spacing-trim:space-all!important;font-kerning:none!important;word-spacing:normal!important;text-shadow:none!important;filter:none!important;writing-mode:horizontal-tb!important;list-style:none!important}
 section.slide [data-image]{overflow:hidden!important}
+section.slide svg{overflow:visible!important}
 section.slide,section.slide :not(svg *){transform:none!important;clip-path:none!important}
 section.slide *::before,section.slide *::after{content:none!important}</style></body></html>`;
 }
@@ -119,15 +120,25 @@ export const CONVERT_SCRIPT = String.raw`(function(){
     const clone=svg.cloneNode(true),source=[svg,...svg.querySelectorAll('*')],target=[clone,...clone.querySelectorAll('*')];
     source.forEach((el,i)=>{const cs=getComputedStyle(el),t=target[i];for(const p of ['fill','stroke','stroke-width','opacity','fill-opacity','stroke-opacity','stroke-linecap','stroke-linejoin','stroke-dasharray','font-size','font-weight','marker-start','marker-mid','marker-end'])t.setAttribute(p,cs.getPropertyValue(p));if(el.tagName==='text'||el.tagName==='tspan')t.setAttribute('font-family',cs.fontFamily);t.removeAttribute('class');t.removeAttribute('style');});
     clone.setAttribute('xmlns','http://www.w3.org/2000/svg');clone.setAttribute('width',String(round(r.width)));clone.setAttribute('height',String(round(r.height)));
-    if(!clone.getAttribute('viewBox'))clone.setAttribute('viewBox','0 0 '+round(r.width)+' '+round(r.height));
+    // A place other than the SVG's frame (a drawing past it, or cut at the slide) shows that place of the drawing.
+    const f=svg.getBoundingClientRect(),m=svg.getScreenCTM();
+    if(m&&!m.b&&!m.c&&[r.left-f.left,r.top-f.top,r.right-f.right,r.bottom-f.bottom].some(v=>Math.abs(v)>0.5)){clone.setAttribute('viewBox',[(r.left-m.e)/m.a,(r.top-m.f)/m.d,r.width/m.a,r.height/m.d].map(v=>Math.round(v*100)/100).join(' '));clone.setAttribute('preserveAspectRatio','none');}
+    else if(!clone.getAttribute('viewBox'))clone.setAttribute('viewBox','0 0 '+round(r.width)+' '+round(r.height));
     return new XMLSerializer().serializeToString(clone);
+  }
+  /** An SVG's frame with what is drawn past it (the page shows it), cut at the slide. */
+  function drawnBox(svg,r){
+    let l=r.left,t=r.top,rt=r.right,b=r.bottom;
+    for(const el of svg.querySelectorAll('line,polyline,polygon,rect,circle,ellipse,path,text,image,use')){if(el.closest('defs,marker,symbol,clipPath,mask,pattern'))continue;const q=el.getBoundingClientRect();if(q.width||q.height){l=Math.min(l,q.left);t=Math.min(t,q.top);rt=Math.max(rt,q.right);b=Math.max(b,q.bottom);}}
+    l=Math.max(l,base.left);t=Math.max(t,base.top);rt=Math.min(rt,base.right);b=Math.min(b,base.bottom);
+    return {left:l,top:t,right:rt,bottom:b,width:rt-l,height:b-t};
   }
   /** An SVG drawn with lines, shapes and paths as PowerPoint lines (a drawn arrowhead as the line's own), rectangles,
    * ovals and freeforms (one figure each), in slide points. Null keeps it a picture: text, pictures, gradients,
-   * clipping, filters, see-through lines, a turned rectangle or oval, a drawing past its frame or the slide, or more
-   * than 40 parts. */
-  function svgShapes(svg,r,alpha){
-    if(r.left<base.left-1||r.top<base.top-1||r.right>base.right+1||r.bottom>base.bottom+1)return null;
+   * clipping, filters, see-through lines, a turned rectangle or oval, a drawing past the slide, or more than 40
+   * parts. What is drawn past the SVG's own frame is kept: the page shows it (AI drawings reached past it, and a
+   * picture cut at its frame showed broken lines, 2 of 40 pages, 2026-11-20). */
+  function svgShapes(svg,alpha){
     const parts=[],P=(m,x,y)=>[round(m.a*x+m.c*y+m.e-base.left),round(m.b*x+m.d*y+m.f-base.top)];
     for(const el of svg.querySelectorAll('*')){
       if(el.tagName==='g'||el.closest('defs,marker,symbol,clipPath,mask,pattern,linearGradient,radialGradient,filter,title,desc,metadata,style'))continue;
@@ -135,7 +146,7 @@ export const CONVERT_SCRIPT = String.raw`(function(){
       const cs=getComputedStyle(el);if(cs.display==='none'||cs.visibility==='hidden')continue;
       let a=alpha;for(let p=el;p!==svg;p=p.parentNode){const s=getComputedStyle(p);a*=parseFloat(s.opacity||'1');if(s.clipPath!=='none'||s.mask!=='none'||s.filter!=='none')return null;}
       const b=el.getBoundingClientRect(),m=el.getScreenCTM();
-      if(/url\(/.test(cs.fill+cs.stroke)||!m||b.left<r.left-1||b.top<r.top-1||b.right>r.right+1||b.bottom>r.bottom+1)return null;
+      if(/url\(/.test(cs.fill+cs.stroke)||!m||b.left<base.left-1||b.top<base.top-1||b.right>base.right+1||b.bottom>base.bottom+1)return null;
       const k=Math.sqrt(Math.abs(m.a*m.d-m.b*m.c)),fill=color(cs.fill),stroke=color(cs.stroke),lw=(parseFloat(cs.strokeWidth)||0)*k;
       const fo=fill.a*parseFloat(cs.fillOpacity||'1')*a,so=stroke.a*parseFloat(cs.strokeOpacity||'1')*a,filled=tag!=='line'&&fo>0.02,stroked=so>0.02&&lw>0.1;
       if(!filled&&!stroked)continue;
@@ -349,8 +360,9 @@ export const CONVERT_SCRIPT = String.raw`(function(){
     if(el instanceof SVGSVGElement){
       if(!inside(r))return;
       // Its lines and shapes become PowerPoint's own, kept together; anything else keeps it a picture.
-      const parts=svgShapes(el,r,alpha);
-      if(parts&&out.length+parts.length<=150)out.push(...parts.map(p=>parts.length>1?{...p,g:start}:p));else out.push({t:'svg',...rect(r),svg:svgMarkup(el,r)});
+      const parts=svgShapes(el,alpha);
+      if(parts&&out.length+parts.length<=150)out.push(...parts.map(p=>parts.length>1?{...p,g:start}:p));
+      else{const d=drawnBox(el,r);out.push({t:'svg',...rect(d),svg:svgMarkup(el,d)});}
       // A large figure of lines and frames only (axes, a grid) is a candidate for an empty figure.
       if(r.width>=150&&r.height>=150&&r.width*r.height>=0.12*960*540&&!el.querySelector('circle,ellipse,path,polygon,text,image,use,foreignObject'))figures.push({box:rect(r),from:start,to:out.length});
       return;
