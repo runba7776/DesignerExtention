@@ -104,50 +104,63 @@ export class GenerationService {
             slides: draft.slides,
           };
         }
-        let deck = validateDeck(value, outline);
-        if (deck.mode !== outline.mode) throw new AppError(422, '生成された資料のモードが構成案と異なります。');
-        deck.title = outline.title;
-        deck.id = randomUUID();
-        this.engine.pages.verifySources(state, deck.slides);
-        this.engine.pages.styleDeck(state, deck, outline);
-        // Blanks the AI still wrote for facts the user gave are filled with them.
-        deck = fillBlanks(deck, factValues(outline)).deck;
-        const typography = state.settings.typographyId;
-        deck.typographyId =
-          typography && typography !== 'auto' ? typography : (outline.typographyId ?? deck.typographyId);
-        if (state.settings.preferredDesignId && state.design)
-          deck = applySavedDesign(deck, state.design, false, this.engine.pages.templateTheme(state)).deck;
-        const draft = state.draft;
-        if (draft && !draft.fit)
-          draft.fit = { deck: improveTextFit(deck), batchSize: READING_BATCH_SIZE, singleFailures: 0 };
-        if (force && draft?.fit) draft.fit.force = true;
-        try {
-          deck = await this.fitText(state, draft?.fit?.deck ?? improveTextFit(deck), draft?.fit);
-        } catch (error) {
-          if (!draft?.fit || (!repairReason(error) && !(error instanceof AppError && error.code === 'CALL_LIMIT')))
-            throw error;
-          // Text the AI could not fit either is set smaller on this PC (down to half, no call) instead of stopping;
-          // the pages are named in a warning. Text that does not fit even at half, and any text with automatic repair
-          // turned off, stops here as before, for the user to resume or to split the outline.
-          const smaller =
-            this.engine.options.settings.get().autoRepair === false
+        let deck!: DeckSpec;
+        // A page whose text does not fit even at half size gives way, as a page the AI could not write does: it is
+        // made again with a layout, then from the outline, and the deck is finished; each step is tried once.
+        for (let gaveWay = 0; ; gaveWay++) {
+          deck = validateDeck(value, outline);
+          if (deck.mode !== outline.mode) throw new AppError(422, '生成された資料のモードが構成案と異なります。');
+          deck.title = outline.title;
+          deck.id = randomUUID();
+          this.engine.pages.verifySources(state, deck.slides);
+          this.engine.pages.styleDeck(state, deck, outline);
+          // Blanks the AI still wrote for facts the user gave are filled with them.
+          deck = fillBlanks(deck, factValues(outline)).deck;
+          const typography = state.settings.typographyId;
+          deck.typographyId =
+            typography && typography !== 'auto' ? typography : (outline.typographyId ?? deck.typographyId);
+          if (state.settings.preferredDesignId && state.design)
+            deck = applySavedDesign(deck, state.design, false, this.engine.pages.templateTheme(state)).deck;
+          const draft = state.draft;
+          if (draft && !draft.fit)
+            draft.fit = { deck: improveTextFit(deck), batchSize: READING_BATCH_SIZE, singleFailures: 0 };
+          if (force && draft?.fit) draft.fit.force = true;
+          try {
+            deck = await this.fitText(state, draft?.fit?.deck ?? improveTextFit(deck), draft?.fit);
+          } catch (error) {
+            if (!draft?.fit || (!repairReason(error) && !(error instanceof AppError && error.code === 'CALL_LIMIT')))
+              throw error;
+            // Text the AI could not fit either is set smaller on this PC (down to half, no call) instead of stopping;
+            // the pages are named in a warning. With automatic repair turned off, it stops here as before, for the
+            // user to resume or to split the outline.
+            const auto = this.engine.options.settings.get().autoRepair !== false;
+            const smaller = !auto
               ? undefined
               : await this.fitText(state, draft.fit.deck, { ...draft.fit, force: true }).catch(forced => {
                   if (forced instanceof AppError && forced.code === 'TEXT_FIT_FORCED') return undefined;
                   throw forced;
                 });
-          if (!smaller) {
-            await extras;
-            return this.generationRecovery(
-              state,
-              outline,
-              'text-fit',
-              error instanceof AppError && error.code === 'CALL_LIMIT'
-                ? state.session.usage.calls < SESSION_CALL_LIMIT
-                : !!repairReason(error) && draft.fit.singleFailures < 2,
-            );
+            if (!smaller) {
+              const unfitting = auto && gaveWay < 2 ? this.unfitting(draft.fit.deck) : [];
+              if (unfitting.length) {
+                await this.giveWayToFit(state, outline, draft, unfitting, gaveWay === 0);
+                delete draft.fit;
+                value = { ...(value as object), themeId: draft.themeId, slides: draft.slides };
+                continue;
+              }
+              await extras;
+              return this.generationRecovery(
+                state,
+                outline,
+                'text-fit',
+                error instanceof AppError && error.code === 'CALL_LIMIT'
+                  ? state.session.usage.calls < SESSION_CALL_LIMIT
+                  : !!repairReason(error) && draft.fit.singleFailures < 2,
+              );
+            }
+            deck = smaller;
           }
-          deck = smaller;
+          break;
         }
         deck = diversifyDeck(deck, state.session.id, this.engine.recentLayouts);
         if (state.settings.preferredDesignId && state.design)
@@ -344,9 +357,12 @@ export class GenerationService {
           );
           return this.writePages(state, outline, draft, run);
         }
-        // An operation's 12 calls are used up: the next operation may continue, until the presentation's 40.
-        if (error instanceof AppError && error.code === 'CALL_LIMIT')
+        // An operation's 12 calls are used up: the main draft goes on once as a new operation by itself; after that
+        // the next operation may continue, until the presentation's 40.
+        if (error instanceof AppError && error.code === 'CALL_LIMIT') {
+          if (!run && this.engine.ai.continueOperation(state)) continue;
           return { canRetry: !run && state.session.usage.calls < SESSION_CALL_LIMIT };
+        }
         if (
           !repairReason(error) ||
           (this.engine.options.settings.get().autoRepair === false && !(error instanceof OutputLimitError))
@@ -457,40 +473,11 @@ export class GenerationService {
     } catch {
       try {
         if (target.id === 'slide-1') throw new Error('a cover is made from the outline');
-        // A page asked with a layout id gets the layout instructions (the points layouts).
-        const response: any = await this.engine.ai.complete(
-          state,
-          'generate',
-          {
-            outline,
-            targetSlides: [{ ...target, layoutId: 'summary' }],
-            messages: state.session.messages,
-            compactOutput: true,
-            continuedFrom: draft.slides.map(continued),
-          },
-          6500,
-          run,
-        );
-        const page = response?.slides?.[0];
-        // gemma4 once returned the layout with no items: an empty page is not kept.
-        if (!page?.items?.length && !page?.body && !page?.chart && !page?.table) throw new Error('an empty page');
-        accept(page, target.id);
+        accept(await this.layoutPage(state, outline, target, draft.slides, run), target.id);
         what = `AIのデザインが通らなかったため、型に当てはめて作りました${why ? `（${why}）` : ''}`;
       } catch {
         what = `AIが作れなかったため、構成案の要点から型で仮に作りました${why ? `（${why}）` : ''}`;
-        accept(
-          {
-            id: target.id,
-            title: target.title,
-            layoutId: target.id === 'slide-1' ? 'cover' : 'summary',
-            items: (target.keyPoints.length || target.id === 'slide-1' ? target.keyPoints : [target.intent]).map(
-              label => ({ label }),
-            ),
-            notes: '',
-            sources: [],
-          },
-          target.id,
-        );
+        accept(this.outlinePage(target), target.id);
       }
     }
     (draft.hints ??= []).push({
@@ -501,6 +488,94 @@ export class GenerationService {
       fix: 'このページを選んで修正を指示するか、PowerPointで整える',
     });
     draft.singleFailures = 0;
+  }
+  /** The ids of the pages whose text does not fit even when set as small as half. */
+  private unfitting(deck: DeckSpec) {
+    return [...new Set(fitProblems(improveTextFit(deck, true)).map(p => p.slideId))];
+  }
+  /** Pages whose text does not fit even at half size are made again in place in the draft: first asked once with
+   * the summary layout (withLayout), else, and on the second time, from the outline with no call. A hint asks the
+   * user to check each one; the earlier picture of the page is not looked at. */
+  private async giveWayToFit(
+    state: SessionState,
+    outline: Outline,
+    draft: GenerationDraft,
+    ids: string[],
+    withLayout: boolean,
+  ) {
+    for (const id of ids) {
+      const at = draft.slides.findIndex(s => s.id === id),
+        target = outline.slides.find(s => s.id === id);
+      if (at < 0 || !target) continue;
+      let slide: SlideSpec | undefined, what: string;
+      if (withLayout && target.id !== 'slide-1')
+        try {
+          slide = this.engine.pages.checkPage(
+            state,
+            await this.layoutPage(state, outline, target, draft.slides.slice(0, at)),
+            id,
+          );
+        } catch {
+          slide = undefined;
+        }
+      if (slide) what = '文字を半分の大きさにしても枠に収まらなかったため、型に当てはめて作り直しました';
+      else {
+        slide = this.engine.pages.checkPage(state, this.outlinePage(target), id);
+        what = '文字を半分の大きさにしても枠に収まらなかったため、構成案の要点から型で仮に作りました';
+      }
+      draft.slides[at] = slide;
+      delete draft.shots?.[id];
+      delete draft.html?.[id];
+      draft.hints = [
+        ...(draft.hints ?? []).filter(h => h.slideId !== id),
+        {
+          slideId: id,
+          title: target.title,
+          severity: 'high',
+          what,
+          fix: 'このページを選んで修正を指示するか、PowerPointで整える',
+        },
+      ];
+    }
+  }
+  /** One page asked again with the summary layout (a page asked with a layout id gets the layout instructions). */
+  private async layoutPage(
+    state: SessionState,
+    outline: Outline,
+    target: Outline['slides'][number],
+    before: SlideSpec[],
+    run?: AiRun,
+  ) {
+    const response: any = await this.engine.ai.complete(
+      state,
+      'generate',
+      {
+        outline,
+        targetSlides: [{ ...target, layoutId: 'summary' }],
+        messages: state.session.messages,
+        compactOutput: true,
+        continuedFrom: before.map(continued),
+      },
+      6500,
+      run,
+    );
+    const page = response?.slides?.[0];
+    // gemma4 once returned the layout with no items: an empty page is not kept.
+    if (!page?.items?.length && !page?.body && !page?.chart && !page?.table) throw new Error('an empty page');
+    return page;
+  }
+  /** A page made from the outline with a layout, with no call: its key points (or its intent) as items. */
+  private outlinePage(target: Outline['slides'][number]) {
+    return {
+      id: target.id,
+      title: target.title,
+      layoutId: target.id === 'slide-1' ? 'cover' : 'summary',
+      items: (target.keyPoints.length || target.id === 'slide-1' ? target.keyPoints : [target.intent]).map(label => ({
+        label,
+      })),
+      notes: '',
+      sources: [],
+    };
   }
   /** Other AIs chosen at creation write their own drafts of the same outline while the
    * main draft is written. A failed one is reported and never stops the main draft. */

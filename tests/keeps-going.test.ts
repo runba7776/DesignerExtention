@@ -74,14 +74,17 @@ const designedPage = (id: string, title: string) => ({
 async function fixture(
   page: (id: string, title: string, request: any, system: string) => object,
   layout: HtmlLayout = browser,
+  plan: Outline = outline,
+  more: Record<string, unknown> = {},
 ) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-keeps-going-'));
   const settings = await new SettingsStore(dir, '').load();
   await settings.update({
     provider: 'subscription',
     subscriptionService: 'claude',
-    slideCount: 3,
+    slideCount: plan.slides.length,
     visualReview: false,
+    ...more,
   });
   const asked: { system: string; request: any }[] = [];
   let layouts = 0;
@@ -98,12 +101,12 @@ async function fixture(
       complete: async (r: CompletionRequest) => {
         const request = JSON.parse(r.content).request;
         if (!request.targetSlides && !request.targetSlide)
-          return { text: JSON.stringify({ kind: 'outline', outline }), usage };
+          return { text: JSON.stringify({ kind: 'outline', outline: plan }), usage };
         asked.push({ system: r.system, request });
         if (request.targetSlide)
           return { text: JSON.stringify(page(request.targetSlide.id, '直した本文', request, r.system)), usage };
         const slides = request.targetSlides.map((s: any) => page(s.id, s.title, request, r.system));
-        return { text: JSON.stringify({ mode: 'presentation', id: 'd', title: outline.title, slides }), usage };
+        return { text: JSON.stringify({ mode: 'presentation', id: 'd', title: plan.title, slides }), usage };
       },
     }),
   });
@@ -206,6 +209,45 @@ test('a quote whose numbers are not in the cited line is asked for once more, th
       ['行 2'],
     );
     assert.ok(session.warnings.some(w => /引用の数値が資料のその位置にないものを外しました/.test(w)));
+  } finally {
+    await f.dispose();
+  }
+});
+
+/** An outline of 26 pages: written two at a time, it takes 13 calls, one more than an operation's 12. */
+const long = {
+  ...outline,
+  slides: Array.from({ length: 26 }, (_, i) =>
+    i === 0
+      ? outline.slides[0]
+      : { id: `slide-${i + 1}`, title: `本文${i + 1}`, intent: '本文', layoutId: 'free', keyPoints: ['要点'] },
+  ),
+} as unknown as Outline;
+
+test("a deck that runs out of one operation's 12 calls goes on once as a new operation instead of stopping", async () => {
+  const f = await fixture((id, title) => htmlPage(id, title), browser, long);
+  try {
+    const session = await f.engine.create({ prompt: '26枚', cloudConsent: true }, []);
+    await f.engine.generate(session.id);
+    assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
+    assert.equal(session.recovery, undefined);
+    assert.equal(f.asked.length, 13);
+    assert.equal(session.variants[0].deck.slides.length, 26);
+    assert.match(session.repairReport!.steps[0].reason, /1回の操作のAI呼び出し12回に達した/);
+    assert.equal(session.repairReport!.status, 'recovered');
+  } finally {
+    await f.dispose();
+  }
+});
+
+test('with automatic repair turned off, a deck still stops at 12 calls for the user to resume', async () => {
+  const f = await fixture((id, title) => htmlPage(id, title), browser, long, { autoRepair: false });
+  try {
+    const session = await f.engine.create({ prompt: '26枚', cloudConsent: true }, []);
+    await f.engine.generate(session.id);
+    assert.equal(session.recovery?.stage, 'content');
+    assert.equal(session.recovery?.completedSlides, 24);
+    assert.equal(f.asked.length, 12);
   } finally {
     await f.dispose();
   }

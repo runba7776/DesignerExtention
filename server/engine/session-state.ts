@@ -67,6 +67,8 @@ export interface RepairOperation {
   remaining: number;
   startedCalls: number;
   next?: { task: ModelTask; code: string; detail?: string };
+  /** The operation ran out of its 12 calls once and went on as a new operation (writing a deck only). */
+  continued?: boolean;
 }
 
 /** full: the user chose the self-contained instruction for this request. */

@@ -288,6 +288,29 @@ export class AiCalls {
     else this.recordRepair(state, error, adjustment, true);
     return true;
   }
+  /** Writing a deck that runs out of one operation's 12 calls goes on once as a new operation of 12, within the
+   * presentation's 40, instead of stopping for the user to press resume (a stop costs the wait, and resuming spends
+   * the same calls). Only once, so one deck takes at most 24 calls; with automatic repair off it stops as before. */
+  continueOperation(state: SessionState) {
+    const operation = state.repairOperation;
+    if (
+      !operation ||
+      operation.continued ||
+      this.engine.options.settings.get().autoRepair === false ||
+      state.session.usage.calls >= SESSION_CALL_LIMIT
+    )
+      return false;
+    operation.continued = true;
+    operation.startedCalls = state.session.usage.calls;
+    operation.remaining = Math.max(operation.remaining, this.repairs(state, state.settings));
+    const report = state.session.repairReport ?? { status: 'stopped' as const, retries: 0, apiCalls: 0, steps: [] };
+    report.steps.push({
+      reason: `1回の操作のAI呼び出し${OPERATION_CALL_LIMIT}回に達した`,
+      adjustment: `止めずに、資料全体の上限${SESSION_CALL_LIMIT}回の範囲で新しい操作として続けました`,
+    });
+    state.session.repairReport = report;
+    return true;
+  }
   recordRepair(state: SessionState, error: unknown, adjustment: string, retry: boolean) {
     const reason = repairReason(error);
     if (!reason) return;
