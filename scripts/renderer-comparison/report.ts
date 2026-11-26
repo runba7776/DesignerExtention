@@ -76,7 +76,7 @@ export function buildReport(input: ReportInput) {
         : '<p class="same">オブジェクトの違いはありません。</p>';
       return `<section id="s${i}"><h2>${escape(s.deck)} p.${c.number}　${escape(s.label)}</h2>
 <p class="meta">画素の違い ${percent(s.pixelShare)} ・ オブジェクトの違い ${c.differences.length}件 ・ グループ C# ${c.groups.native} / TS ${c.groups.hosted}${c.notesEqual ? '' : ' ・ ノートが違う'}${c.backgroundEqual ? '' : ' ・ 背景が違う'}</p>
-<div class="pics"><figure><img loading="lazy" src="${s.images.native}" alt=""><figcaption>C#（PowerPoint COM・インストール版）</figcaption></figure><figure><img loading="lazy" src="${s.images.hosted}" alt=""><figcaption>TS（PptxGenJS・ブラウザ版）</figcaption></figure><figure><img loading="lazy" src="${s.images.diff}" alt=""><figcaption>違う画素（赤）</figcaption></figure></div>
+<div class="pics"><figure><img loading="lazy" src="${s.images.native}" alt=""><figcaption>C#（PowerPoint COM・インストール版）</figcaption></figure><figure><img loading="lazy" src="${s.images.hosted}" alt=""><figcaption>TS（PptxGenJS・ブラウザ版）</figcaption></figure><figure><img loading="lazy" src="${s.images.diff}" alt=""><figcaption>違う画素（赤＝C#だけ・青＝TSだけ）</figcaption></figure></div>
 <p class="meta">C#: ${escape(counts(c.counts.native))}<br>TS: ${escape(counts(c.counts.hosted))}</p>
 <details${c.differences.length ? ' open' : ''}><summary>オブジェクトの違い</summary>${list}</details></section>`;
     })

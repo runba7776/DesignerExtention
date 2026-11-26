@@ -4,7 +4,7 @@ import { deckToPptx } from '../web/hosted/pptx-renderer';
 import { comparisonDecks } from '../scripts/renderer-comparison/decks';
 import { readPptx, type SlideStructure } from '../scripts/renderer-comparison/structure';
 import { compareDecks, compareSlide } from '../scripts/renderer-comparison/compare';
-import { decodePng, diffPictures, encodePng, halve } from '../scripts/renderer-comparison/png';
+import { decodePng, diffPictures, encodePng, halve, halveDiff } from '../scripts/renderer-comparison/png';
 import { buildReport } from '../scripts/renderer-comparison/report';
 
 const pptx = async (deck: Parameters<typeof deckToPptx>[0]) =>
@@ -77,7 +77,13 @@ test('PNG pictures round-trip, differ by the share of changed pixels, and halve 
   marked.set([0, 0, 0, 255], 4);
   const diff = diffPictures(white, { width, height, data: marked });
   assert.equal(diff.share, 2 / 8);
-  assert.deepEqual([...diff.picture.data.subarray(0, 4)], [220, 30, 40, 255]);
+  // Ink only the second picture has is blue; ink only the first has is red.
+  assert.deepEqual([...diff.picture.data.subarray(0, 4)], [30, 100, 230, 255]);
+  const reverse = diffPictures({ width, height, data: marked }, white);
+  assert.deepEqual([...reverse.picture.data.subarray(0, 4)], [220, 30, 40, 255]);
+  // Halving keeps a marked pixel's colour instead of averaging it away.
+  const sharp = halveDiff(reverse.picture);
+  assert.deepEqual([...sharp.data.subarray(0, 4)], [220, 30, 40, 255]);
   const half = halve({ width, height, data: marked });
   assert.deepEqual([half.width, half.height], [2, 1]);
   assert.equal(half.data[0], 128);

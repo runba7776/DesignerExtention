@@ -15,7 +15,7 @@ import { deckToPptx } from '../../web/hosted/pptx-renderer';
 import { comparisonDecks } from './decks';
 import { readPptx } from './structure';
 import { compareDecks } from './compare';
-import { decodePng, diffPictures, encodePng, halve } from './png';
+import { decodePng, diffPictures, encodePng, halve, halveDiff } from './png';
 import { buildReport, summarize, type ReportSlide } from './report';
 
 const execute = promisify(execFile);
@@ -75,7 +75,7 @@ for (const item of comparisonDecks(quick)) {
     const small = {
       native: encodePng(halve(a)),
       hosted: encodePng(halve(b)),
-      diff: encodePng(halve(diff.picture)),
+      diff: encodePng(halveDiff(diff.picture)),
     };
     await fs.writeFile(path.join(dir, `native-${n}.png`), encodePng(a));
     await fs.writeFile(path.join(dir, `diff-${n}.png`), encodePng(diff.picture));
