@@ -57,7 +57,7 @@ async function fixture(options: {
   sources?: (call: number) => object[];
 }) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-revise-'));
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({
     provider: 'subscription',
     subscriptionService: 'claude',

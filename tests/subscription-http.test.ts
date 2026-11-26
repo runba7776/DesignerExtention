@@ -100,7 +100,6 @@ async function fixture() {
       dataDir: directory,
       webRoot: directory,
       artifactRoot: directory,
-      environmentKey: 'FAKE_ENV_NEVER_LOAD',
       subscriptionManager: manager,
       nativeAvailable: () => false,
       render: async () => ({
@@ -222,7 +221,7 @@ test('mock login provider completes create, generate and revise through HTTP, wi
     );
     assert.equal(selected.status, 200);
     assert.equal(selected.body.model, 'auto');
-    assert.equal(selected.body.hasKey, false);
+    assert.equal('hasKey' in selected.body, false);
     let response = await f.request('/sessions', { prompt: '入力から分かりやすく説明', documentIds: [] });
     assert.equal(response.status, 400);
     assert.equal(response.body.code, 'CLOUD_CONSENT_REQUIRED');

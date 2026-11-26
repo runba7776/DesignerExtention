@@ -278,12 +278,7 @@ export class PageRules {
     )
       return false;
     try {
-      return (
-        (this.engine.options.providerFactory ?? createProvider)(
-          state.settings,
-          this.engine.options.settings.secret(state.settings.provider),
-        ).images === true
-      );
+      return (this.engine.options.providerFactory ?? createProvider)(state.settings).images === true;
     } catch {
       return false;
     }

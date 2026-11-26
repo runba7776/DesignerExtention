@@ -380,7 +380,7 @@ const outline: Outline = {
 
 async function fixture(provider: 'subscription' | 'local', patch: Record<string, unknown> = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-photo-'));
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({
     provider,
     ...(provider === 'subscription' ? { subscriptionService: 'claude' as const } : { model: 'mock' }),

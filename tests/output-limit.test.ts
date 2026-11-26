@@ -20,7 +20,7 @@ const limit = (text = '{"kind":"outline","outline":{"title":"PRIVATE_OUTPUT_SECR
     text,
   );
 async function local(dir: string) {
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({ provider: 'local', designMode: 'template', model: 'mock', autoRepair: false });
   return settings;
 }
@@ -30,7 +30,6 @@ test('local output-limit signals preserve usage, remain distinct from input limi
     let calls = 0;
     const provider = createProvider(
       { provider: kind, model: 'mock', mode: 'presentation', endpoint: 'http://127.0.0.1:11434/v1' },
-      'not-real',
       async () => {
         calls++;
         return new Response(
@@ -59,7 +58,6 @@ test('local output-limit signals preserve usage, remain distinct from input limi
       mode: 'presentation',
       endpoint: 'http://127.0.0.1:11434/v1',
     },
-    undefined,
     async () =>
       new Response(
         JSON.stringify({
@@ -272,7 +270,6 @@ test('HTTP plan recovery returns only safe session content and supports one auth
       dataDir: dir,
       webRoot: dir,
       artifactRoot: dir,
-      environmentKey: '',
       nativeAvailable: () => false,
       render: async () => rendered,
       providerFactory: () => ({

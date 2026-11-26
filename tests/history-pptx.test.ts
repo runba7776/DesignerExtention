@@ -69,7 +69,7 @@ const render = async (deck: DeckSpec): Promise<RenderResult> => ({
   warnings: [],
 });
 async function demo(dir: string) {
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({ provider: 'demo' });
   const engine = new SessionEngine({
     settings,
@@ -239,7 +239,7 @@ test('history detects stale updates and corrupt content without exposing externa
 test('long instructions remain in history; approved brief replaces full conversation only for generation', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'designer-long-prompt-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'local', designMode: 'template', model: 'test' });
     const original = '大切な条件を保持。'.repeat(2000),
       outline = demoOutline('長文の資料', 'presentation', []);
@@ -287,7 +287,6 @@ test('HTTP accepts a 60,000-character Japanese prompt and PPTX upload, then expo
       dataDir: dir,
       webRoot: dir,
       artifactRoot: dir,
-      environmentKey: '',
       nativeAvailable: () => false,
       render,
       providerFactory: () => {

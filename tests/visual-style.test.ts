@@ -61,9 +61,9 @@ test('panel text remains readable on light/dark themes; new list grammars provid
 test('font preference survives settings/schema, overrides AI, and changing it uses no model call', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-style-'));
   try {
-    const store = await new SettingsStore(dir, '').load();
+    const store = await new SettingsStore(dir).load();
     await store.update({ provider: 'demo', typographyId: 'editorial', themeId: 'colorblock' });
-    assert.equal((await new SettingsStore(dir, '').load()).get().typographyId, 'editorial');
+    assert.equal((await new SettingsStore(dir).load()).get().typographyId, 'editorial');
     await assert.rejects(store.update({ typographyId: '__proto__' }));
     assert.throws(() => validateOutline({ ...demoOutline('検証', 'presentation', []), typographyId: 'bad' }));
     const engine = new SessionEngine({

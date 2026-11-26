@@ -49,7 +49,7 @@ const page = (id: string, broken = false) =>
 test('a rejected page is asked again alone; the valid pages after it in the same reply are kept', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-keep-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({
       provider: 'local',
       designMode: 'free',
@@ -120,7 +120,7 @@ test('the chart limits the app checks are stated in both methods, and the HTML p
 test('asked for one page, the page itself is taken as the answer, its layoutId given by its place (gemma4 answers so)', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-bare-page-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({
       provider: 'local',
       designMode: 'free',

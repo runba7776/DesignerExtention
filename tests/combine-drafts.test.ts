@@ -152,7 +152,7 @@ test('nothing is invented or dropped: a mismatch is reported instead of a slide'
 test('another AI builds the same outline as a second draft; drafts combine page by page without an AI call', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-combine-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'chat', chatService: 'chatgpt', mode: 'presentation', slideCount: 3 });
     const engine = new SessionEngine({
       settings,

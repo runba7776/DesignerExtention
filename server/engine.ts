@@ -37,7 +37,7 @@ export interface EngineOptions {
   dataDir: string;
   render: (deck: DeckSpec, variantId: string) => Promise<RenderResult>;
   open?: (artifactId: string) => Promise<void>;
-  providerFactory?: (settings: Settings, key?: string) => Provider;
+  providerFactory?: (settings: Settings) => Provider;
   /** HTML method: draws AI-written HTML pages in a browser and reads their layout. */
   htmlLayout?: HtmlLayout;
   /** Photos for the places an AI marks on its pages (installed app; see images.ts). */

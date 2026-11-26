@@ -73,7 +73,7 @@ test('the AI palette becomes a readable theme that keeps the AI hues', () => {
 test('with おまかせ the deck is coloured with the palette the AI chose; it can be switched away and back, saved as a favorite and restored from history', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-palette-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({
       provider: 'local',
       designMode: 'free',
@@ -213,7 +213,7 @@ test('citation markers follow body text, not titles or large numbers', () => {
 test('a quote that differs only in PDF spacing is dropped with a note; an invented one is still refused', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-quote-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({
       provider: 'local',
       model: 'mock',

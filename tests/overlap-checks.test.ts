@@ -200,7 +200,7 @@ test('a text on a chart placed by position is refused; one measured by the brows
 test('a local model: a page with unreadable text is not kept as written; it is made from a layout', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-unreadable-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'local', model: 'mock', slideCount: 2, mode: 'presentation' });
     const usage = { ...emptyUsage(), calls: 1 };
     const outline = {

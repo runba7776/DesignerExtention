@@ -95,7 +95,7 @@ const designer = (request: any) => ({
 
 async function fixture(update: Partial<Settings>, connected: string[]) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-targets-'));
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({
     provider: 'subscription',
     subscriptionService: 'claude',

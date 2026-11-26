@@ -121,7 +121,7 @@ test('cause diagrams cannot replace ordinary summaries or omit the outcome', () 
 test('manual layout change is local, invalidates only its export, and saves no content in layout history', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-layout-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'demo', slideCount: 9 });
     const engine = new SessionEngine({
       settings,

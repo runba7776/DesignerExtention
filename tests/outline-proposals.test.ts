@@ -56,7 +56,7 @@ async function fixture(
     offer(proposal('定番の流れ', 0.55), proposal('問いから始める', 0.15), proposal('歴史をたどる', 0.1)),
 ) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-proposals-'));
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({
     provider: 'subscription',
     subscriptionService: 'claude',
@@ -231,7 +231,7 @@ test('directions are offered only for AI designs through a monthly plan, and the
   }
   const dir = await mkdtemp(path.join(tmpdir(), 'de-proposals-local-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'local', model: 'mock', slideCount: 2 });
     assert.equal(settings.get().outlineProposals, true, 'on by default');
     await assert.rejects(settings.update({ outlineProposals: 'yes' } as any), /オン・オフ/);

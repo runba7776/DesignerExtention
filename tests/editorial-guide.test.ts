@@ -48,7 +48,7 @@ test('the standing instruction is about content and wording, never looks, and it
 test('the app sends the standing instruction by default and leaves it out when the setting is off', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-editorial-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({
       provider: 'local',
       designMode: 'free',
@@ -99,7 +99,7 @@ test('the app sends the standing instruction by default and leaves it out when t
     });
     const on = await engine.create({ prompt: '2枚' }, []);
     await engine.generate(on.id);
-    // A local model gets the instruction's points (the whole one goes to a monthly plan, see v019).
+    // A local model gets the instruction's points (the whole one goes to a monthly plan, see html-method.test.ts).
     assert.ok(systems.length === 2 && systems.every(s => s.includes(EDITORIAL_GUIDE_SHORT)), 'plan and generation');
     assert.ok(systems.every(s => !s.includes(EDITORIAL_GUIDE)));
     await settings.update({ editorialGuide: false });

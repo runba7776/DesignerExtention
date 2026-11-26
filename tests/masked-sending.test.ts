@@ -38,7 +38,7 @@ test('masker: names, terms, contacts and numbers become stable tokens and come b
 test('a masked project sends tokens instead of names and numbers; replies are restored before validation', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-masked-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'chat', chatService: 'claude', mode: 'presentation', slideCount: 2 });
     const engine = new SessionEngine({
       settings,

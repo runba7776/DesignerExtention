@@ -29,7 +29,7 @@ export function defaultChoice(settings: Settings, available: Record<AiTarget, bo
   };
 }
 export function routeOf(provider: ProviderKind): Route {
-  return provider === 'chat' || provider === 'claude' ? 'chat' : provider === 'demo' ? 'demo' : 'auto';
+  return provider === 'chat' ? 'chat' : provider === 'demo' ? 'demo' : 'auto';
 }
 
 const ROUTES: { id: Route; label: string; badge: string; tone: 'cloud' | 'paste' | 'none'; description: string }[] = [
