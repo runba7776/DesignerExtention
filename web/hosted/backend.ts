@@ -24,7 +24,7 @@ const DATA_DIR = '/data';
 
 async function create(): Promise<Backend> {
   await initFileSystem();
-  const settings = await new SettingsStore(DATA_DIR, '').load();
+  const settings = await new SettingsStore(DATA_DIR).load();
   const projects = await new ProjectStore(DATA_DIR).load();
   if (!projects.list().some(project => project.id === settings.get().activeProjectId))
     await settings.update({ activeProjectId: DEFAULT_PROJECT_ID });

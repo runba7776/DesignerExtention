@@ -102,13 +102,8 @@ export class SettingsStore {
     autoRepair: true,
     activeProjectId: DEFAULT_PROJECT_ID,
   };
-  private keys: Partial<Record<ProviderKind, string>> = {};
-  constructor(
-    private directory: string,
-    _environmentKey = process.env.ANTHROPIC_API_KEY,
-  ) {
-    /* Paid API credentials are deliberately not loaded. */
-  }
+  /** Paid API credentials are deliberately never read or kept. */
+  constructor(private directory: string) {}
   async load() {
     try {
       const value = JSON.parse(await readFile(path.join(this.directory, 'settings.json'), 'utf8'));
@@ -124,10 +119,7 @@ export class SettingsStore {
     return this;
   }
   get(): Settings {
-    return { ...this.value, hasKey: Boolean(this.keys[this.value.provider]) };
-  }
-  secret(provider: ProviderKind): string | undefined {
-    return this.keys[provider];
+    return { ...this.value };
   }
   async update(input: unknown) {
     if (!input || typeof input !== 'object' || Array.isArray(input))
@@ -149,14 +141,6 @@ export class SettingsStore {
               : 'chat-session'
         : this.value.model;
     const next = this.validate({ ...this.value, ...candidate, model: candidate.model ?? modelDefault });
-    if (
-      candidate.apiKey !== undefined &&
-      (typeof candidate.apiKey !== 'string' || candidate.apiKey.length > 1000 || /[\r\n]/.test(candidate.apiKey))
-    )
-      throw new AppError(400, 'APIキーの形式が正しくありません。');
-    if (candidate.clearKey === true) delete this.keys[next.provider];
-    if (next.provider === 'local' && typeof candidate.apiKey === 'string' && candidate.apiKey.trim())
-      this.keys.local = candidate.apiKey.trim();
     this.value = next;
     await mkdir(this.directory, { recursive: true });
     await writeFile(path.join(this.directory, 'settings.json'), JSON.stringify(next, null, 2), { mode: 0o600 });

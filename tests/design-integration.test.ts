@@ -20,7 +20,7 @@ const contents = (deck: DeckSpec) => ({
 });
 async function fixture() {
   const dir = await mkdtemp(path.join(tmpdir(), 'designer-design-integration-')),
-    settings = await new SettingsStore(dir, '').load();
+    settings = await new SettingsStore(dir).load();
   await settings.update({ provider: 'demo', slideCount: 6 });
   let factories = 0;
   const engine = new SessionEngine({
@@ -230,7 +230,7 @@ test('clearing an explicit preference keeps the favorite, and deleting a selecte
     await f.settings.update({ preferredDesignId: design.id });
     await f.engine.removeDesign(design.id);
     assert.equal(f.settings.get().preferredDesignId, undefined);
-    assert.equal((await new SettingsStore(f.dir, '').load()).get().preferredDesignId, undefined);
+    assert.equal((await new SettingsStore(f.dir).load()).get().preferredDesignId, undefined);
     assert.equal((await f.engine.listDesigns()).entries.length, 0);
     const plain = await f.engine.create({ prompt: '通常の候補' }, []);
     assert.equal(packet(plain).preferences.preferredDesign, undefined);

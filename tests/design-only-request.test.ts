@@ -152,7 +152,7 @@ test('a design packet holds roles, lengths and dummy samples only; the leak chec
 test('design-only request: nothing of the content is in the instruction; the design comes back filled on this PC', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-confidential-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'chat', chatService: 'chatgpt', mode: 'presentation', slideCount: 3 });
     const engine = new SessionEngine({
       settings,
@@ -248,7 +248,7 @@ test('design-only request: nothing of the content is in the instruction; the des
 test('a deck made by any provider (here the sample) can ask a chat AI for a design without sending content', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-confidential-demo-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'demo', mode: 'presentation', slideCount: 4 });
     const engine = new SessionEngine({
       settings,

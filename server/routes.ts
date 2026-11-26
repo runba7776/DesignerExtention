@@ -62,7 +62,6 @@ export function apiRoutes(ctx: RouteContext): Route[] {
         return {
           provider: current.provider,
           model: current.model,
-          hasKey: current.hasKey,
           nativeAvailable: await ctx.nativeAvailable(),
           version: APP_VERSION,
           apiFree: true,

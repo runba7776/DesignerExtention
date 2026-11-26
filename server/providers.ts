@@ -39,13 +39,7 @@ const LOCAL_TIMEOUT_MS = 10 * 60_000;
 
 /** This factory only calls a private/local inference server. Subscription clients
  * are created by SubscriptionManager after an explicit account connection. */
-export function createProvider(settings: Settings, apiKey?: string, fetcher: typeof fetch = fetch): Provider {
-  if (settings.provider === 'claude')
-    throw new AppError(
-      400,
-      '有料APIは無効です。月額版との連携、またはローカルLLMを選んでください。',
-      'PAID_API_DISABLED',
-    );
+export function createProvider(settings: Settings, fetcher: typeof fetch = fetch): Provider {
   if (settings.provider === 'chat')
     throw new AppError(
       400,
@@ -90,7 +84,7 @@ export function createProvider(settings: Settings, apiKey?: string, fetcher: typ
           redirect: 'error',
           // A PC's GPU writes far slower than a cloud service.
           signal: AbortSignal.timeout(LOCAL_TIMEOUT_MS),
-          headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
       let response: Response;

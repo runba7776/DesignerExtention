@@ -95,7 +95,7 @@ test('chart category colours remain distinct and legible in every theme', () => 
 test('local chart changes preserve numbers, sources, other slides and alternative variants with no AI calls', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'designer-charts-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'demo', themeId: 'business' });
     const engine = new SessionEngine({
       settings,

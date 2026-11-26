@@ -147,7 +147,7 @@ test('a designed text too long for its box gets room it can take, or smaller typ
 test('an 11-page AI-designed deck: a broken reply keeps its finished pages, batches grow back, retries say exactly what to fix, and each batch gets only its documents', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-efficiency-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({
       provider: 'local',
       designMode: 'free',

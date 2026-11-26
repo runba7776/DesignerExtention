@@ -388,10 +388,7 @@ export class DesignRequestService {
     const settings = this.engine.ai.targetSettings(state, run.target);
     this.engine.ai.checkDestination(state, settings, true);
     if (run.calls >= 12) throw new AppError(429, '1つの作業につきLLM呼び出しは12回までです。', 'CALL_LIMIT');
-    const provider = (this.engine.options.providerFactory ?? createProvider)(
-      settings,
-      this.engine.options.settings.secret(settings.provider),
-    );
+    const provider = (this.engine.options.providerFactory ?? createProvider)(settings);
     state.session.usage.calls++;
     run.calls++;
     try {

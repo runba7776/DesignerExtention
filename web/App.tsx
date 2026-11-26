@@ -177,7 +177,7 @@ export default function App() {
   const updateRequired = !!status && status.version !== APP_VERSION;
   const isDemo = settings.provider === 'demo';
   const activeProvider = session?.provider ?? settings.provider;
-  const isChat = activeProvider === 'chat' || activeProvider === 'claude';
+  const isChat = activeProvider === 'chat';
   const isSubscription = activeProvider === 'subscription';
   const isRemote = isChat || isSubscription;
   // Choosing the AIs at creation: available when slides are written automatically (monthly services or the local LLM).
@@ -602,10 +602,9 @@ export default function App() {
     setAiChoice(value);
     setCloudConsent(false);
     // The chosen AIs become the default for the next creation.
-    const { apiKey: unusedKey, hasKey: unusedHasKey, ...safeSettings } = settings;
     void api<Settings>('/settings', {
       method: 'PUT',
-      body: JSON.stringify({ ...safeSettings, targets: value.targets }),
+      body: JSON.stringify({ ...settings, targets: value.targets }),
     })
       .then(setSettings)
       .catch(() => {});
@@ -633,9 +632,8 @@ export default function App() {
       setSettingsOpen(true);
       return;
     }
-    const { apiKey: unusedKey, hasKey: unusedHasKey, ...safeSettings } = withProvider(settings, provider);
     const next = {
-      ...safeSettings,
+      ...withProvider(settings, provider),
       ...(provider === 'subscription' && service ? { subscriptionService: service } : {}),
     };
     try {
@@ -1152,12 +1150,11 @@ export default function App() {
     });
   }
   async function preferDesign(entry: DesignEntry | undefined) {
-    const { apiKey: unusedKey, hasKey: unusedHasKey, ...safeSettings } = settings;
     setSettings(
       await api<Settings>('/settings', {
         method: 'PUT',
         body: JSON.stringify({
-          ...safeSettings,
+          ...settings,
           preferredDesignId: entry?.id ?? '',
           ...(entry ? { themeId: entry.themeId, typographyId: entry.typographyId ?? 'auto' } : {}),
         }),
@@ -1165,24 +1162,22 @@ export default function App() {
     );
   }
   async function selectProject(project: ProjectProfile) {
-    const { apiKey: unusedKey, hasKey: unusedHasKey, ...safeSettings } = settings;
     setSettings(
       await api<Settings>('/settings', {
         method: 'PUT',
         body: JSON.stringify({
-          ...safeSettings,
+          ...settings,
           activeProjectId: project.id,
-          ...(safeSettings.activeProjectId === project.id ? {} : { preferredDesignId: '' }),
+          ...(settings.activeProjectId === project.id ? {} : { preferredDesignId: '' }),
         }),
       }),
     );
   }
   async function useTemplate() {
-    const { apiKey: unusedKey, hasKey: unusedHasKey, ...safeSettings } = settings;
     setSettings(
       await api<Settings>('/settings', {
         method: 'PUT',
-        body: JSON.stringify({ ...safeSettings, themeId: TEMPLATE_THEME_ID, preferredDesignId: '' }),
+        body: JSON.stringify({ ...settings, themeId: TEMPLATE_THEME_ID, preferredDesignId: '' }),
       }),
     );
     setProjectsOpen(false);

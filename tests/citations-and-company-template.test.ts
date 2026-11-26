@@ -208,9 +208,9 @@ test('presentation prep: time split keeps the exact total and favors content-hea
 });
 
 async function setup(provider: 'demo' | 'chat' | 'local', providerFactory?: () => Provider) {
-  const directory = await mkdtemp(path.join(tmpdir(), 'designer-v012-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'designer-citations-'));
   const projects = await new ProjectStore(directory).load(),
-    settings = await new SettingsStore(directory, '').load();
+    settings = await new SettingsStore(directory).load();
   await settings.update({
     provider,
     slideCount: 4,

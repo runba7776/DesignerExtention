@@ -1,7 +1,6 @@
 /** Content, layout and provider contracts are independent of any use case. */
 export type OutputMode = 'presentation' | 'reading';
-/** claude is retained only to read/migrate older settings; paid API calls are disabled. */
-export type ProviderKind = 'subscription' | 'chat' | 'claude' | 'local' | 'demo';
+export type ProviderKind = 'subscription' | 'chat' | 'local' | 'demo';
 export type SubscriptionService = 'chatgpt' | 'claude';
 export interface SubscriptionAccount {
   id: string;
@@ -107,8 +106,6 @@ export interface Settings {
   model: string;
   endpoint?: string;
   mode: OutputMode;
-  hasKey?: boolean;
-  apiKey?: string;
   themeId?: string;
   typographyId?: string;
   slideCount?: number | 'auto';
@@ -136,7 +133,6 @@ export type DesignMode = 'free' | 'template' | 'html';
 export interface AppStatus {
   provider: ProviderKind;
   model: string;
-  hasKey: boolean;
   nativeAvailable: boolean;
   version: string;
   apiFree?: boolean;

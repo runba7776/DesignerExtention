@@ -28,12 +28,11 @@ export interface AppOptions {
   nativeAvailable: () => boolean | Promise<boolean>;
   render: (deck: DeckSpec, variantId: string) => Promise<RenderResult>;
   open?: (artifactId: string) => Promise<void>;
-  providerFactory?: (settings: Settings, key?: string) => Provider;
+  providerFactory?: (settings: Settings) => Provider;
   subscriptionManager?: Pick<
     SubscriptionManager,
     'status' | 'connect' | 'refresh' | 'disconnect' | 'binding' | 'createProvider'
   >;
-  environmentKey?: string;
   historyCipher?: HistoryCipher;
 }
 
@@ -46,15 +45,15 @@ export async function createApp(options: AppOptions) {
   if (options.authToken.length < 32) throw new Error('起動トークンが短すぎます。');
   const app = express();
   app.disable('x-powered-by');
-  const settings = await new SettingsStore(options.dataDir, options.environmentKey).load();
+  const settings = await new SettingsStore(options.dataDir).load();
   const projects = await new ProjectStore(options.dataDir).load();
   if (!projects.list().some(project => project.id === settings.get().activeProjectId))
     await settings.update({ activeProjectId: DEFAULT_PROJECT_ID });
   const subscriptions = options.subscriptionManager ?? (await new SubscriptionManager(options.dataDir).load());
   const providerFactory =
     options.providerFactory ??
-    ((current: Settings, key?: string) =>
-      current.provider === 'subscription' ? subscriptions.createProvider(current) : createProvider(current, key));
+    ((current: Settings) =>
+      current.provider === 'subscription' ? subscriptions.createProvider(current) : createProvider(current));
   const images = createImageStore(path.join(options.dataDir, 'images'));
   const engine = new SessionEngine({
     settings,

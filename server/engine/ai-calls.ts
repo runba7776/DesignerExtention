@@ -63,8 +63,6 @@ export class AiCalls {
     images?: string[],
   ) {
     const settings = run ? this.targetSettings(state, run.target) : state.settings;
-    if (settings.provider === 'claude')
-      throw new AppError(400, '有料APIは無効です。月額版との連携で新しく作成してください。', 'PAID_API_DISABLED');
     if (settings.provider === 'chat')
       throw new AppError(
         409,
@@ -89,10 +87,7 @@ export class AiCalls {
             : `1つの資料の作成でのAI呼び出しは${this.callLimit(state, run)}回までです。構成から情報を分けるか、優先する条件を整理してください。`,
         'CALL_LIMIT',
       );
-    const provider = (this.engine.options.providerFactory ?? createProvider)(
-      settings,
-      this.engine.options.settings.secret(settings.provider),
-    );
+    const provider = (this.engine.options.providerFactory ?? createProvider)(settings);
     state.session.usage.calls++;
     if (run) run.calls++;
     try {

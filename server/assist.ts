@@ -37,7 +37,7 @@ import type { ProjectStore } from './projects.js';
 export interface AssistOptions {
   settings: SettingsStore;
   projects: ProjectStore;
-  providerFactory: (settings: Settings, key?: string) => Provider;
+  providerFactory: (settings: Settings) => Provider;
   render: (deck: DeckSpec, variantId: string) => Promise<RenderResult>;
 }
 interface Pending {
@@ -472,7 +472,6 @@ export class AssistService {
 
   async start(value: unknown): Promise<AssistState> {
     const settings = this.options.settings.get();
-    if (settings.provider === 'claude') throw new AppError(400, '有料APIは無効です。', 'PAID_API_DISABLED');
     const input = validateAssistInput(value, settings, this.options.projects);
     if (settings.provider === 'subscription' && (value as any)?.cloudConsent !== true)
       throw new AppError(
@@ -589,7 +588,7 @@ export class AssistService {
     const current = this.options.settings.get();
     if (current.provider !== item.settings.provider || current.endpoint !== item.settings.endpoint)
       throw new AppError(409, '処理先が変更されています。もう一度操作してください。');
-    const provider = this.options.providerFactory(item.settings, this.options.settings.secret(item.settings.provider));
+    const provider = this.options.providerFactory(item.settings);
     const usage: Usage = { calls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
     let repair: { reason: string; instruction: string } | undefined;
     // At most one automatic correction; the user sees the reason if it fails again.

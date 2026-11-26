@@ -50,7 +50,7 @@ test('pages written one per fenced block, and a line of HTML ending with a backs
 test('a local LLM that cannot make a page still finishes the deck: a page with slips in its HTML is kept as written, a page asked again in vain is asked once with layouts (an empty one is not kept), else made from the outline; each is a hint', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-local-finish-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'local', model: 'mock', slideCount: 4, mode: 'presentation' });
     const outline = {
       title: '4枚',
@@ -292,7 +292,7 @@ test('a layout band for a summary the AI left out is not drawn empty; with the s
 test('a local LLM writing the content for a design AI (only the skeleton is sent) finishes the deck on the app layouts: a page with only its title is asked again, a page it cannot return is made from the outline', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-local-layouts-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({
       provider: 'local',
       model: 'mock',

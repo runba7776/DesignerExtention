@@ -55,10 +55,7 @@ export function SettingsDialog({
 }) {
   const [draft, setDraft] = useState<Settings>({
     ...settings,
-    provider:
-      settings.provider === 'claude' || (__HOSTED__ && settings.provider === 'subscription')
-        ? 'chat'
-        : settings.provider,
+    provider: __HOSTED__ && settings.provider === 'subscription' ? 'chat' : settings.provider,
   });
   const templateTheme = template ? templateToTheme(template) : undefined;
   const [setupOpen, setSetupOpen] = useState(initialSetup);
@@ -80,8 +77,7 @@ export function SettingsDialog({
     setSaving(true);
     setError('');
     try {
-      const { apiKey: unusedKey, hasKey: unusedHasKey, ...safeDraft } = draft;
-      const saved = await api<Settings>('/settings', { method: 'PUT', body: JSON.stringify(safeDraft) });
+      const saved = await api<Settings>('/settings', { method: 'PUT', body: JSON.stringify(draft) });
       onSaved(saved);
       onClose();
     } catch (e) {

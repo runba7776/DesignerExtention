@@ -57,7 +57,7 @@ test('history is encrypted on disk; history saved before is read, then encrypted
       past = path.join(dir, 'presentations', 'versions', first.id, '1.json');
 
     const engine = new SessionEngine({
-      settings: await new SettingsStore(dir, '').load(),
+      settings: await new SettingsStore(dir).load(),
       dataDir: dir,
       render: async () => ({ artifactId: 'x', pptxUrl: 'x', thumbnails: [], warnings: [], native: false }),
       historyCipher: memoryCipher(),
