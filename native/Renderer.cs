@@ -939,17 +939,23 @@ namespace DesignerExtension.Native
                 }
                 else { previous = nodes[i - 1]; nodes.Add(previous.AddNode(2, 1)); }
             }
-            int nodeColor = Color(Text(e, "accent", null), Accent);
+            int accentColor = Color(Text(e, "accent", null), Accent);
+            object[] fills = ArrayOf(e, "fills"), inks = ArrayOf(e, "inks");
             for (int i = 0; i < items.Length; i++)
             {
                 dynamic node = nodes[i];
                 var item = AsObject(items[i]);
+                // The lead box (root, last step) keeps the full accent; supporting boxes step back to a tint.
+                int nodeColor = i < fills.Length ? Color(Convert.ToString(fills[i]), accentColor) : accentColor;
+                int inkColor = i < inks.Length ? Color(Convert.ToString(inks[i]), Color(Text(e, "color", "#FFFFFF"))) : Color(Text(e, "color", "#FFFFFF"));
                 string description = Text(item, "description", "");
-                node.TextFrame2.TextRange.Text = Text(item, "label", "") + (description.Length > 0 ? "\n" + description : "");
+                node.TextFrame2.TextRange.Text = Text(item, "label", "") + (description.Length > 0 ? "\r" + description : "");
                 node.TextFrame2.TextRange.Font.Name = FontName;
                 node.TextFrame2.TextRange.Font.NameFarEast = FontName;
                 node.TextFrame2.TextRange.Font.Size = Number(e, "fontSize", 18);
-                node.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = Color(Text(e, "color", "#FFFFFF"));
+                node.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = inkColor;
+                // The label is the heading of its box; the description below it is quieter (sized after fitting).
+                try { node.TextFrame2.TextRange.Paragraphs(1).Font.Bold = -1; } catch { }
                 for (int s = 1; s <= (int)node.Shapes.Count; s++)
                 {
                     dynamic nodeShape = node.Shapes.Item(s);
@@ -974,6 +980,19 @@ namespace DesignerExtension.Native
                     Release((object)nodeShape);
                 }
                 FitNativeText(node.TextFrame2,width,height,Number(e,"fontSize",18),slideNumber);
+                // A smaller description only frees space, so the fitted size stays valid.
+                try
+                {
+                    dynamic paragraphs = node.TextFrame2.TextRange.Paragraphs();
+                    int count = (int)paragraphs.Count;
+                    if (count > 1)
+                    {
+                        float label = (float)node.TextFrame2.TextRange.Paragraphs(1).Font.Size;
+                        for (int p = 2; p <= count; p++) node.TextFrame2.TextRange.Paragraphs(p).Font.Size = Math.Max(11f, label - 4);
+                    }
+                    Release((object)paragraphs);
+                }
+                catch { }
                 Release(itemNode);
             }
             Release((object)art); Release((object)shape); Release((object)layout);

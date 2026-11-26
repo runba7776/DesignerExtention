@@ -245,7 +245,7 @@ function addDiagram(pptx: Pptx, slide: Slide, e: SmartArtElement, font: string) 
       w: inch(w),
       h: inch(h),
       rectRadius: 0.08,
-      fill: { color: hex(e.accent) },
+      fill: { color: hex(e.fills?.[index] ?? e.accent) },
       line: { type: 'none' },
     });
     const item = e.items[index];
@@ -264,7 +264,7 @@ function addDiagram(pptx: Pptx, slide: Slide, e: SmartArtElement, font: string) 
         margin: 0,
         align: 'center',
         valign: 'middle',
-        color: hex(e.color, 'FFFFFF'),
+        color: hex(e.inks?.[index] ?? e.color, 'FFFFFF'),
         fontFace: safeFont(font),
         fit: 'none',
       },

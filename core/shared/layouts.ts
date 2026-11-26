@@ -690,15 +690,35 @@ function diagram(c: LayoutContext, layout: 'process' | 'cycle' | 'hierarchy' | '
     const fit = measureText(text, { x: 0, y: 0, w: itemWidth - 12, h: layout === 'hierarchy' ? 66 : 100 }, fontSize);
     if (fit.overflow) (c.scene.textIssues ??= []).push({ text, maxCharacters: fit.maxCharacters });
   }
+  const type = c.slide.diagram?.type ?? layout;
+  const weights = diagramWeights(type, items);
+  const fills = weights.map(w => (w >= 1 ? c.theme.accent : mixColor(c.theme.accent, c.theme.background, w)));
   c.scene.elements.push({
     kind: 'smartart',
     ...rect,
-    layout: c.slide.diagram?.type ?? layout,
+    layout: type,
     items,
     accent: c.theme.accent,
     color: c.theme.background,
     fontSize,
+    fills,
+    inks: fills.map(fill => (fill === c.theme.accent ? c.theme.background : readableColor(c.theme.background, fill))),
   });
+}
+/** How strongly each box carries the accent: the root of a hierarchy and the last step of a process lead, and
+ * the boxes around them step back. Cycles and lists have no lead, so every box is equal. */
+export function diagramWeights(type: 'process' | 'cycle' | 'hierarchy' | 'list', items: SlideItem[]): number[] {
+  if (type === 'process' && items.length > 1) return items.map((_, i) => 0.45 + (0.55 * i) / (items.length - 1));
+  if (type === 'hierarchy') {
+    const depth = (i: number, seen = 0): number => {
+      const parent = items[i]?.parent;
+      return i === 0 || parent === undefined || parent < 0 || parent >= i || seen > items.length
+        ? Math.min(i, 1)
+        : 1 + depth(parent, seen + 1);
+    };
+    return items.map((_, i) => [1, 0.62, 0.4][Math.min(2, depth(i))]);
+  }
+  return items.map(() => 1);
 }
 
 registerLayout({
