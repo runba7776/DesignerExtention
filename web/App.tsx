@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type {
   AppStatus,
   ChartType,
@@ -61,6 +61,7 @@ import { FeedbackSection } from './screen/FeedbackSection';
 import { CompareDialog, TransmissionDialog } from './screen/Dialogs';
 import { deckBlanks } from '../core/shared/blanks';
 import { routeOf } from '../core/shared/route';
+import { flowReducer, initialFlow, type FlowState } from './flow';
 
 const defaultSettings: Settings = {
   provider: 'chat',
@@ -141,15 +142,15 @@ export default function App() {
   const [layoutPicker, setLayoutPicker] = useState<'catalog' | { variantId: string; index: number }>();
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [prompt, setPrompt] = useState('');
-  const [session, setSession] = useState<Session>();
-  const [selectedVariant, setSelectedVariant] = useState('');
-  const [selectedSlide, setSelectedSlide] = useState<{ id: string; index: number; variantId: string }>();
-  const [compareIndex, setCompareIndex] = useState<number>();
+  // The presentation, the selection and the operation in progress: one state machine (flow.ts).
+  const [flow, dispatch] = useReducer(flowReducer, initialFlow);
+  const { session, selectedVariant, selectedSlide, compareIndex, busy, error, notice } = flow;
+  const setSelectedSlide = (slide?: FlowState['selectedSlide']) => dispatch({ type: 'slideSelected', slide });
+  const setCompareIndex = (index?: number) => dispatch({ type: 'compared', index });
+  const setError = (message: string) => dispatch({ type: 'error', message });
+  const setNotice = (message: string) => dispatch({ type: 'notice', message });
   const [cloudConsent, setCloudConsent] = useState(false);
   const [transmissionOpen, setTransmissionOpen] = useState(false);
-  const [busy, setBusy] = useState('');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const [dropActive, setDropActive] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState<{ variantId: string; slideId?: string }>();
   const [guideOpen, setGuideOpen] = useState(false);
@@ -260,8 +261,7 @@ export default function App() {
           const restored = resumed.restored,
             deck = restored.session.variants[0]?.deck;
           liveSession.current = restored.session;
-          setSession(restored.session);
-          setSelectedVariant(restored.session.variants[0]?.id ?? '');
+          dispatch({ type: 'opened', session: restored.session });
           setDocuments(restored.documents);
           setSettings({
             ...value,
@@ -303,20 +303,19 @@ export default function App() {
       if (request.current) return;
       const controller = new AbortController();
       request.current = controller;
-      setBusy(label);
-      setError('');
-      setNotice('');
+      dispatch({ type: 'started', label });
       try {
         await operation(controller.signal);
       } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError')
-          setNotice('待機を中止しました。サーバー側の処理が続いている場合があります。');
+        if (error instanceof Error && error.name === 'AbortError') dispatch({ type: 'aborted' });
         else {
-          setError(error instanceof Error ? error.message : '処理に失敗しました。もう一度お試しください。');
+          dispatch({
+            type: 'failed',
+            message: error instanceof Error ? error.message : '処理に失敗しました。もう一度お試しください。',
+          });
           if (session)
             try {
-              const latest = await api<Session>(`/sessions/${session.id}`);
-              setSession(previous => (previous?.id === latest.id ? latest : previous));
+              dispatch({ type: 'refreshed', session: await api<Session>(`/sessions/${session.id}`) });
             } catch {
               /* Keep the operation's original error. */
             }
@@ -324,7 +323,7 @@ export default function App() {
       } finally {
         if (request.current === controller) {
           request.current = undefined;
-          setBusy('');
+          dispatch({ type: 'finished' });
         }
       }
     },
@@ -334,8 +333,7 @@ export default function App() {
   const updateSession = (next: Session) => {
     rememberSessionId(next.id);
     liveSession.current = next;
-    setSession(next);
-    if (!next.variants.some(variant => variant.id === selectedVariant)) setSelectedVariant(next.variants[0]?.id ?? '');
+    dispatch({ type: 'updated', session: next });
   };
 
   useEffect(() => {
@@ -462,7 +460,7 @@ export default function App() {
     job.stopped = true;
     previewRun.current = undefined;
     if (job.current) {
-      setBusy('作成中の見本が仕上がるのを待っています');
+      dispatch({ type: 'working', label: '作成中の見本が仕上がるのを待っています' });
       await job.current;
     }
     setPreviewing(undefined);
@@ -702,14 +700,14 @@ export default function App() {
 
   async function nativePreview(next: Session, variant: DeckVariant | undefined, signal: AbortSignal) {
     if (!status?.nativeAvailable || !variant) return;
-    setBusy('PowerPoint で描画とサムネイルを作成しています');
+    dispatch({ type: 'working', label: 'PowerPoint で描画とサムネイルを作成しています' });
     await api<RenderResult>(`/sessions/${next.id}/render`, {
       method: 'POST',
       body: JSON.stringify({ variantId: variant.id }),
       signal,
     });
     const saved = await api<Session>(`/sessions/${next.id}`, { signal });
-    setSession(previous => (previous?.id === next.id ? saved : previous));
+    dispatch({ type: 'refreshed', session: saved });
   }
   function generate() {
     if (!session || handoffPending || (session.recovery?.task === 'generate' && !session.recovery.retryAvailable))
@@ -734,7 +732,7 @@ export default function App() {
   /** The deck is already shown; the drawn pages are looked at and the remade ones swapped in. */
   async function polishDeck(next: Session, signal: AbortSignal) {
     if (next.polish?.state !== 'pending') return next;
-    setBusy('描画したページを画像で見直して仕上げています（資料はこのまま確認できます）');
+    dispatch({ type: 'working', label: '描画したページを画像で見直して仕上げています（資料はこのまま確認できます）' });
     const polished = await api<Session>(`/sessions/${next.id}/polish`, { method: 'POST', body: '{}', signal });
     updateSession(polished);
     return polished;
@@ -902,7 +900,7 @@ export default function App() {
         body: JSON.stringify({ variantId: currentVariant.id }),
         signal,
       });
-      setSession(await api<Session>(`/sessions/${session.id}`, { signal }));
+      dispatch({ type: 'updated', session: await api<Session>(`/sessions/${session.id}`, { signal }) });
       setNotice(
         result.native
           ? 'PowerPoint の描画を反映しました。ファイルを保存できます。'
@@ -1004,7 +1002,7 @@ export default function App() {
   function openRefreshed(restored: RestoredPresentation) {
     const previous = session;
     updateSession(restored.session);
-    setSelectedVariant(restored.session.variants[0]?.id ?? '');
+    dispatch({ type: 'opened', session: restored.session });
     setDocuments(restored.documents);
     setPrompt('');
     setSelectedSlide(undefined);
@@ -1028,7 +1026,7 @@ export default function App() {
     });
   }
   function selectVariant(variantId: string) {
-    setSelectedVariant(variantId);
+    dispatch({ type: 'variantSelected', variantId });
     setSelectedSlide(undefined);
   }
   function revise(variant: DeckVariant, index: number) {
@@ -1046,14 +1044,9 @@ export default function App() {
     liveSession.current = undefined;
     if (session) void api(`/sessions/${session.id}`, { method: 'DELETE' }).catch(() => {});
     for (const document of documents) void api(`/documents/${document.id}`, { method: 'DELETE' }).catch(() => {});
-    setSession(undefined);
+    dispatch({ type: 'cleared' });
     setDocuments([]);
-    setSelectedVariant('');
-    setSelectedSlide(undefined);
     setPrompt('');
-    setError('');
-    setNotice('');
-    setCompareIndex(undefined);
     setCloudConsent(false);
     setLoading(true);
     void api<Settings>('/settings')
@@ -1839,8 +1832,7 @@ export default function App() {
           projectName={activeProject.name}
           onOpen={openHistory}
           onDeleted={id => {
-            if (session?.historyId === id)
-              setSession(previous => (previous ? { ...previous, historyId: undefined, savedAt: undefined } : previous));
+            if (session?.historyId === id) dispatch({ type: 'unsaved' });
           }}
           onClose={() => setHistoryOpen(false)}
         />
