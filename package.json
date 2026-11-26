@@ -15,6 +15,7 @@
     "build:hosted": "vite build --mode hosted && node scripts/build-hosted-manifest.mjs",
     "serve:hosted": "node scripts/serve-hosted.mjs",
     "eval:local": "tsx scripts/eval-local.ts",
+    "compare:renderers": "tsx scripts/renderer-comparison/run.ts",
     "format": "prettier --write \"core/**/*.ts\" \"server/**/*.ts\" \"web/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.{mjs,ts}\" \"vite*.config.ts\"",
     "format:check": "prettier --check \"core/**/*.ts\" \"server/**/*.ts\" \"web/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.{mjs,ts}\" \"vite*.config.ts\""
   },
