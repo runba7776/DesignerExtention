@@ -200,6 +200,10 @@ namespace DesignerExtension.Native
                             var valueAxis = chart.SelectSingleNode("//c:valAx",ns);
                             var valueCrosses = valueAxis == null ? null : valueAxis.SelectSingleNode("c:crosses",ns) as XmlElement;
                             if (valueCrosses != null) valueCrosses.SetAttribute("val","max");
+                            // The categories now run top-down, so the "low" end is the top edge.
+                            // Put the scale at the "high" end, under the bars, where readers look for it.
+                            var scale = valueAxis == null ? null : valueAxis.SelectSingleNode("c:tickLblPos",ns) as XmlElement;
+                            if (scale != null && scale.GetAttribute("val") == "low") scale.SetAttribute("val","high");
                         }
                         using (var stream = zip.GetEntry(chartPath).Open())
                         { stream.SetLength(0); chart.Save(stream); }

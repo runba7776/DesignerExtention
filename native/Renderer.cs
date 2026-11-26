@@ -902,7 +902,7 @@ namespace DesignerExtension.Native
         private static void AddSmartArt(dynamic app, dynamic slide, Dictionary<string, object> e, int slideNumber)
         {
             string requested = Text(e, "layout", "process");
-            string[] ids = requested == "cycle" ? new[] { "cycle1", "basicCycle" } : requested == "hierarchy" ? new[] { "hierarchy1", "orgChart1", "hierarchy" } : requested == "list" ? new[] { "vList5" } : new[] { "process1", "basicProcess" };
+            string[] ids = requested == "cycle" ? new[] { "cycle1", "basicCycle" } : requested == "hierarchy" ? new[] { "hierarchy1", "orgChart1", "hierarchy" } : requested == "list" ? new[] { "default", "vList5" } : new[] { "process1", "basicProcess" };
             dynamic layout = null;
             for (int i = 1; i <= (int)app.SmartArtLayouts.Count; i++)
             {
@@ -953,7 +953,9 @@ namespace DesignerExtension.Native
                 for (int s = 1; s <= (int)node.Shapes.Count; s++)
                 {
                     dynamic nodeShape = node.Shapes.Item(s);
-                    try { nodeShape.Fill.Solid(); nodeShape.Fill.ForeColor.RGB = nodeColor; nodeShape.Line.Visible = 0; } catch { }
+                    // Separate steps: a node that refuses one setting still loses the theme's dark outline.
+                    try { nodeShape.Line.Visible = 0; } catch { }
+                    try { nodeShape.Fill.Solid(); nodeShape.Fill.ForeColor.RGB = nodeColor; } catch { }
                     Release((object)nodeShape);
                 }
             }
