@@ -38,3 +38,7 @@ Some Office installations briefly return a stale embedded Excel connection betwe
 `node --import tsx native/Verify-Rendering.ts` exercises two consecutive six-slide renders in both themes, using the production bridge and no API. It checks native output, warning-free completion and all twelve 1600×900 thumbnails, and reports the new artifact directories. This opt-in check requires desktop PowerPoint and Excel and can briefly bring Office windows forward.
 
 Primary API references: [AddSmartArt](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.shapes.addsmartart), [AddChart2](https://learn.microsoft.com/en-us/office/vba/api/powerpoint.shapes.addchart2), [SmartArt nodes](https://learn.microsoft.com/en-us/office/vba/api/office.smartart.allnodes).
+
+## Comparing the two renderers
+
+`npm run compare:renderers` (add `-- --quick` for one deck of each kind) draws the same decks with this renderer and with the browser build's PptxGenJS writer (`web/hosted/pptx-renderer.ts`): every layout of the catalogue, every chart type, and freely designed pages with each kind of object. PowerPoint pictures both files, and `runtime/renderer-comparison/<time>/report.html` shows them side by side with the pixels that differ and an object-by-object list of differences (kind, place, size, text, font, fill, shape), worst slides first. It needs desktop PowerPoint and Excel and calls no AI. The PPTX reading, comparison and report are checked without PowerPoint in `tests/renderer-comparison.test.ts`.
