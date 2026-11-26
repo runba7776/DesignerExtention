@@ -102,7 +102,7 @@ function SmartArt({ element: e }: { element: SmartArtElement }) {
   if (!count) return null;
   const item = (index: number, x: number, y: number, w: number, h: number) => (
     <g key={`item${index}`}>
-      <rect x={x} y={y} width={w} height={h} rx="5" fill={e.accent} />
+      <rect x={x} y={y} width={w} height={h} rx="5" fill={e.fills?.[index] ?? e.accent} />
       <Text
         element={{
           kind: 'text',
@@ -112,7 +112,7 @@ function SmartArt({ element: e }: { element: SmartArtElement }) {
           h: h - 20,
           text: e.items[index].label,
           fontSize: e.fontSize,
-          color: e.color,
+          color: e.inks?.[index] ?? e.color,
           bold: true,
           align: 'center',
         }}
@@ -127,7 +127,7 @@ function SmartArt({ element: e }: { element: SmartArtElement }) {
             h: h * 0.44,
             text: e.items[index].description!,
             fontSize: Math.max(11, e.fontSize - 4),
-            color: e.color,
+            color: e.inks?.[index] ?? e.color,
             align: 'center',
           }}
         />

@@ -892,6 +892,10 @@ export interface SmartArtElement extends Rect {
   accent: string;
   color: string;
   fontSize: number;
+  /** Per item: its box colour and text colour, so the diagram has a lead (the root, the last step) and quieter
+   * supporting boxes. Missing means every box uses accent and color. */
+  fills?: string[];
+  inks?: string[];
 }
 /** One cell of a PowerPoint table. margin: left, top, right, bottom; borders: top, right, bottom, left (null where
  * there is none). */
