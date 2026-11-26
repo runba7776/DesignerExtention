@@ -54,7 +54,7 @@ test('free-design instructions carry no design preference: no themes, fonts, cha
 
 async function fixture(reply: (req: any) => unknown, outline: Outline) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-neutral-'));
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({ provider: 'local', designMode: 'free', model: 'mock', slideCount: 2, mode: 'presentation' });
   const requests: any[] = [];
   const engine = new SessionEngine({

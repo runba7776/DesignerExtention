@@ -183,7 +183,7 @@ function checked(value: any): HistoryRecord {
   for (const key of Object.keys(usage) as (keyof typeof usage)[])
     if (typeof raw.usage?.[key] === 'number' && Number.isFinite(raw.usage[key]) && raw.usage[key] >= 0)
       usage[key] = raw.usage[key];
-  const provider = ['subscription', 'chat', 'claude', 'local', 'demo'].includes(raw.provider)
+  const provider = ['subscription', 'chat', 'local', 'demo'].includes(raw.provider)
     ? (raw.provider as Session['provider'])
     : undefined;
   const projectId = raw.projectId ?? DEFAULT_PROJECT_ID;

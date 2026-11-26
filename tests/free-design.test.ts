@@ -328,7 +328,7 @@ test('overflowing designed text can be shortened in place without changing numbe
 test('manual chat uses free design by default: free prompt, smaller batches, repair request for overlapping text', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-free-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'chat', mode: 'presentation', slideCount: 6 });
     assert.equal(settings.get().designMode, undefined);
     await assert.rejects(settings.update({ designMode: 'svg' as any }), /作り方/);

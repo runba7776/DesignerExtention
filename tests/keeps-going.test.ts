@@ -76,7 +76,7 @@ async function fixture(
   layout: HtmlLayout = browser,
 ) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-keeps-going-'));
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({
     provider: 'subscription',
     subscriptionService: 'claude',

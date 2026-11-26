@@ -322,7 +322,7 @@ async function engineWith(
   extra: { htmlLayout?: HtmlLayout; showcase?: () => Promise<unknown> } = {},
 ) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-blanks-'));
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({
     provider: 'subscription',
     subscriptionService: 'claude',

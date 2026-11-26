@@ -21,7 +21,7 @@ const limit = () =>
 const reply = (value: unknown) => ({ text: JSON.stringify(value), usage });
 async function fixture(count = 3, mode: 'presentation' | 'reading' = 'presentation') {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-auto-repair-')),
-    settings = await new SettingsStore(dir, '').load();
+    settings = await new SettingsStore(dir).load();
   await settings.update({ provider: 'local', designMode: 'template', model: 'mock', slideCount: count, mode });
   const outline = demoOutline('自動対処の検証', mode, [], count),
     deck = demoDeck(outline);
@@ -348,7 +348,7 @@ test('automatic repair can be disabled for an active session, and saved instruct
       return reply({ ...f.deck.slides[1], title: '手動の再開で修正' });
     });
     await f.settings.update({ autoRepair: false });
-    assert.equal((await new SettingsStore(f.dir, '').load()).get().autoRepair, false);
+    assert.equal((await new SettingsStore(f.dir).load()).get().autoRepair, false);
     await engine.revise(session.id, { slideId: 'slide-2', instruction: '保存して再開する修正' });
     assert.equal(revisions, 1);
     assert.equal(session.repairReport, undefined);
@@ -492,7 +492,6 @@ test('authenticated HTTP revision keeps the deck and safe instructions on failur
       dataDir: f.dir,
       webRoot: f.dir,
       artifactRoot: path.join(f.dir, 'artifacts'),
-      environmentKey: '',
       nativeAvailable: () => false,
       render,
       providerFactory: () => ({

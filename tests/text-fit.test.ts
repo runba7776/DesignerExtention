@@ -66,7 +66,7 @@ const cover = {
 
 async function fixture(relayout: (request: any, count: number) => unknown, autoRepair = true) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-text-fit-'));
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({
     provider: 'local',
     model: 'mock',
@@ -245,7 +245,7 @@ test('summaries compare values, not spelling; valid replacements are used even w
 test('manual chat: while the AI is asked to shorten text, the deck can be finished with smaller text instead', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-text-fit-chat-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'chat', mode: 'presentation', slideCount: 2, themeId: 'business' });
     const engine = new SessionEngine({
       settings,

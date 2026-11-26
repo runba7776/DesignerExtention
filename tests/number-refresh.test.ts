@@ -269,7 +269,7 @@ test('applying keeps every position and moves citations to the new documents', (
 test('the refreshed deck opens as a new presentation with the new documents; the previous one is kept', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-refresh-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'chat', chatService: 'claude', mode: 'presentation', slideCount: 2 });
     const engine = new SessionEngine({
       settings,

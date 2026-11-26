@@ -20,7 +20,7 @@ const render = async (): Promise<RenderResult> => ({
 });
 async function fixture(count = 6) {
   const directory = await mkdtemp(path.join(tmpdir(), 'de-subscription-engine-'));
-  const settings = await new SettingsStore(directory, 'DO_NOT_IMPORT_ENV_SECRET').load();
+  const settings = await new SettingsStore(directory).load();
   await settings.update({
     provider: 'subscription',
     subscriptionService: 'chatgpt',
@@ -83,7 +83,7 @@ const errorCode = (expected: string) => (error: unknown) =>
 test('subscription settings preserve manual default, select auto model, reject unsupported service and exclude credentials', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'de-subscription-settings-'));
   try {
-    const store = await new SettingsStore(directory, 'DO_NOT_IMPORT_ENV_SECRET').load();
+    const store = await new SettingsStore(directory).load();
     assert.equal(store.get().provider, 'chat');
     let next = await store.update({
       provider: 'subscription',
@@ -93,7 +93,7 @@ test('subscription settings preserve manual default, select auto model, reject u
     assert.equal(next.provider, 'subscription');
     assert.equal(next.model, 'auto');
     assert.equal(next.subscriptionService, 'chatgpt');
-    assert.equal(next.hasKey, false);
+    assert.equal('hasKey' in next, false);
     await store.update({ model: 'explicit-model' });
     next = await store.update({ subscriptionService: 'claude' });
     assert.equal(next.model, 'auto');

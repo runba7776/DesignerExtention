@@ -110,7 +110,7 @@ async function fixture(
 ) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-choices-')),
     artifacts = path.join(dir, 'artifacts');
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({
     provider: 'subscription',
     subscriptionService: 'claude',

@@ -64,9 +64,9 @@ test('summary changes prose only, retains originals and rejects invented numbers
 test('settings persist slide count/theme and reject out-of-range or unknown values', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-settings-'));
   try {
-    const s = await new SettingsStore(dir, '').load();
+    const s = await new SettingsStore(dir).load();
     await s.update({ slideCount: 30, themeId: 'business' });
-    const loaded = (await new SettingsStore(dir, '').load()).get();
+    const loaded = (await new SettingsStore(dir).load()).get();
     assert.equal(loaded.slideCount, 30);
     assert.equal(loaded.themeId, 'business');
     for (const bad of [1, 31, 2.5, '9']) await assert.rejects(s.update({ slideCount: bad }));
@@ -79,7 +79,7 @@ test('settings persist slide count/theme and reject out-of-range or unknown valu
 test('9 slides use two generation calls; explicit theme wins and changing theme uses no LLM', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-batches-'));
   try {
-    const s = await new SettingsStore(dir, '').load();
+    const s = await new SettingsStore(dir).load();
     await s.update({ provider: 'local', designMode: 'template', model: 'test', slideCount: 9, themeId: 'warm' });
     const outline = demoOutline('9枚の確認', 'presentation', [], 9);
     outline.themeId = 'business';
@@ -125,7 +125,7 @@ test('9 slides use two generation calls; explicit theme wins and changing theme 
 test('failed later batch reuses completed pages on retry', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-resume-'));
   try {
-    const s = await new SettingsStore(dir, '').load();
+    const s = await new SettingsStore(dir).load();
     await s.update({ provider: 'local', designMode: 'template', model: 'test', slideCount: 9 });
     const outline = demoOutline('再開確認', 'presentation', [], 9),
       deck = demoDeck(outline);
@@ -164,7 +164,7 @@ test('failed later batch reuses completed pages on retry', async () => {
 test('overflow triggers one grouped summarization call without resending documents', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-summary-'));
   try {
-    const s = await new SettingsStore(dir, '').load();
+    const s = await new SettingsStore(dir).load();
     await s.update({ provider: 'local', designMode: 'template', model: 'test', themeId: 'midnight' });
     const outline = demoOutline('要約確認', 'presentation', []),
       deck = demoDeck(outline);

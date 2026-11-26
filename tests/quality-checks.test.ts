@@ -189,7 +189,7 @@ test('the app passes the smallest size of the mode and tells the user when a pag
   } as Outline;
   const dir = await mkdtemp(path.join(tmpdir(), 'de-quality-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({
       provider: 'subscription',
       subscriptionService: 'claude',

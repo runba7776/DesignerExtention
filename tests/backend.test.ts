@@ -84,11 +84,7 @@ test('paid providers and chat handoffs never create a network client; local reco
     );
   };
   assert.throws(
-    () => createProvider({ provider: 'claude', model: 'legacy', mode: 'presentation' }, 'test-not-real', mockFetch),
-    /有料API/,
-  );
-  assert.throws(
-    () => createProvider({ provider: 'chat', model: 'chat-session', mode: 'presentation' }, undefined, mockFetch),
+    () => createProvider({ provider: 'chat', model: 'chat-session', mode: 'presentation' }, mockFetch),
     /指示をコピー/,
   );
   assert.equal(Boolean(seen), false);
@@ -100,7 +96,6 @@ test('paid providers and chat handoffs never create a network client; local reco
       mode: 'presentation',
       endpoint: 'http://127.0.0.1:11434/v1',
     },
-    undefined,
     mockFetch,
   );
   const response = await provider.complete({ system: 'system', content: '資料', maxTokens: 1000 });
@@ -128,7 +123,6 @@ test('local provider sends one request only to configured private endpoint and n
       mode: 'reading',
       endpoint: 'http://127.0.0.1:11434/v1',
     },
-    undefined,
     async url => {
       urls.push(String(url));
       throw new Error('offline');
@@ -139,10 +133,6 @@ test('local provider sends one request only to configured private endpoint and n
     /外部APIへの切り替えは行っていません/,
   );
   assert.deepEqual(urls, ['http://127.0.0.1:11434/v1/chat/completions']);
-  assert.throws(
-    () => createProvider({ provider: 'claude', model: 'claude-sonnet-5', mode: 'presentation' }),
-    /有料API/,
-  );
 });
 
 test('schema rejects hallucinated layouts, invalid charts and excessive slides while accepting complete demo', () => {
@@ -170,7 +160,7 @@ test('schema rejects hallucinated layouts, invalid charts and excessive slides w
 test('session flow preserves clarification, uses grouped generation, refreshes variants locally and stores metadata only', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'designer-engine-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'local', designMode: 'template', model: 'test-model' });
     const outline = demoOutline('A topic', 'presentation', []);
     const deck = demoDeck(outline);
@@ -231,7 +221,7 @@ test('session flow preserves clarification, uses grouped generation, refreshes v
 test('single-slide revision updates both variants and invalidates both exports with one model call', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'designer-revision-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'local', designMode: 'template', model: 'test' });
     const outline = demoOutline('編集の検証', 'presentation', []);
     const deck = demoDeck(outline);
@@ -276,7 +266,7 @@ test('single-slide revision updates both variants and invalidates both exports w
 test('invalid model citations are rejected before exposing ready slides', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'designer-citation-'));
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({ provider: 'local', designMode: 'template', model: 'test', autoRepair: false });
     const document = await parseDocument('facts.txt', Buffer.from('正しい出典の文章です。'));
     const outline = demoOutline('題名', 'presentation', []);
@@ -314,7 +304,6 @@ test('HTTP boundary requires bootstrap cookie + same-origin writes; demo upload 
       dataDir: dir,
       webRoot: dir,
       artifactRoot: dir,
-      environmentKey: '',
       nativeAvailable: () => false,
       render: async () => rendered,
     });
@@ -395,7 +384,6 @@ test('local provider asks the model not to think, holds answers to their shape a
   const local = (fetcher: typeof fetch) =>
     createProvider(
       { provider: 'local', model: 'gemma4:12b', mode: 'presentation', endpoint: 'http://127.0.0.1:11434/v1' },
-      undefined,
       fetcher,
     );
   await local(async (_url, init) => {

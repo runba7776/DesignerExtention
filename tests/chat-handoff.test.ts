@@ -23,7 +23,7 @@ const render = async () => ({
 const packet = (session: Session) => JSON.parse(session.chatHandoff!.instruction.split('\n\n').at(-2)!);
 async function fixture(count = 3, mode: 'presentation' | 'reading' = 'presentation') {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-chat-')),
-    settings = await new SettingsStore(dir, 'not-used-env').load();
+    settings = await new SettingsStore(dir).load();
   await settings.update({ mode, slideCount: count, designMode: 'template' });
   let factories = 0;
   const engine = new SessionEngine({
@@ -66,10 +66,8 @@ async function ready(f: Awaited<ReturnType<typeof fixture>>) {
 test('default chat and migrated paid settings never load or store paid credentials', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-chat-settings-'));
   try {
-    const fresh = await new SettingsStore(dir, 'paid-environment-secret').load();
+    const fresh = await new SettingsStore(dir).load();
     assert.equal(fresh.get().provider, 'chat');
-    assert.equal(fresh.get().hasKey, false);
-    assert.equal(fresh.secret('claude'), undefined);
     await writeFile(
       path.join(dir, 'settings.json'),
       JSON.stringify({
@@ -81,13 +79,12 @@ test('default chat and migrated paid settings never load or store paid credentia
         slideCount: 9,
       }),
     );
-    const migrated = await new SettingsStore(dir, 'ENV_SECRET').load();
+    const migrated = await new SettingsStore(dir).load();
     assert.equal(migrated.get().provider, 'chat');
     assert.equal(migrated.get().chatService, 'claude');
     assert.equal(migrated.get().model, 'chat-session');
     assert.equal(migrated.get().slideCount, 9);
-    assert.equal(migrated.get().hasKey, false);
-    assert.equal(migrated.secret('claude'), undefined);
+    assert.doesNotMatch(JSON.stringify(migrated.get()), /OLD_SECRET|apiKey|hasKey/);
     await assert.rejects(migrated.update({ provider: 'claude', apiKey: 'new-secret' }), /有料API/);
     await migrated.update({ provider: 'chat', apiKey: 'ignored-chat-secret' });
     assert.doesNotMatch(
@@ -494,7 +491,6 @@ test('HTTP import endpoints require same-origin authentication and expose API-fr
       dataDir: dir,
       webRoot: dir,
       artifactRoot: dir,
-      environmentKey: 'not-used-secret',
       nativeAvailable: () => false,
       render,
       providerFactory: () => {
@@ -511,7 +507,7 @@ test('HTTP import endpoints require same-origin authentication and expose API-fr
     const status = (await (await fetch(origin + '/api/status', { headers })).json()) as any;
     assert.equal(status.apiFree, true);
     assert.equal(status.provider, 'chat');
-    assert.equal(status.hasKey, false);
+    assert.equal('hasKey' in status, false);
     const blocked = await fetch(origin + '/api/settings', {
       method: 'PUT',
       headers,
@@ -567,7 +563,6 @@ test('authenticated resume preserves pending generation batches and returns docu
       dataDir: dir,
       webRoot: dir,
       artifactRoot: dir,
-      environmentKey: '',
       nativeAvailable: () => false,
       render,
       providerFactory: () => {

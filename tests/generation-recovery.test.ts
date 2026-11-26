@@ -25,7 +25,7 @@ const cut = (mode: string, slides: unknown[]) =>
   '{"id":"PRIVATE_UNFINISHED';
 const limited = (text: string) => new OutputLimitError({ ...usage, outputTokens: 16_000 }, text);
 async function settingsFor(dir: string, count: number, mode: 'reading' | 'presentation' = 'reading') {
-  const settings = await new SettingsStore(dir, '').load();
+  const settings = await new SettingsStore(dir).load();
   await settings.update({
     provider: 'local',
     designMode: 'template',
@@ -371,7 +371,6 @@ test('authenticated HTTP generation exposes progress without raw partial text an
       dataDir: dir,
       webRoot: dir,
       artifactRoot: path.join(dir, 'artifacts'),
-      environmentKey: '',
       nativeAvailable: () => false,
       render: async () => rendered,
       providerFactory: () => ({

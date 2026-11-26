@@ -98,7 +98,7 @@ async function makeDeck(request: string) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-eval-'));
   const started = Date.now();
   try {
-    const settings = await new SettingsStore(dir, '').load();
+    const settings = await new SettingsStore(dir).load();
     await settings.update({
       ...(ai
         ? { provider: 'subscription' as const, subscriptionService: ai, outlineProposals: false }
@@ -131,12 +131,12 @@ async function makeDeck(request: string) {
       ...(bridge && { artifactRoot: path.join(root, 'runtime', 'artifacts') }),
       // With a cloud AI, what goes to it (the local model writing the content with --design is not counted as
       // sent); without one, the local model, to read its look at the pages afterwards.
-      providerFactory: (current, key) =>
+      providerFactory: current =>
         current.provider === 'subscription'
           ? recorded(subscriptions!.createProvider(current))
           : cloud
-            ? createProvider(current, key)
-            : recorded(createProvider(current, key)),
+            ? createProvider(current)
+            : recorded(createProvider(current)),
       ...(subscriptions && { subscriptionBinding: service => subscriptions.binding(service) }),
     });
     let session = await engine.create(

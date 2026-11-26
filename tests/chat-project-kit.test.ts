@@ -20,7 +20,7 @@ const render = async () => ({
 const packet = (session: Session) => JSON.parse(session.chatHandoff!.instruction.split('\n\n').at(-2)!);
 async function fixture(count = 4) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-ai-project-')),
-    settings = await new SettingsStore(dir, '').load();
+    settings = await new SettingsStore(dir).load();
   await settings.update({
     provider: 'chat',
     chatService: 'claude',
@@ -79,7 +79,7 @@ test('project prompts are shorter for AI-designed slides; template prompts are a
 test('settings accept only https project pages of the chosen service', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-ai-settings-'));
   try {
-    const settings = await new SettingsStore(dir, '').load(),
+    const settings = await new SettingsStore(dir).load(),
       version = aiKitVersion();
     const saved = await settings.update({
       chatProjects: {
@@ -118,7 +118,7 @@ test('settings accept only https project pages of the chosen service', async () 
       'https://ai.example.co.jp/workspace/1',
     );
     assert.equal((await settings.update({ chatProjects: { other: null } })).chatProjects, undefined);
-    assert.equal((await new SettingsStore(dir, '').load()).get().chatOpenIn, 'app');
+    assert.equal((await new SettingsStore(dir).load()).get().chatOpenIn, 'app');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

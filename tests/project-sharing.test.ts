@@ -13,7 +13,7 @@ test('projects keep guidance local and design sharing exports only reusable visu
   const directory = await mkdtemp(path.join(tmpdir(), 'designer-project-sharing-'));
   try {
     const projects = await new ProjectStore(directory).load(),
-      settings = await new SettingsStore(directory, '').load();
+      settings = await new SettingsStore(directory).load();
     const source = await projects.create({
       name: 'Quarterly Review',
       audience: 'SENSITIVE_AUDIENCE',
@@ -51,7 +51,7 @@ test('projects keep guidance local and design sharing exports only reusable visu
       /構図/,
     );
     assert.equal((await library.list(target.id)).entries.length, 1, 'invalid packs do not partially import');
-    assert.equal((await new SettingsStore(directory, '').load()).get().activeProjectId, source.id);
+    assert.equal((await new SettingsStore(directory).load()).get().activeProjectId, source.id);
     const profile = JSON.parse(await readFile(path.join(directory, 'projects.json'), 'utf8'));
     assert.equal(profile.projects.find((p: any) => p.id === source.id).guidance, 'SENSITIVE_PROJECT_GUIDANCE');
 
