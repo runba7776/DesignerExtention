@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import type { Settings, ProviderKind, TemplateTheme } from '../shared/contracts';
+import type { Settings, ProviderKind, TemplateTheme } from '../core/shared/contracts';
 import { api } from './api';
 import { Icon, Modal, Spinner } from './ui';
-import { MAX_SLIDES } from '../shared/contracts';
-import { themes, TEMPLATE_THEME_ID } from '../shared/themes';
-import { templateToTheme } from '../shared/template-style';
-import { typographyProfiles, withTypography } from '../shared/typography';
-import { makingMethod, makingNames, writerTraits } from '../shared/making';
+import { MAX_SLIDES } from '../core/shared/contracts';
+import { themes, TEMPLATE_THEME_ID } from '../core/shared/themes';
+import { templateToTheme } from '../core/shared/template-style';
+import { typographyProfiles, withTypography } from '../core/shared/typography';
+import { makingMethod, makingNames, routeOf } from '../core/shared/route';
 import { chatServices } from './ChatHandoffPanel';
 import { SubscriptionConnectionPanel } from './SubscriptionConnectionPanel';
 import { inWebPowerPoint } from './office';
@@ -320,7 +320,7 @@ export function SettingsDialog({
           </span>
           <small>
             出力上限や形式・出典・文字量の不備に、1回の操作で最大
-            {making === 'template' ? 2 : writerTraits(draft.provider).designRetries}
+            {making === 'template' ? 2 : routeOf(draft.provider).designRetries}
             回再試行します。それでも通らないページは型で作る・出典を外す・文字を小さくするなどして止めずに仕上げ、「確認のヒント」でお知らせします。切ると、通らなかった所で止めます。
             {draft.provider === 'subscription' ? '再試行も月額版の利用枠を消費します。' : ''}
             変更は次の操作から有効です。

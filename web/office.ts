@@ -1,4 +1,4 @@
-import type { OpenSlideContent, RehearsalSlide } from '../shared/contracts';
+import type { OpenSlideContent, RehearsalSlide } from '../core/shared/contracts';
 
 // Minimal Office.js surface used by the task pane. office.js is loaded from
 // Microsoft's CDN only on taskpane.html, so every call is feature-detected.

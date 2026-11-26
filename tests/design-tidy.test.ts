@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type { DeckSpec, FreeElement, SlideSpec, TextElement } from '../shared/contracts.js';
-import { compileDeck } from '../shared/layouts.js';
-import { deckTitleSize, pageFindings, tidyDesign } from '../shared/tidy.js';
+import type { DeckSpec, FreeElement, SlideSpec, TextElement } from '../core/shared/contracts.js';
+import { compileDeck } from '../core/shared/layouts.js';
+import { deckTitleSize, pageFindings, tidyDesign } from '../core/shared/tidy.js';
 
 const title = (size: number) =>
   ({ t: 'text', x: 48, y: 32, w: 600, h: 44, text: '題名', size, role: 'title' }) as const;

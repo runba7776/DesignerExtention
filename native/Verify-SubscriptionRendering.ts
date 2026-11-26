@@ -4,7 +4,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import JSZip from 'jszip';
-import {HistoryStore} from '../server/history.js';
+import {HistoryStore} from '../core/history.js';
 import {createRenderBridge} from '../server/render-bridge.js';
 
 const root=fileURLToPath(new URL('..',import.meta.url)),verificationDirectory=path.join(root,'runtime','qa-v090'),sourceDirectory=path.join(verificationDirectory,'web');

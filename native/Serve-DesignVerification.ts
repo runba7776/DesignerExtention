@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {randomBytes} from 'node:crypto';
 import {createApp} from '../server/app';
 import {createRenderBridge} from '../server/render-bridge';
-import {SettingsStore} from '../server/settings';
+import {SettingsStore} from '../core/settings';
 
 const root=fileURLToPath(new URL('..',import.meta.url)),dataDir=path.join(root,'runtime','qa-v06','web'),port=4318,authToken=randomBytes(32).toString('hex');
 await fs.mkdir(dataDir,{recursive:true});

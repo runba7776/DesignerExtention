@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Outline, TextElement } from '../shared/contracts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
+import type { Outline, TextElement } from '../core/shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
 import { findBrowser, layoutHtmlSlides, type HtmlLayout } from '../server/html-layout.js';
-import { freeSystemPrompt } from '../server/free-prompts.js';
-import { paletteTheme } from '../shared/ai-theme.js';
-import { compileDeck } from '../shared/layouts.js';
-import { sanitizeSvg, validateSlide } from '../server/validation.js';
+import { freeSystemPrompt } from '../core/free-prompts.js';
+import { paletteTheme } from '../core/shared/ai-theme.js';
+import { compileDeck } from '../core/shared/layouts.js';
+import { sanitizeSvg, validateSlide } from '../core/validation.js';
 
 const usage = { ...emptyUsage(), calls: 1 };
 const palette = {

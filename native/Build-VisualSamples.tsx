@@ -4,10 +4,10 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import assert from 'node:assert/strict';
-import {compileDeck,registerLayout} from '../shared/layouts';
-import {iconCatalog} from '../shared/icons';
-import {chartCatalog,isShareChart,isStackedChart} from '../shared/charts';
-import type {DeckSpec,ChartType,IconId,SlideSpec} from '../shared/contracts';
+import {compileDeck,registerLayout} from '../core/shared/layouts';
+import {iconCatalog} from '../core/shared/icons';
+import {chartCatalog,isShareChart,isStackedChart} from '../core/shared/charts';
+import type {DeckSpec,ChartType,IconId,SlideSpec} from '../core/shared/contracts';
 import {createRenderBridge} from '../server/render-bridge';
 
 const root=fileURLToPath(new URL('..',import.meta.url)),qa=path.join(root,'runtime','qa-v07'),out=path.join(root,'samples','generated'),bridge=createRenderBridge(root);

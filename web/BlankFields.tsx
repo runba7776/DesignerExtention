@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { DeckSpec, OpenFact } from '../shared/contracts';
-import { deckBlanks } from '../shared/blanks';
+import type { DeckSpec, OpenFact } from '../core/shared/contracts';
+import { deckBlanks } from '../core/shared/blanks';
 
 /** Before the pages are made: the facts the deck needs that the request and documents do not give. What the
  * user types is used as written; what is left empty becomes a blank (［実施日］) on the slides. */

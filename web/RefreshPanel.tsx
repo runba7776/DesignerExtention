@@ -10,9 +10,9 @@ import type {
   RefreshText,
   RenderDocument,
   RestoredPresentation,
-} from '../shared/contracts';
-import { applyToText, numberSpans, refreshValueProblem } from '../shared/refresh';
-import { FOOTER_TOP } from '../shared/free-design';
+} from '../core/shared/contracts';
+import { applyToText, numberSpans, refreshValueProblem } from '../core/shared/refresh';
+import { FOOTER_TOP } from '../core/shared/free-design';
 import { api } from './api';
 import { Icon } from './ui';
 

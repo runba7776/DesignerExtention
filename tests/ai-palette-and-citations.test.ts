@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Outline, TextElement } from '../shared/contracts.js';
-import { paletteTheme, AI_THEME_ID } from '../shared/ai-theme.js';
-import { contrast } from '../shared/color.js';
-import { compileDeck } from '../shared/layouts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
-import { validateDeck, validateOutline } from '../server/validation.js';
-import type { ParsedDocument } from '../server/document-model.js';
+import type { Outline, TextElement } from '../core/shared/contracts.js';
+import { paletteTheme, AI_THEME_ID } from '../core/shared/ai-theme.js';
+import { contrast } from '../core/shared/color.js';
+import { compileDeck } from '../core/shared/layouts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
+import { validateDeck, validateOutline } from '../core/validation.js';
+import type { ParsedDocument } from '../core/document-model.js';
 
 const t = (
   x: number,

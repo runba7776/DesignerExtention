@@ -4,9 +4,9 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomBytes} from 'node:crypto';
 import {createApp} from '../server/app';
-import {SettingsStore} from '../server/settings';
-import {OutputLimitError,emptyUsage} from '../server/providers';
-import {demoOutline} from '../server/demo';
+import {SettingsStore} from '../core/settings';
+import {OutputLimitError,emptyUsage} from '../core/providers';
+import {demoOutline} from '../core/demo';
 const root=fileURLToPath(new URL('..',import.meta.url)),dataDir=path.join(root,'runtime','qa-v081','web'),port=4318,authToken=randomBytes(32).toString('hex');
 await fs.mkdir(dataDir,{recursive:true});await (await new SettingsStore(dataDir,'').load()).update({provider:'local',model:'verification-mock',mode:'reading',slideCount:30});
 const app=await createApp({authToken,port,dataDir,webRoot:path.join(root,'dist','web'),artifactRoot:path.join(dataDir,'artifacts'),environmentKey:'',nativeAvailable:()=>false,render:async()=>{throw new Error('Native rendering disabled');},providerFactory:()=>({complete:async request=>{

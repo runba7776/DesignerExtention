@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ChatService, Settings } from '../shared/contracts';
+import type { ChatService, Settings } from '../core/shared/contracts';
 import { api } from './api';
 import { chatServices } from './ChatHandoffPanel';
 import { openExternal } from './office';

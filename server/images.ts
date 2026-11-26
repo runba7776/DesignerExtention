@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { FreeElement } from '../shared/contracts.js';
-import { IMAGE_SRC } from '../shared/free-design.js';
+import type { FreeElement } from '../core/shared/contracts.js';
+import { IMAGE_SRC } from '../core/shared/free-design.js';
 
 type ImagePlace = Extract<FreeElement, { t: 'image' }>;
 interface Found {
@@ -15,20 +15,8 @@ interface Found {
   /** The look at a page said it is not to be used: it stays out of every deck from then on. */
   passedOver?: boolean;
 }
-/** Photos and illustrations for the places an AI marked on its pages (an image with English search words),
- * found on Wikimedia Commons under a free licence (CC0, public domain, CC BY, CC BY-SA) and kept in
- * runtime/images with their author and licence. The search words leave this PC, so the engine uses it only
- * when the content already goes to a cloud AI. */
-export interface ImageStore {
-  /** Finds a picture for every place in value (a session) that has none, or whose words changed, each picture
-   * once in a deck; returns how many places are left without one. */
-  place(value: unknown): Promise<number>;
-  /** The pictures of the places in value (a page) are not used again: the look saw a real person in one, or something
-   * other than the words asked for. The next placing takes another. */
-  passOver(value: unknown): Promise<void>;
-  /** The file of a stored picture. */
-  file(src: string): string | undefined;
-}
+export type { ImageStore } from '../core/hosts.js';
+import type { ImageStore } from '../core/hosts.js';
 
 const API = 'https://commons.wikimedia.org/w/api.php';
 const AGENT = 'DesignerExtension/1.0 (PowerPoint add-in; +https://runba7776.github.io/DesignerExtention/)';

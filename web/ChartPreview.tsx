@@ -1,7 +1,7 @@
-import type { ChartElement } from '../shared/contracts';
-import { chartNumber, isShareChart, isStackedChart } from '../shared/charts';
-import { readableColor } from '../shared/color';
-import { measureText, wrapText, textUnits } from '../shared/layouts';
+import type { ChartElement } from '../core/shared/contracts';
+import { chartNumber, isShareChart, isStackedChart } from '../core/shared/charts';
+import { readableColor } from '../core/shared/color';
+import { measureText, wrapText, textUnits } from '../core/shared/layouts';
 
 function Label({
   text,

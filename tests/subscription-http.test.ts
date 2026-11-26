@@ -5,15 +5,15 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createApp, type AppOptions } from '../server/app.js';
-import { demoOutline, demoDeck } from '../server/demo.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
+import { demoOutline, demoDeck } from '../core/demo.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
 import type {
   Settings,
   SubscriptionConnection,
   SubscriptionService,
   SubscriptionStatus,
   Session,
-} from '../shared/contracts.js';
+} from '../core/shared/contracts.js';
 
 type Manager = NonNullable<AppOptions['subscriptionManager']>;
 class FakeManager implements Manager {

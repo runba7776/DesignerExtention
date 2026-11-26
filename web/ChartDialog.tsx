@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import type { ChartType, DeckSpec, SlideSpec } from '../shared/contracts';
-import { compatibleChartTypes, chartCatalog } from '../shared/charts';
-import { compileDeck } from '../shared/layouts';
+import type { ChartType, DeckSpec, SlideSpec } from '../core/shared/contracts';
+import { compatibleChartTypes, chartCatalog } from '../core/shared/charts';
+import { compileDeck } from '../core/shared/layouts';
 import { Modal } from './ui';
 import { SlidePreview } from './SlidePreview';
 

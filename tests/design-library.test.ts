@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, readdir, rm, symlink, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { DesignLibraryStore } from '../server/design-library.js';
-import { demoOutline, demoDeck } from '../server/demo.js';
-import type { DeckSpec } from '../shared/contracts.js';
+import { DesignLibraryStore } from '../core/design-library.js';
+import { demoOutline, demoDeck } from '../core/demo.js';
+import type { DeckSpec } from '../core/shared/contracts.js';
 
 const example = () => demoDeck(demoOutline('秘密の売上報告', 'presentation', []));
 const temporary = () => mkdtemp(path.join(tmpdir(), 'designer-style-library-'));

@@ -1,10 +1,10 @@
 /** The decks both renderers draw for the comparison: every layout of the catalogue, every chart type, and pages
  * designed freely (as the HTML and coordinate methods make them) that use each kind of object. No AI is called;
  * the words and numbers are made up for the check. */
-import type { ChartType, DeckSpec, FreeElement, SlideSpec } from '../../shared/contracts';
-import { listLayouts } from '../../shared/layouts';
-import { sampleDeck, sampleSlide } from '../../shared/layout-samples';
-import { chartCatalog, isShareChart, isStackedChart } from '../../shared/charts';
+import type { ChartType, DeckSpec, FreeElement, SlideSpec } from '../../core/shared/contracts';
+import { listLayouts } from '../../core/shared/layouts';
+import { sampleDeck, sampleSlide } from '../../core/shared/layout-samples';
+import { chartCatalog, isShareChart, isStackedChart } from '../../core/shared/charts';
 
 /** The native renderer takes up to 30 slides a deck. */
 const PER_DECK = 29;

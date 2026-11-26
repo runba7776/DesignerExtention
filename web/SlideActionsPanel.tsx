@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import type { AssistState, AssistTask, OpenSlideContent, ProviderKind, Theme } from '../shared/contracts';
-import { compileDeck } from '../shared/layouts';
-import { TEMPLATE_THEME_ID } from '../shared/themes';
+import type { AssistState, AssistTask, OpenSlideContent, ProviderKind, Theme } from '../core/shared/contracts';
+import { compileDeck } from '../core/shared/layouts';
+import { TEMPLATE_THEME_ID } from '../core/shared/themes';
 import { api } from './api';
 import { ChatHandoffPanel } from './ChatHandoffPanel';
 import { SlidePreview } from './SlidePreview';
@@ -75,7 +75,7 @@ export function SlideActionsPanel({
   async function themeOfOpenDeck() {
     if (!matchDeck || !canReadPresentationFile()) return undefined;
     if (deckTheme) return deckTheme;
-    const { extractTemplateTheme, templateToTheme } = await import('../shared/template-theme');
+    const { extractTemplateTheme, templateToTheme } = await import('../core/shared/template-theme');
     const value = {
       themeId: TEMPLATE_THEME_ID,
       customTheme: templateToTheme(await extractTemplateTheme(await readPresentationFile(), '開いている資料')),

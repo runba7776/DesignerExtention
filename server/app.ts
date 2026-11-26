@@ -3,20 +3,21 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
-import type { DeckSpec, RenderResult } from '../shared/contracts.js';
-import { DOCUMENT_LIMITS, documentSummary, parseDocument, type ParsedDocument } from './documents.js';
-import { AppError } from './errors.js';
-import { SessionEngine } from './engine.js';
-import { SettingsStore } from './settings.js';
-import { createProvider, type Provider } from './providers.js';
-import type { Settings } from '../shared/contracts.js';
+import type { DeckSpec, RenderResult } from '../core/shared/contracts.js';
+import { DOCUMENT_LIMITS, documentSummary, parseDocument, type ParsedDocument } from '../core/documents.js';
+import { AppError } from '../core/errors.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { createProvider, type Provider } from '../core/providers.js';
+import type { Settings } from '../core/shared/contracts.js';
 import { SubscriptionManager } from './subscription.js';
-import { DEFAULT_PROJECT_ID, ProjectStore } from './projects.js';
-import { AssistService } from './assist.js';
-import { apiRoutes } from './routes.js';
+import { DEFAULT_PROJECT_ID, ProjectStore } from '../core/projects.js';
+import { AssistService } from '../core/assist.js';
+import { apiRoutes } from '../core/routes.js';
 import { layoutHtmlSlides } from './html-layout.js';
 import { createImageStore } from './images.js';
-import type { HistoryCipher } from './history.js';
+import type { HistoryCipher } from '../core/history.js';
+import { routeOf } from '../core/shared/route.js';
 
 export interface AppOptions {
   authToken: string;
@@ -53,7 +54,7 @@ export async function createApp(options: AppOptions) {
   const providerFactory =
     options.providerFactory ??
     ((current: Settings) =>
-      current.provider === 'subscription' ? subscriptions.createProvider(current) : createProvider(current));
+      routeOf(current.provider).cloud ? subscriptions.createProvider(current) : createProvider(current));
   const images = createImageStore(path.join(options.dataDir, 'images'));
   const engine = new SessionEngine({
     settings,

@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileDeck, wrapText, measureText } from '../shared/layouts';
-import { sampleDeck, sampleSlide } from '../shared/layout-samples';
-import { improveTextFit, diversifyDeck, visualHierarchyScore } from '../shared/layout-selection';
-import { iconCatalog, iconElements, resolveItemIcon } from '../shared/icons';
-import { validateSlide } from '../server/validation';
-import { themes } from '../shared/themes';
-import type { IconId, TextElement } from '../shared/contracts';
+import { compileDeck, wrapText, measureText } from '../core/shared/layouts';
+import { sampleDeck, sampleSlide } from '../core/shared/layout-samples';
+import { improveTextFit, diversifyDeck, visualHierarchyScore } from '../core/shared/layout-selection';
+import { iconCatalog, iconElements, resolveItemIcon } from '../core/shared/icons';
+import { validateSlide } from '../core/validation';
+import { themes } from '../core/shared/themes';
+import type { IconId, TextElement } from '../core/shared/contracts';
 
 test('wrapping preserves whole numbers, magnitude, sign and units; oversized values request a wider box', () => {
   for (const value of ['13兆5,254億円', '102兆6,351億円', '△4兆3,391億円', '+10.4%', '−1,026億円', '120.69円']) {

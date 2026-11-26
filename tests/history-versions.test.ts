@@ -4,10 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, writeFile, readdir, rm, symlink, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { HistoryStore } from '../server/history.js';
-import { demoOutline, demoDeck } from '../server/demo.js';
-import { emptyUsage } from '../server/providers.js';
-import type { Session } from '../shared/contracts.js';
+import { HistoryStore } from '../core/history.js';
+import { demoOutline, demoDeck } from '../core/demo.js';
+import { emptyUsage } from '../core/providers.js';
+import type { Session } from '../core/shared/contracts.js';
 
 function ready(): Session {
   const outline = demoOutline('以前の資料', 'presentation', []);

@@ -4,8 +4,9 @@ import { cp } from 'node:fs/promises';
 
 // Two builds of the same screen. `vite build` makes the local app's screen (dist/web), which talks to the local
 // server. `vite build --mode hosted` makes the no-install build (dist/hosted): a static site (GitHub Pages etc.)
-// that runs the engine in the browser. There, Node built-ins used by the shared server modules are replaced with
-// browser shims; nothing talks to a local server.
+// that runs the engine (core/) in the browser. There, the engine keeps its files in IndexedDB (core/storage.ts), and
+// the few Node built-ins it still names (path, crypto, module) are replaced with browser shims; nothing talks to a
+// local server.
 const root = path.resolve('web');
 const publicDir = path.resolve('web/public');
 const input = { main: path.resolve('web/index.html'), taskpane: path.resolve('web/taskpane.html') };
@@ -32,7 +33,6 @@ export default defineConfig(({ mode }) =>
         define: { __HOSTED__: 'true' },
         resolve: {
           alias: [
-            { find: /^node:fs\/promises$/, replacement: shim('fs.ts') },
             { find: /^node:path$/, replacement: shim('path.ts') },
             { find: /^node:crypto$/, replacement: shim('crypto.ts') },
             { find: /^node:module$/, replacement: shim('module.ts') },

@@ -3,13 +3,20 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Session } from '../shared/contracts.js';
-import { designRequest, dummyText, leakCheck, phraseLeak, sha256, type DesignPacket } from '../shared/confidential.js';
-import { SettingsStore } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { demoOutline } from '../server/demo.js';
-import { validateSlide } from '../server/validation.js';
-import type { ParsedDocument } from '../server/document-model.js';
+import type { Session } from '../core/shared/contracts.js';
+import {
+  designRequest,
+  dummyText,
+  leakCheck,
+  phraseLeak,
+  sha256,
+  type DesignPacket,
+} from '../core/shared/confidential.js';
+import { SettingsStore } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { demoOutline } from '../core/demo.js';
+import { validateSlide } from '../core/validation.js';
+import type { ParsedDocument } from '../core/document-model.js';
 
 const secret = '株式会社ミライ精機の第3四半期営業利益は4,812億円で、主力のロボット事業が牽引した。';
 const document: ParsedDocument = {

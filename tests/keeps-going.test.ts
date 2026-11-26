@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Outline } from '../shared/contracts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { parseDocument } from '../server/documents.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
+import type { Outline } from '../core/shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { parseDocument } from '../core/documents.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
 import type { HtmlLayout } from '../server/html-layout.js';
 
 // A deck made with a monthly plan is not stopped by one page or one citation: the app switches, finishes the deck,

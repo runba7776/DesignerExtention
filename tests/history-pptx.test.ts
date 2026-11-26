@@ -5,14 +5,14 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
 import JSZip from 'jszip';
-import { parseDocument } from '../server/documents.js';
-import { HistoryStore } from '../server/history.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { demoOutline, demoDeck } from '../server/demo.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
+import { parseDocument } from '../core/documents.js';
+import { HistoryStore } from '../core/history.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { demoOutline, demoDeck } from '../core/demo.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
 import { createApp } from '../server/app.js';
-import { MAX_PROMPT_CHARACTERS, type DeckSpec, type RenderResult } from '../shared/contracts.js';
+import { MAX_PROMPT_CHARACTERS, type DeckSpec, type RenderResult } from '../core/shared/contracts.js';
 
 const P = 'http://schemas.openxmlformats.org/presentationml/2006/main',
   A = 'http://schemas.openxmlformats.org/drawingml/2006/main',

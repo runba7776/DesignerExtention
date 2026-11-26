@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import type { DeckSpec, SlideSpec } from '../shared/contracts';
-import { compileDeck, listLayouts } from '../shared/layouts';
-import { fittingLayouts } from '../shared/layout-selection';
-import { sampleDeck, sampleSlide } from '../shared/layout-samples';
-import { groupNames, researchSources } from '../shared/layout-guidance';
+import type { DeckSpec, SlideSpec } from '../core/shared/contracts';
+import { compileDeck, listLayouts } from '../core/shared/layouts';
+import { fittingLayouts } from '../core/shared/layout-selection';
+import { sampleDeck, sampleSlide } from '../core/shared/layout-samples';
+import { groupNames, researchSources } from '../core/shared/layout-guidance';
 import { Modal } from './ui';
 import { SlidePreview } from './SlidePreview';
 

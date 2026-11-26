@@ -8,10 +8,10 @@ import type {
   SmartArtElement,
   TableElement,
   TextElement,
-} from '../../shared/contracts';
-import { compileDeck } from '../../shared/layouts';
-import { TEMPLATE_THEME_ID } from '../../shared/themes';
-import { assertTextFits } from '../../server/text-fit';
+} from '../../core/shared/contracts';
+import { compileDeck } from '../../core/shared/layouts';
+import { TEMPLATE_THEME_ID } from '../../core/shared/themes';
+import { assertTextFits } from '../../core/text-fit';
 
 /** Browser PPTX writer for the no-install build. It draws the same compiled
  * scene as the PowerPoint (COM) renderer: editable text boxes, shapes, native

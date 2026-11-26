@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { listLayouts, compileDeck } from '../shared/layouts';
-import { themes } from '../shared/themes';
-import { sampleDeck, sampleSlide } from '../shared/layout-samples';
-import { diversifyDeck, fittingLayouts, improveTextFit } from '../shared/layout-selection';
-import { fitProblems } from '../server/text-fit';
-import { SettingsStore } from '../server/settings';
-import { SessionEngine } from '../server/engine';
-import type { DeckSpec } from '../shared/contracts';
-import { validateSlide } from '../server/validation';
+import { listLayouts, compileDeck } from '../core/shared/layouts';
+import { themes } from '../core/shared/themes';
+import { sampleDeck, sampleSlide } from '../core/shared/layout-samples';
+import { diversifyDeck, fittingLayouts, improveTextFit } from '../core/shared/layout-selection';
+import { fitProblems } from '../core/text-fit';
+import { SettingsStore } from '../core/settings';
+import { SessionEngine } from '../core/engine';
+import type { DeckSpec } from '../core/shared/contracts';
+import { validateSlide } from '../core/validation';
 const content = (deck: DeckSpec) => deck.slides.map(({ layoutId, ...slide }) => slide);
 
 test('all 122 grammars document placement/use/limits and fit min/max sample counts in all themes', () => {

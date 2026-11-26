@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Outline, Settings } from '../shared/contracts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
-import { freeSystemPrompt, reviewPrompt } from '../server/free-prompts.js';
-import { validatePlanResponse } from '../server/validation.js';
-import { AppError } from '../server/errors.js';
+import type { Outline, Settings } from '../core/shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
+import { freeSystemPrompt, reviewPrompt } from '../core/free-prompts.js';
+import { validatePlanResponse } from '../core/validation.js';
+import { AppError } from '../core/errors.js';
 
 const usage = { ...emptyUsage(), calls: 1 };
 const t = (x: number, y: number, w: number, h: number, text: string, size: number, role?: string) => ({

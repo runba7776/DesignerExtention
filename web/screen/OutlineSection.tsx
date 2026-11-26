@@ -1,4 +1,4 @@
-import type { Outline } from '../../shared/contracts';
+import type { Outline } from '../../core/shared/contracts';
 import { OpenFactsForm } from '../BlankFields';
 import { Icon } from '../ui';
 

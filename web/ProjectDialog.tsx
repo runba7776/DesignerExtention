@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ProjectProfile } from '../shared/contracts';
+import type { ProjectProfile } from '../core/shared/contracts';
 import { api } from './api';
 import { Icon, Modal, Spinner } from './ui';
 import { TemplateSection } from './TemplateSection';

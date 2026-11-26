@@ -1,4 +1,4 @@
-import type { RenderResult } from '../../shared/contracts';
+import type { RenderResult } from '../../core/shared/contracts';
 import { Icon } from '../ui';
 
 /** Making the PowerPoint file, then saving it, opening it, or inserting it into the open presentation. */

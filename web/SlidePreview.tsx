@@ -6,10 +6,10 @@ import type {
   ShapeElement,
   SmartArtElement,
   TextElement,
-} from '../shared/contracts';
-import { tableParts, wrapText } from '../shared/layouts';
-import { BLANK } from '../shared/free-design';
-import { presetOutline } from '../shared/shape-outline';
+} from '../core/shared/contracts';
+import { tableParts, wrapText } from '../core/shared/layouts';
+import { BLANK } from '../core/shared/free-design';
+import { presetOutline } from '../core/shared/shape-outline';
 import { ChartPreview } from './ChartPreview';
 
 /** The picture's place in its box as SVG has it, from the shares cut off its left, top, right and bottom. */

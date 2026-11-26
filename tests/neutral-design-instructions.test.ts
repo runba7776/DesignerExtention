@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Outline } from '../shared/contracts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
-import { freeSystemPrompt } from '../server/free-prompts.js';
-import { AI_THEME_ID, paletteTheme } from '../shared/ai-theme.js';
-import { resolveFont } from '../shared/typography.js';
-import { measureText, wrapText } from '../shared/layouts.js';
-import { themeCatalog } from '../shared/themes.js';
+import type { Outline } from '../core/shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
+import { freeSystemPrompt } from '../core/free-prompts.js';
+import { AI_THEME_ID, paletteTheme } from '../core/shared/ai-theme.js';
+import { resolveFont } from '../core/shared/typography.js';
+import { measureText, wrapText } from '../core/shared/layouts.js';
+import { themeCatalog } from '../core/shared/themes.js';
 
 const usage = { ...emptyUsage(), calls: 1 };
 const t = (x: number, y: number, w: number, h: number, text: string, size: number, role?: string) => ({

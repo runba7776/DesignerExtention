@@ -4,11 +4,11 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { DeckSpec, RenderResult } from '../shared/contracts';
-import { compileDeck } from '../shared/layouts';
-import { IMAGE_SRC } from '../shared/free-design';
-import { AppError } from './errors';
-import { assertTextFits } from './text-fit';
+import type { DeckSpec, RenderResult } from '../core/shared/contracts';
+import { compileDeck } from '../core/shared/layouts';
+import { IMAGE_SRC } from '../core/shared/free-design';
+import { AppError } from '../core/errors';
+import { assertTextFits } from '../core/text-fit';
 
 const execute = promisify(execFile);
 const RENDERER = path.join('bin', 'DesignerExtension.Renderer.exe');

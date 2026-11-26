@@ -2,9 +2,9 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { spawn } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import { createLocalJWKSet, jwtVerify } from 'jose';
-import type { SubscriptionAccount, SubscriptionConnection, SubscriptionModel } from '../shared/contracts.js';
-import { AppError } from './errors.js';
-import { emptyUsage, OutputLimitError, type Completion, type Provider } from './providers.js';
+import type { SubscriptionAccount, SubscriptionConnection, SubscriptionModel } from '../core/shared/contracts.js';
+import { AppError } from '../core/errors.js';
+import { emptyUsage, OutputLimitError, type Completion, type Provider } from '../core/providers.js';
 import { ProtectedCredentialStorage, type CredentialStorage } from './subscription-storage.js';
 
 const ISSUER = 'https://auth.openai.com';

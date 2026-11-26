@@ -12,12 +12,12 @@
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { DeckSpec, SubscriptionService } from '../shared/contracts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
+import type { DeckSpec, SubscriptionService } from '../core/shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
 import { layoutHtmlSlides } from '../server/html-layout.js';
 import { createRenderBridge } from '../server/render-bridge.js';
-import { createProvider, type Provider } from '../server/providers.js';
+import { createProvider, type Provider } from '../core/providers.js';
 import { SubscriptionManager } from '../server/subscription.js';
 import { createImageStore } from '../server/images.js';
 

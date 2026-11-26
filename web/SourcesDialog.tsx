@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { SourceReport } from '../shared/contracts';
+import type { SourceReport } from '../core/shared/contracts';
 import { api } from './api';
 import { Modal, Spinner } from './ui';
 

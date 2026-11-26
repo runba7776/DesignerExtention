@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Session } from '../shared/contracts.js';
-import { listLayouts } from '../shared/layouts.js';
-import { SettingsStore } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { demoDeck, demoOutline } from '../server/demo.js';
-import { aiKit, aiKitVersion, systemPrompt } from '../server/prompts.js';
+import type { Session } from '../core/shared/contracts.js';
+import { listLayouts } from '../core/shared/layouts.js';
+import { SettingsStore } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { demoDeck, demoOutline } from '../core/demo.js';
+import { aiKit, aiKitVersion, systemPrompt } from '../core/prompts.js';
 
 const render = async () => ({
   artifactId: 'fixture',

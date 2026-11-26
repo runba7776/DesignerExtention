@@ -38,9 +38,9 @@
 
 ## 機能を追加する場所
 
-- `shared/icons.ts`：名前・分類・項目名から選ぶ規則・編集可能な図形の定義。
-- `shared/charts.ts`：グラフの用途、避ける条件、データ条件、テーマに合わせた色。
-- `shared/layouts.ts`：配置と文字量。現在は120文法。
+- `core/shared/icons.ts`：名前・分類・項目名から選ぶ規則・編集可能な図形の定義。
+- `core/shared/charts.ts`：グラフの用途、避ける条件、データ条件、テーマに合わせた色。
+- `core/shared/layouts.ts`：配置と文字量。現在は120文法。
 - `native/Renderer.cs`：PowerPointのグラフを作成。`native/ChartIntegrity.cs` が保存後のグラフ形式・値・データを照合。
 - `web/ChartDialog.tsx`：種類を変える画面。変更はローカルで処理。
 

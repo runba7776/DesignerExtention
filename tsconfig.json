@@ -5,5 +5,5 @@
     "esModuleInterop": true, "resolveJsonModule": true, "skipLibCheck": true,
     "noEmit": true, "types": ["node"]
   },
-  "include": ["shared", "server", "web", "tests", "scripts", "vite.config.ts"]
+  "include": ["core", "server", "web", "tests", "scripts", "vite.config.ts"]
 }

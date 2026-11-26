@@ -1,4 +1,4 @@
-import type { PolishState, ReviewHint, ReviewReport } from '../shared/contracts';
+import type { PolishState, ReviewHint, ReviewReport } from '../core/shared/contracts';
 
 const grade = { high: '重い', medium: '中', low: '軽い' } as const;
 

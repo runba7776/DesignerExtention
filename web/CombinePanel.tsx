@@ -6,7 +6,7 @@ import type {
   DeckVariant,
   SendRecord,
   SubscriptionService,
-} from '../shared/contracts';
+} from '../core/shared/contracts';
 import { api } from './api';
 import { chatServices } from './ChatHandoffPanel';
 import { Icon } from './ui';

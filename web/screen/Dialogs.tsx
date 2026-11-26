@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { DeckVariant, DocumentInfo } from '../../shared/contracts';
+import type { DeckVariant, DocumentInfo } from '../../core/shared/contracts';
 import { Icon, Modal } from '../ui';
 
 /** What goes to the AI with a request: to a monthly service directly, or into the instruction for a chat. */

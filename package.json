@@ -16,8 +16,8 @@
     "serve:hosted": "node scripts/serve-hosted.mjs",
     "eval:local": "tsx scripts/eval-local.ts",
     "compare:renderers": "tsx scripts/renderer-comparison/run.ts",
-    "format": "prettier --write \"server/**/*.ts\" \"shared/**/*.ts\" \"web/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.{mjs,ts}\" \"vite*.config.ts\"",
-    "format:check": "prettier --check \"server/**/*.ts\" \"shared/**/*.ts\" \"web/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.{mjs,ts}\" \"vite*.config.ts\""
+    "format": "prettier --write \"core/**/*.ts\" \"server/**/*.ts\" \"web/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.{mjs,ts}\" \"vite*.config.ts\"",
+    "format:check": "prettier --check \"core/**/*.ts\" \"server/**/*.ts\" \"web/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.{mjs,ts}\" \"vite*.config.ts\""
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^2.1.329",

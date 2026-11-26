@@ -4,18 +4,25 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { DeckSpec, FreeElement, ImageElement, Outline, ShapeElement, TextElement } from '../shared/contracts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
+import type {
+  DeckSpec,
+  FreeElement,
+  ImageElement,
+  Outline,
+  ShapeElement,
+  TextElement,
+} from '../core/shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
 import { findBrowser, layoutHtmlSlides, type HtmlLayout } from '../server/html-layout.js';
 import { createImageStore, type ImageStore } from '../server/images.js';
-import { freeSystemPrompt, designOnlyPrompt } from '../server/free-prompts.js';
-import { EDITORIAL_GUIDE, EDITORIAL_GUIDE_SHORT } from '../server/editorial-guide.js';
-import { validateDesign } from '../server/validation.js';
-import { compileDeck } from '../shared/layouts.js';
-import { coverCrop } from '../shared/free-design.js';
-import { paletteTheme } from '../shared/ai-theme.js';
+import { freeSystemPrompt, designOnlyPrompt } from '../core/free-prompts.js';
+import { EDITORIAL_GUIDE, EDITORIAL_GUIDE_SHORT } from '../core/editorial-guide.js';
+import { validateDesign } from '../core/validation.js';
+import { compileDeck } from '../core/shared/layouts.js';
+import { coverCrop } from '../core/shared/free-design.js';
+import { paletteTheme } from '../core/shared/ai-theme.js';
 
 const usage = { ...emptyUsage(), calls: 1 };
 const title = { t: 'text', x: 56, y: 30, w: 600, h: 44, text: '題名', size: 30, role: 'title' } as const;

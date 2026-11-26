@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { FreeElement, Outline } from '../shared/contracts.js';
-import { paletteTheme } from '../shared/ai-theme.js';
-import { coverCrop } from '../shared/free-design.js';
-import { iconElements, iconSvg } from '../shared/icons.js';
-import { tidyDesign } from '../shared/tidy.js';
-import { SessionEngine } from '../server/engine.js';
+import type { FreeElement, Outline } from '../core/shared/contracts.js';
+import { paletteTheme } from '../core/shared/ai-theme.js';
+import { coverCrop } from '../core/shared/free-design.js';
+import { iconElements, iconSvg } from '../core/shared/icons.js';
+import { tidyDesign } from '../core/shared/tidy.js';
+import { SessionEngine } from '../core/engine.js';
 import { findBrowser, layoutHtmlSlides, slidePage, type HtmlLayout } from '../server/html-layout.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
-import { SettingsStore } from '../server/settings.js';
-import { validateDesign, validateReview } from '../server/validation.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
+import { SettingsStore } from '../core/settings.js';
+import { validateDesign, validateReview } from '../core/validation.js';
 
 const theme = paletteTheme({
   name: '試験',

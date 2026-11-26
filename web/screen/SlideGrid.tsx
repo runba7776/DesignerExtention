@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { DeckVariant } from '../../shared/contracts';
+import type { DeckVariant } from '../../core/shared/contracts';
 import { Icon } from '../ui';
 
 /** What can be done to one page from its caption. */

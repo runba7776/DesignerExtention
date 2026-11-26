@@ -4,11 +4,11 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import assert from 'node:assert/strict';
-import {compileDeck,listLayouts,registerLayout} from '../shared/layouts';
-import {sampleDeck,sampleSlide} from '../shared/layout-samples';
-import {iconCatalog} from '../shared/icons';
+import {compileDeck,listLayouts,registerLayout} from '../core/shared/layouts';
+import {sampleDeck,sampleSlide} from '../core/shared/layout-samples';
+import {iconCatalog} from '../core/shared/icons';
 import {createRenderBridge} from '../server/render-bridge';
-import type {DeckSpec,IconId,SlideSpec,SourceRef} from '../shared/contracts';
+import type {DeckSpec,IconId,SlideSpec,SourceRef} from '../core/shared/contracts';
 
 const root=fileURLToPath(new URL('..',import.meta.url)),bridge=createRenderBridge(root),qa=path.join(root,'runtime','qa-v06'),out=path.join(root,'samples','generated');
 await fs.mkdir(qa,{recursive:true});await fs.mkdir(out,{recursive:true});

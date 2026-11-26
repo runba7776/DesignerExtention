@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DesignEntry } from '../shared/contracts';
-import { themes } from '../shared/themes';
-import { typographyProfiles, withTypography } from '../shared/typography';
+import type { DesignEntry } from '../core/shared/contracts';
+import { themes } from '../core/shared/themes';
+import { typographyProfiles, withTypography } from '../core/shared/typography';
 import { api } from './api';
 import { Icon, Modal, Spinner } from './ui';
 

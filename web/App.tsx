@@ -13,21 +13,21 @@ import type {
   Session,
   Settings,
   SubscriptionStatus,
-} from '../shared/contracts';
-import { compileDeck } from '../shared/layouts';
+} from '../core/shared/contracts';
+import { compileDeck } from '../core/shared/layouts';
 import { api, apiFetch } from './api';
 import { canInsertIntoPresentation, inPowerPoint, insertIntoPresentation, readAllSlides } from './office';
 import { SlideActionsPanel } from './SlideActionsPanel';
 import { RehearsalPanel } from './RehearsalPanel';
 import { SourcesDialog } from './SourcesDialog';
 import { AddinGuide } from './AddinGuide';
-import { deckRehearsalSlides } from '../shared/rehearsal';
+import { deckRehearsalSlides } from '../core/shared/rehearsal';
 import { Icon, Spinner } from './ui';
 import { SettingsDialog, withProvider } from './SettingsDialog';
 import { SlidePreview } from './SlidePreview';
-import { themes, TEMPLATE_THEME_ID } from '../shared/themes';
-import { AI_THEME_ID } from '../shared/ai-theme';
-import { MAX_SLIDES, APP_VERSION, MAX_PROMPT_CHARACTERS } from '../shared/contracts';
+import { themes, TEMPLATE_THEME_ID } from '../core/shared/themes';
+import { AI_THEME_ID } from '../core/shared/ai-theme';
+import { MAX_SLIDES, APP_VERSION, MAX_PROMPT_CHARACTERS } from '../core/shared/contracts';
 import { HistoryDialog } from './HistoryDialog';
 import { LayoutDialog } from './LayoutDialog';
 import { ChartDialog } from './ChartDialog';
@@ -41,7 +41,6 @@ import {
   RoutePanel,
   availableTargets,
   defaultChoice,
-  routeOf,
   routeSummary,
   targetNames,
   type AiChoice,
@@ -60,7 +59,8 @@ import { SlideGrid } from './screen/SlideGrid';
 import { ExportBar, SourceExport } from './screen/ExportBar';
 import { FeedbackSection } from './screen/FeedbackSection';
 import { CompareDialog, TransmissionDialog } from './screen/Dialogs';
-import { deckBlanks } from '../shared/blanks';
+import { deckBlanks } from '../core/shared/blanks';
+import { routeOf } from '../core/shared/route';
 
 const defaultSettings: Settings = {
   provider: 'chat',
@@ -175,14 +175,15 @@ export default function App() {
   const repairPanel = useRef<HTMLElement>(null);
   const phase = session?.phase;
   const updateRequired = !!status && status.version !== APP_VERSION;
-  const isDemo = settings.provider === 'demo';
+  const settingsRoute = routeOf(settings.provider);
+  const isDemo = settingsRoute.drive === 'sample';
   const activeProvider = session?.provider ?? settings.provider;
-  const isChat = activeProvider === 'chat';
-  const isSubscription = activeProvider === 'subscription';
+  const activeRoute = routeOf(activeProvider);
+  const isChat = activeRoute.drive === 'handoff';
+  const isSubscription = activeRoute.cloud;
   const isRemote = isChat || isSubscription;
   // Choosing the AIs at creation: available when slides are written automatically (monthly services or the local LLM).
-  const pickerActive =
-    !session && !__HOSTED__ && (settings.provider === 'subscription' || settings.provider === 'local');
+  const pickerActive = !session && !__HOSTED__ && settingsRoute.choosesTargets;
   const subscriptionService = session?.subscriptionService ?? settings.subscriptionService ?? 'chatgpt';
   const handoffPending = !!session?.chatHandoff;
   const aiName = isSubscription
@@ -615,12 +616,12 @@ export default function App() {
   /** Switches the way of making a deck. Automatic making needs a connected service or a local LLM; without one,
    * the settings open where they are set up. */
   async function chooseRoute(route: Route) {
-    if (routeOf(settings.provider) === route) return;
+    if (routeOf(settings.provider).drive === route) return;
     const service = available.claude ? 'claude' : available.chatgpt ? 'chatgpt' : undefined;
     const provider =
-      route === 'chat'
+      route === 'handoff'
         ? 'chat'
-        : route === 'demo'
+        : route === 'sample'
           ? 'demo'
           : !__HOSTED__ && service
             ? 'subscription'
@@ -651,7 +652,7 @@ export default function App() {
   useEffect(() => {
     if (!sampleWanted || loading || busy || session) return;
     if (!isDemo) {
-      void chooseRoute('demo');
+      void chooseRoute('sample');
       return;
     }
     setSampleWanted(false);
@@ -1218,7 +1219,7 @@ export default function App() {
     <>
       {!session && (
         <RoutePanel
-          route={routeOf(settings.provider)}
+          route={routeOf(settings.provider).drive}
           hosted={__HOSTED__}
           available={available}
           choice={pickerActive ? aiChoice : undefined}
@@ -1433,14 +1434,15 @@ export default function App() {
 
   const sessionRoute =
     session &&
-    routeSummary(routeOf(session.provider ?? settings.provider), {
+    routeSummary(routeOf(session.provider ?? settings.provider).drive, {
       cloud: (
-        session.targets ?? (session.provider === 'subscription' ? [session.subscriptionService ?? 'chatgpt'] : [])
+        session.targets ??
+        (session.provider && routeOf(session.provider).cloud ? [session.subscriptionService ?? 'chatgpt'] : [])
       )
         .filter(t => t !== 'local')
         .map(t => targetNames[t]),
       scope: session.sendScope ?? (activeProject?.privacy?.mode === 'masked' ? 'masked' : 'full'),
-      local: session.provider === 'local' || !!session.targets?.includes('local'),
+      local: (!!session.provider && routeOf(session.provider).onThisPc) || !!session.targets?.includes('local'),
       hosted: __HOSTED__,
     });
   const usageLine = !session
@@ -1448,7 +1450,7 @@ export default function App() {
     : isChat
       ? '有料APIの呼び出し：0回 · ご利用のAIチャットの契約・上限が適用されます。'
       : session.usage && (phase === 'ready' || session.usage.calls > 0)
-        ? `${activeProvider === 'local' ? 'ローカルLLMの呼び出し' : isSubscription ? `${aiName}の月額版での処理` : '今回のAI呼び出し'}：${session.usage.calls} 回${session.usage.inputTokens + session.usage.outputTokens > 0 ? ` · ${(session.usage.inputTokens + session.usage.outputTokens).toLocaleString()} トークン` : ''} · ${isSubscription ? 'ご契約の利用枠を消費します。' : '有料APIは使用していません。'}`
+        ? `${activeRoute.onThisPc ? 'ローカルLLMの呼び出し' : isSubscription ? `${aiName}の月額版での処理` : '今回のAI呼び出し'}：${session.usage.calls} 回${session.usage.inputTokens + session.usage.outputTokens > 0 ? ` · ${(session.usage.inputTokens + session.usage.outputTokens).toLocaleString()} トークン` : ''} · ${isSubscription ? 'ご契約の利用枠を消費します。' : '有料APIは使用していません。'}`
         : undefined;
   const conversation = session && session.messages.length > 0 && (
     <div className="conversation">

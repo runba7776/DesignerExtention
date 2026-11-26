@@ -1,5 +1,5 @@
 import { forwardRef } from 'react';
-import type { RepairReport, Session } from '../../shared/contracts';
+import type { RepairReport, Session } from '../../core/shared/contracts';
 
 type Recovery = NonNullable<Session['recovery']>;
 

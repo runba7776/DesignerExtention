@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileDeck, listLayouts, registerLayout, wrapText } from '../shared/layouts';
-import type { DeckSpec, SlideSpec } from '../shared/contracts';
-import { MAX_SLIDES } from '../shared/contracts';
-import { themes } from '../shared/themes';
+import { compileDeck, listLayouts, registerLayout, wrapText } from '../core/shared/layouts';
+import type { DeckSpec, SlideSpec } from '../core/shared/contracts';
+import { MAX_SLIDES } from '../core/shared/contracts';
+import { themes } from '../core/shared/themes';
 
 const makeSlide = (layoutId: string): SlideSpec => ({
   id: layoutId,

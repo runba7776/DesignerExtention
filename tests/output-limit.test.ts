@@ -4,14 +4,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
-import { createProvider, emptyUsage, OutputLimitError, type CompletionRequest } from '../server/providers.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { demoOutline } from '../server/demo.js';
-import { parseDocument } from '../server/documents.js';
+import { createProvider, emptyUsage, OutputLimitError, type CompletionRequest } from '../core/providers.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { demoOutline } from '../core/demo.js';
+import { parseDocument } from '../core/documents.js';
 import { createApp } from '../server/app.js';
-import { AppError } from '../server/errors.js';
-import { PLAN_OUTPUT_TOKENS, PLAN_RETRY_OUTPUT_TOKENS } from '../shared/contracts.js';
+import { AppError } from '../core/errors.js';
+import { PLAN_OUTPUT_TOKENS, PLAN_RETRY_OUTPUT_TOKENS } from '../core/shared/contracts.js';
 
 const rendered = { artifactId: 'unused', pptxUrl: 'unused', thumbnails: [], warnings: [], native: false };
 const limit = (text = '{"kind":"outline","outline":{"title":"PRIVATE_OUTPUT_SECRET') =>

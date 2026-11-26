@@ -3,45 +3,13 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { IconId, Theme } from '../shared/contracts.js';
-import { themeTokens } from '../shared/free-design.js';
-import { iconCatalog, iconSvg } from '../shared/icons.js';
-import { presetOutline } from '../shared/shape-outline.js';
+import type { IconId, Theme } from '../core/shared/contracts.js';
+import { themeTokens } from '../core/shared/free-design.js';
+import { iconCatalog, iconSvg } from '../core/shared/icons.js';
+import { presetOutline } from '../core/shared/shape-outline.js';
 
-/** One AI-written HTML page, read back as free-design elements. Problems are the
- * app's findings (text outside the slide, in the footer or clipped), sent with a retry. */
-/** fitted: the share (0.85-0.95) the text was made smaller to keep it above the footer, without asking the AI.
- * squeezed: the share the spacing was made smaller to (0.6 or 0.35), before or with the text, without asking the AI.
- * grown: text below the smallest size was made that size (the page still fitted), without asking the AI.
- * keptSmall: text a little below the smallest size was kept as written (made larger, it did not fit).
- * unreadable: of the problems left, some text cannot be read (on other parts, under a shape, cut off or off the slide).
- * shot: the drawn page as a 960x540 PNG (base64), when asked for. */
-export type HtmlPageLayout =
-  | {
-      background?: string;
-      elements: Record<string, unknown>[];
-      problems: string[];
-      fitted?: number;
-      squeezed?: number;
-      grown?: boolean;
-      keptSmall?: boolean;
-      unreadable?: boolean;
-      shot?: string;
-    }
-  | { error: string };
-/** minTextSize: body text, and text marked data-role="caption", drawn smaller than this (px = pt) is reported.
- * keepSmall: text that cannot be made that size is kept down to the fitting floor instead (a local model
- * rarely fixed 14px text when asked, and the deck stopped). */
-export interface HtmlLayoutOptions {
-  minTextSize?: { body: number; caption: number };
-  screenshot?: boolean;
-  keepSmall?: boolean;
-}
-export type HtmlLayout = (
-  pages: { id: string; html: string }[],
-  theme: Theme,
-  options?: HtmlLayoutOptions,
-) => Promise<HtmlPageLayout[]>;
+export type { HtmlLayout, HtmlLayoutOptions, HtmlPageLayout } from '../core/hosts.js';
+import type { HtmlLayout, HtmlPageLayout } from '../core/hosts.js';
 
 /** Removes anything that could run code or load from outside; url() stays only as a reference
  * inside the page (an SVG arrowhead, a gradient). The page also has a CSP that blocks scripts

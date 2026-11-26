@@ -4,14 +4,14 @@ import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
-import type { Session, ChatService, SlideSpec } from '../shared/contracts.js';
-import { SettingsStore } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { demoDeck, demoOutline } from '../server/demo.js';
-import { parseDocument } from '../server/documents.js';
-import { assertTextFits } from '../server/text-fit.js';
+import type { Session, ChatService, SlideSpec } from '../core/shared/contracts.js';
+import { SettingsStore } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { demoDeck, demoOutline } from '../core/demo.js';
+import { parseDocument } from '../core/documents.js';
+import { assertTextFits } from '../core/text-fit.js';
 import { createApp } from '../server/app.js';
-import { CHAT_RESPONSE_BYTES, parseChatResponse } from '../server/chat-handoff.js';
+import { CHAT_RESPONSE_BYTES, parseChatResponse } from '../core/chat-handoff.js';
 
 const render = async () => ({
   artifactId: 'fixture',
