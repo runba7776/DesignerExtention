@@ -1,4 +1,4 @@
-/** Just enough PNG to compare two slide pictures PowerPoint exported: 8-bit RGB/RGBA, not interlaced. */
+/** Just enough PNG to compare two slide pictures PowerPoint exported: RGB, RGBA, grey or a palette, not interlaced. */
 import { deflateSync, inflateSync } from 'node:zlib';
 
 export interface Picture {
@@ -15,7 +15,10 @@ export function decodePng(file: Uint8Array): Picture {
   if (!buffer.subarray(0, 8).equals(SIGNATURE)) throw new Error('PNGではありません。');
   let width = 0,
     height = 0,
-    channels = 0;
+    depth = 8,
+    colorType = 6,
+    palette: Buffer | undefined,
+    alphas: Buffer | undefined;
   const chunks: Buffer[] = [];
   for (let at = 8; at < buffer.length;) {
     const length = buffer.readUInt32BE(at),
@@ -24,18 +27,28 @@ export function decodePng(file: Uint8Array): Picture {
     if (type === 'IHDR') {
       width = body.readUInt32BE(0);
       height = body.readUInt32BE(4);
-      const depth = body[8],
-        colorType = body[9],
-        interlace = body[12];
-      if (depth !== 8 || interlace !== 0 || (colorType !== 2 && colorType !== 6))
-        throw new Error('8ビットRGB/RGBAで非インターレースのPNGだけ読めます。');
-      channels = colorType === 6 ? 4 : 3;
-    } else if (type === 'IDAT') chunks.push(body);
+      depth = body[8];
+      colorType = body[9];
+      const interlace = body[12];
+      // PowerPoint writes RGB, RGBA or, for a slide of few colours, a palette (1-8 bits a pixel).
+      const supported =
+        interlace === 0 &&
+        (colorType === 3 ? [1, 2, 4, 8].includes(depth) : depth === 8 && [0, 2, 4, 6].includes(colorType));
+      if (!supported)
+        throw new Error(`読めないPNGの形式です（色の種類${colorType}・${depth}ビット・インターレース${interlace}）。`);
+    } else if (type === 'PLTE') palette = body;
+    else if (type === 'tRNS') alphas = body;
+    else if (type === 'IDAT') chunks.push(body);
     else if (type === 'IEND') break;
     at += 12 + length;
   }
-  const raw = inflateSync(Buffer.concat(chunks)),
-    stride = width * channels,
+  if (colorType === 3 && !palette) throw new Error('パレットのないPNGです。');
+  const samples = colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 4 ? 2 : 1,
+    bits = samples * depth,
+    // The byte distance the filters look back: a whole pixel, at least one byte.
+    step = Math.max(1, bits >> 3),
+    stride = Math.ceil((width * bits) / 8),
+    raw = inflateSync(Buffer.concat(chunks)),
     rows = new Uint8Array(stride * height),
     data = new Uint8Array(width * height * 4);
   for (let y = 0; y < height; y++) {
@@ -44,9 +57,9 @@ export function decodePng(file: Uint8Array): Picture {
       row = rows.subarray(y * stride, (y + 1) * stride),
       previous = y ? rows.subarray((y - 1) * stride, y * stride) : new Uint8Array(stride);
     for (let i = 0; i < stride; i++) {
-      const left = i >= channels ? row[i - channels] : 0,
+      const left = i >= step ? row[i - step] : 0,
         up = previous[i],
-        upLeft = i >= channels ? previous[i - channels] : 0;
+        upLeft = i >= step ? previous[i - step] : 0;
       let value = line[i];
       if (filter === 1) value += left;
       else if (filter === 2) value += up;
@@ -62,10 +75,21 @@ export function decodePng(file: Uint8Array): Picture {
     }
     for (let x = 0; x < width; x++) {
       const o = (y * width + x) * 4;
-      data[o] = row[x * channels];
-      data[o + 1] = row[x * channels + 1];
-      data[o + 2] = row[x * channels + 2];
-      data[o + 3] = channels === 4 ? row[x * channels + 3] : 255;
+      if (colorType === 3) {
+        const perByte = 8 / depth,
+          index = (row[Math.floor(x / perByte)] >> ((perByte - 1 - (x % perByte)) * depth)) & ((1 << depth) - 1);
+        data[o] = palette![index * 3] ?? 0;
+        data[o + 1] = palette![index * 3 + 1] ?? 0;
+        data[o + 2] = palette![index * 3 + 2] ?? 0;
+        data[o + 3] = alphas?.[index] ?? 255;
+      } else {
+        const at = x * samples,
+          grey = colorType === 0 || colorType === 4;
+        data[o] = row[at];
+        data[o + 1] = grey ? row[at] : row[at + 1];
+        data[o + 2] = grey ? row[at] : row[at + 2];
+        data[o + 3] = colorType === 6 ? row[at + 3] : colorType === 4 ? row[at + 1] : 255;
+      }
     }
   }
   return { width, height, data };

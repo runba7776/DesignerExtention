@@ -104,3 +104,32 @@ test('the report lists the worst slides first and escapes what the slides say', 
   assert.ok(html.indexOf('二枚目') < html.indexOf('表紙</td>'));
   assert.match(html, /20\.0%/);
 });
+
+test('a slide PowerPoint exports with a palette (few colours) is read too, with its transparency', () => {
+  // 5x3, 2 bits a pixel from a palette of four colours; the second also marks the first colour transparent.
+  const plain = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAUAAAADAgMAAAAmWC1rAAAADFBMVEX6+voKyB4AgP//AAAtpqFaAAAAEUlEQVR4nGN8codl/VuW3Z8AFuEFE2yggxwAAAAASUVORK5CYII=',
+    'base64',
+  );
+  const clear = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAUAAAADAgMAAAAmWC1rAAAADFBMVEX6+voKyB4AgP//AAAtpqFaAAAAAXRSTlMAQObYZgAAABFJREFUeJxjfHKHZf1blt2fABbhBRNsoIMcAAAAAElFTkSuQmCC',
+    'base64',
+  );
+  const colours = [
+    [255, 0, 0],
+    [0, 128, 255],
+    [10, 200, 30],
+    [250, 250, 250],
+  ];
+  const picture = decodePng(plain);
+  assert.deepEqual([picture.width, picture.height], [5, 3]);
+  for (let y = 0; y < 3; y++)
+    for (let x = 0; x < 5; x++)
+      assert.deepEqual(
+        [...picture.data.subarray((y * 5 + x) * 4, (y * 5 + x) * 4 + 4)],
+        [...colours[(x + y) % 4], 255],
+      );
+  const withAlpha = decodePng(clear);
+  assert.equal(withAlpha.data[3 * 4 + 3], 0, 'the transparent colour');
+  assert.equal(withAlpha.data[3], 255);
+});
