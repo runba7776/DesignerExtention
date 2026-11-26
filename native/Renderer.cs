@@ -953,9 +953,11 @@ namespace DesignerExtension.Native
                 for (int s = 1; s <= (int)node.Shapes.Count; s++)
                 {
                     dynamic nodeShape = node.Shapes.Item(s);
-                    // Separate steps: a node that refuses one setting still loses the theme's dark outline.
-                    try { nodeShape.Line.Visible = 0; } catch { }
+                    // SmartArt keeps its style's dark outline even after Line.Visible = 0, so the outline
+                    // also takes the fill colour: hidden where Office honours the switch, invisible where not.
                     try { nodeShape.Fill.Solid(); nodeShape.Fill.ForeColor.RGB = nodeColor; } catch { }
+                    try { nodeShape.Line.ForeColor.RGB = nodeColor; } catch { }
+                    try { nodeShape.Line.Visible = 0; } catch { }
                     Release((object)nodeShape);
                 }
             }
