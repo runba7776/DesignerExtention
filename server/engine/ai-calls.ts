@@ -78,13 +78,15 @@ export class AiCalls {
         `履歴の指示・資料・会話を${state.settings.subscriptionService === 'claude' ? 'Claude' : 'ChatGPT'}へ送ることを確認してください。`,
         'CLOUD_CONSENT_REQUIRED',
       );
-    // 12 calls per operation (each AI of the session has its own), 40 per presentation.
+    // 12 calls per operation, 24 per deck written (each AI of the session has its own), 40 per presentation.
     if (!this.callsLeft(state, run))
       throw new AppError(
         429,
         state.session.usage.calls >= SESSION_CALL_LIMIT
           ? `1つの資料でのAI呼び出しは${SESSION_CALL_LIMIT}回までです。履歴に保存して、新しく作成してください。`
-          : `1回の操作でのAI呼び出しは${OPERATION_CALL_LIMIT}回までです。要点をまとめて指示し直してください。`,
+          : this.callLimit(state, run) === OPERATION_CALL_LIMIT
+            ? `1回の操作でのAI呼び出しは${OPERATION_CALL_LIMIT}回までです。要点をまとめて指示し直してください。`
+            : `1つの資料の作成でのAI呼び出しは${this.callLimit(state, run)}回までです。構成から情報を分けるか、優先する条件を整理してください。`,
         'CALL_LIMIT',
       );
     const provider = (this.engine.options.providerFactory ?? createProvider)(
@@ -235,12 +237,17 @@ export class AiCalls {
   targetSettings(state: SessionState, target: AiTarget): Settings {
     return settingsFor(state.settings, target);
   }
-  /** Whether another AI call is allowed: 12 per operation (or per AI of the session), 40 per presentation. */
+  /** Whether another AI call is allowed: 12 per operation, 24 per deck written (each AI of the session its own), 40 per
+   * presentation. */
   callsLeft(state: SessionState, run?: AiRun) {
     return (
-      (run ? run.calls : this.operationCalls(state)) < OPERATION_CALL_LIMIT &&
+      (run ? run.calls : this.operationCalls(state)) < this.callLimit(state, run) &&
       state.session.usage.calls < SESSION_CALL_LIMIT
     );
+  }
+  /** The cap of the operation (or of the AI's run): 24 while a deck is written, else 12. */
+  private callLimit(state: SessionState, run?: AiRun) {
+    return (run ? run.repair : state.repairOperation)?.limit ?? OPERATION_CALL_LIMIT;
   }
   private operationCalls(state: SessionState) {
     return state.session.usage.calls - (state.repairOperation?.startedCalls ?? 0);
