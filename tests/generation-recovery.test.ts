@@ -301,7 +301,7 @@ test('text-fit interruption keeps completed summary batches and never regenerate
   }
 });
 
-test('adaptive generation respects the call caps (12 per operation, 40 per presentation) and retains progress', async () => {
+test('adaptive generation respects the call caps (24 per deck written, 40 per presentation) and retains progress', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-generation-cap-'));
   try {
     const settings = await settingsFor(dir, 30),
@@ -333,20 +333,20 @@ test('adaptive generation respects the call caps (12 per operation, 40 per prese
     await engine.generate(session.id);
     await engine.generate(session.id);
     await engine.generate(session.id);
-    // Two failed operations, then one operation stops at its own 12 calls with progress kept.
-    assert.equal(calls, 15);
-    assert.equal(session.recovery?.completedSlides, 12);
+    // Two failed operations, then one operation stops at the deck's own 24 calls with progress kept.
+    assert.equal(calls, 27);
+    assert.equal(session.recovery?.completedSlides, 24);
     assert.equal(session.recovery?.retryAvailable, true);
     assert.equal(session.variants.length, 0);
     // Near the presentation's 40 calls, one more page is written and then nothing more is sent.
     session.usage.calls = 39;
     await engine.generate(session.id);
-    assert.equal(calls, 16);
-    assert.equal(session.recovery?.completedSlides, 13);
+    assert.equal(calls, 28);
+    assert.equal(session.recovery?.completedSlides, 25);
     assert.equal(session.recovery?.retryAvailable, false);
     assert.equal(session.outline?.slides.length, 30);
     await assert.rejects(engine.generate(session.id));
-    assert.equal(calls, 16);
+    assert.equal(calls, 28);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

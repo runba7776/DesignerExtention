@@ -263,7 +263,7 @@ test('automatic plan repair preserves mode, requested count and original instruc
   }
 });
 
-test('the two-retry budget spans generation and text fitting, and explicit resume retains all completed bodies', async () => {
+test('the two-retry budget spans generation and text fitting; pages whose text fits nowhere give way instead of stopping', async () => {
   const f = await fixture(3, 'reading');
   try {
     let generated = 0,
@@ -300,16 +300,18 @@ test('the two-retry budget spans generation and text fitting, and explicit resum
     });
     const session = await engine.create({ prompt: '3枚で比較' }, []);
     await engine.generate(session.id);
-    assert.equal(session.recovery?.stage, 'text-fit');
-    assert.equal(session.repairReport?.status, 'stopped');
+    // The retries are spent on the writing; the summary cut off is not retried, and the titles that do not fit
+    // even at half size are made again (the cover from the outline, the others with a layout) and summarized.
+    assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
+    assert.equal(session.recovery, undefined);
     assert.equal(session.repairReport?.retries, 2);
-    assert.equal(summaries, 1);
-    assert.equal(generated, 5);
-    assert.equal(session.recovery?.completedSlides, 3);
-    await engine.generate(session.id);
-    assert.equal(generated, 5);
-    assert.equal(session.phase, 'ready');
-    assert.deepEqual(targets, ['slide-1', 'slide-1', 'slide-2', 'slide-2', 'slide-3']);
+    assert.equal(summaries, 2);
+    assert.equal(generated, 7);
+    assert.deepEqual(targets, ['slide-1', 'slide-1', 'slide-2', 'slide-2', 'slide-3', 'slide-2', 'slide-3']);
+    assert.deepEqual(
+      session.reviewHints?.map(h => h.slideId),
+      ['slide-1', 'slide-2', 'slide-3'],
+    );
     assertTextFits(session.variants[0].deck);
   } finally {
     await f.dispose();

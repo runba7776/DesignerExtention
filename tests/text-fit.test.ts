@@ -64,7 +64,11 @@ const cover = {
   design: { elements: [t(64, 160, 832, 100, '文字の収まり', 40)] },
 };
 
-async function fixture(relayout: (request: any, count: number) => unknown, autoRepair = true) {
+async function fixture(
+  relayout: (request: any, count: number) => unknown,
+  autoRepair = true,
+  pages: (request: any) => unknown[] = () => [cover, tight()],
+) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-text-fit-'));
   const settings = await new SettingsStore(dir).load();
   await settings.update({
@@ -89,14 +93,14 @@ async function fixture(relayout: (request: any, count: number) => unknown, autoR
           return { text: JSON.stringify(relayout(req, ++relayouts)), usage };
         }
         if (req.targetSlides) {
-          calls.push('generate');
+          calls.push(req.targetSlides[0]?.layoutId === 'summary' ? 'layout' : 'generate');
           return {
             text: JSON.stringify({
               mode: 'presentation',
               themeId: 'business',
               id: 'd',
               title: outline.title,
-              slides: [cover, tight()],
+              slides: pages(req),
             }),
             usage,
           };
@@ -185,6 +189,65 @@ test('with automatic repair turned off, fitting stops; the user finishes with sm
     assert.deepEqual(fitProblems(session.variants[0].deck), []);
     assert.ok(session.warnings.some(w => w.includes('2枚目は、文字を小さくして枠に収めました')));
     await assert.rejects(f.engine.finishSmaller(session.id), /止まった作成・修正がありません/);
+  } finally {
+    await f.dispose();
+  }
+});
+
+/** Body text far too long for its box: it does not fit even at half size. */
+const huge = 'あ'.repeat(600);
+const summaryPage = (label: string) => ({
+  id: 'slide-2',
+  title: '要点',
+  layoutId: 'summary',
+  notes: '',
+  sources: [],
+  items: [{ label }],
+});
+
+test('a page whose text does not fit even at half size is made again with a layout, and the deck is finished', async () => {
+  const f = await fixture(
+    () => tight(huge),
+    true,
+    req => (req.targetSlides[0]?.layoutId === 'summary' ? [summaryPage('短い要点')] : [cover, tight(huge)]),
+  );
+  try {
+    const session = await f.engine.create({ prompt: '2枚' }, []);
+    await f.engine.generate(session.id);
+    assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
+    assert.equal(session.recovery, undefined);
+    assert.deepEqual(f.calls, ['plan', 'generate', 'relayout', 'relayout', 'layout']);
+    const page = session.variants[0].deck.slides[1];
+    assert.equal(page.design, undefined, 'made from a layout');
+    assert.deepEqual(
+      page.items.map(i => i.label),
+      ['短い要点'],
+    );
+    assert.match(session.reviewHints!.find(h => h.slideId === 'slide-2')!.what, /型に当てはめて作り直しました/);
+    assert.deepEqual(fitProblems(session.variants[0].deck), []);
+  } finally {
+    await f.dispose();
+  }
+});
+
+test('when the page made with a layout does not fit either, it is made from the outline with no call', async () => {
+  const f = await fixture(
+    () => tight(huge),
+    true,
+    req => (req.targetSlides[0]?.layoutId === 'summary' ? [summaryPage(huge)] : [cover, tight(huge)]),
+  );
+  try {
+    const session = await f.engine.create({ prompt: '2枚' }, []);
+    await f.engine.generate(session.id);
+    assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
+    assert.equal(f.calls.filter(c => c === 'layout').length, 1, 'the layout is asked once');
+    const page = session.variants[0].deck.slides[1];
+    assert.deepEqual(
+      page.items.map(i => i.label),
+      ['本文'],
+      "the outline's intent, as the page has no key points",
+    );
+    assert.match(session.reviewHints!.find(h => h.slideId === 'slide-2')!.what, /構成案の要点から型で仮に作りました/);
   } finally {
     await f.dispose();
   }
