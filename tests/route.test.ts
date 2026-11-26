@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { makingMethod, writerTraits } from '../shared/making.js';
+import { makingMethod, routeOf, writerName } from '../shared/route.js';
 
 test('how a page is written follows where the app runs and how the material is sent, not which AI writes', () => {
   const installed = { canReadHtml: true },
@@ -26,14 +26,46 @@ test('how a page is written follows where the app runs and how the material is s
 });
 
 test('only a model on this PC is handled differently from the others', () => {
-  assert.deepEqual(writerTraits('subscription'), writerTraits('chat'));
-  assert.deepEqual(writerTraits('local'), {
+  const traits = (provider: Parameters<typeof routeOf>[0]) => {
+    const { designRetries, localGuide, keepsSmallText, remakesInLook, refusesTitleOnlyPages, photos } =
+      routeOf(provider);
+    return { designRetries, localGuide, keepsSmallText, remakesInLook, refusesTitleOnlyPages, photos };
+  };
+  assert.deepEqual(traits('subscription'), traits('chat'));
+  assert.deepEqual(traits('local'), {
     designRetries: 4,
     localGuide: true,
     keepsSmallText: true,
     remakesInLook: true,
+    refusesTitleOnlyPages: true,
     photos: false,
   });
-  assert.equal(writerTraits('subscription').designRetries, 2);
-  assert.equal(writerTraits('demo').photos, false);
+  assert.equal(routeOf('subscription').designRetries, 2);
+  assert.equal(routeOf('demo').photos, false);
+});
+
+test('the route says how a session reaches its AI, in place of comparing provider names', () => {
+  const pick = (provider: Parameters<typeof routeOf>[0], oneShot?: boolean) => {
+    const r = routeOf(provider, { oneShot });
+    return [
+      r.drive,
+      r.cloud,
+      r.onThisPc,
+      r.installedOnly,
+      r.choosesTargets,
+      r.choosesChatScope,
+      r.offersDirections,
+      r.fitsText,
+    ];
+  };
+  assert.deepEqual(pick('subscription'), ['automatic', true, false, true, true, false, true, true]);
+  assert.deepEqual(pick('local'), ['automatic', false, true, false, true, false, false, true]);
+  assert.deepEqual(pick('chat'), ['handoff', false, false, false, false, true, true, true]);
+  assert.deepEqual(pick('chat', true), ['handoff', false, false, false, false, true, false, true]);
+  assert.deepEqual(pick('demo'), ['sample', false, false, false, false, false, false, false]);
+  assert.equal(writerName(routeOf('subscription'), 'claude'), 'Claude');
+  assert.equal(writerName(routeOf('subscription')), 'ChatGPT');
+  assert.equal(writerName(routeOf('local')), 'ローカルLLM');
+  assert.equal(writerName(routeOf('demo')), 'サンプル');
+  assert.equal(writerName(routeOf('chat')), 'AI');
 });

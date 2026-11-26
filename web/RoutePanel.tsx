@@ -1,7 +1,8 @@
-import type { AiTarget, ProviderKind, SendScope, Settings, SubscriptionStatus } from '../shared/contracts';
+import type { AiTarget, SendScope, Settings, SubscriptionStatus } from '../shared/contracts';
+import { routeOf, type Route as SessionRoute } from '../shared/route';
 
-/** The three ways to make a deck, as the user chooses them before writing the request. */
-export type Route = 'auto' | 'chat' | 'demo';
+/** The three ways to make a deck, as the user chooses them before writing the request (a route's drive). */
+export type Route = SessionRoute['drive'];
 export const targetNames: Record<AiTarget, string> = { claude: 'Claude', chatgpt: 'ChatGPT', local: 'ローカルLLM' };
 export interface AiChoice {
   targets: AiTarget[];
@@ -12,13 +13,13 @@ export interface AiChoice {
 export function availableTargets(settings: Settings, connections?: SubscriptionStatus) {
   const connected = (service: 'claude' | 'chatgpt') =>
     connections?.services.some(s => s.service === service && s.canGenerate) ?? false;
-  const local = !!(settings.localModel ?? (settings.provider === 'local' ? settings.model : ''));
+  const local = !!(settings.localModel ?? (routeOf(settings.provider).onThisPc ? settings.model : ''));
   return { claude: connected('claude'), chatgpt: connected('chatgpt'), local } as Record<AiTarget, boolean>;
 }
 /** The AIs chosen last time when they are still available, else the one of the current setting. */
 export function defaultChoice(settings: Settings, available: Record<AiTarget, boolean>, masked: boolean): AiChoice {
   const saved = (settings.targets ?? []).filter(t => available[t]);
-  const primary: AiTarget = settings.provider === 'local' ? 'local' : (settings.subscriptionService ?? 'chatgpt');
+  const primary: AiTarget = routeOf(settings.provider).onThisPc ? 'local' : (settings.subscriptionService ?? 'chatgpt');
   return {
     targets: saved.length
       ? saved
@@ -28,20 +29,17 @@ export function defaultChoice(settings: Settings, available: Record<AiTarget, bo
     scope: masked ? 'masked' : 'full',
   };
 }
-export function routeOf(provider: ProviderKind): Route {
-  return provider === 'chat' ? 'chat' : provider === 'demo' ? 'demo' : 'auto';
-}
 
 const ROUTES: { id: Route; label: string; badge: string; tone: 'cloud' | 'paste' | 'none'; description: string }[] = [
   {
-    id: 'auto',
+    id: 'automatic',
     label: '自動で作る',
     badge: 'AIに直接送る',
     tone: 'cloud',
     description: '接続したClaude・ChatGPTの月額版、またはこのPCのローカルLLMが、構成から見直しまで自動で作ります。',
   },
   {
-    id: 'chat',
+    id: 'handoff',
     label: 'AIチャットに貼り付ける',
     badge: '貼るまで送らない',
     tone: 'paste',
@@ -49,7 +47,7 @@ const ROUTES: { id: Route; label: string; badge: string; tone: 'cloud' | 'paste'
       '指示をコピーしてChatGPT・Claude・Geminiなどのチャットに貼り、返答を取り込みます。APIキーは要りません。',
   },
   {
-    id: 'demo',
+    id: 'sample',
     label: 'サンプル体験',
     badge: 'AIを使わない',
     tone: 'none',
@@ -77,8 +75,8 @@ export function routeSummary(
   route: Route,
   options: { cloud: string[]; scope: SendScope; local: boolean; hosted: boolean },
 ) {
-  if (route === 'demo') return { to: 'なし（記録の再生）', what: '何も送りません' };
-  if (route === 'chat')
+  if (route === 'sample') return { to: 'なし（記録の再生）', what: '何も送りません' };
+  if (route === 'handoff')
     return {
       to: 'あなたが貼り付けるAIチャット',
       what:
@@ -132,10 +130,11 @@ export function RoutePanel({
   onSettings: () => void;
   onProject: () => void;
 }) {
-  const targets = route === 'auto' && !hosted ? (choice?.targets ?? []) : route === 'auto' ? ['local' as AiTarget] : [];
+  const targets =
+    route === 'automatic' && !hosted ? (choice?.targets ?? []) : route === 'automatic' ? ['local' as AiTarget] : [];
   const cloud = targets.filter(t => t !== 'local');
-  const scope = route === 'chat' ? chatScope : (choice?.scope ?? 'full');
-  const sends = route === 'chat' || cloud.length > 0;
+  const scope = route === 'handoff' ? chatScope : (choice?.scope ?? 'full');
+  const sends = route === 'handoff' || cloud.length > 0;
   const summary = routeSummary(route, {
     cloud: cloud.map(t => targetNames[t]),
     scope,
@@ -150,11 +149,11 @@ export function RoutePanel({
     if (next.length && next.length <= 3) onChoice({ ...choice, targets: next });
   };
   const chooseScope = (value: SendScope) => {
-    if (route === 'chat') onChatScope(value);
+    if (route === 'handoff') onChatScope(value);
     else if (choice) onChoice({ ...choice, scope: value });
   };
   const designProblem =
-    route === 'auto' && scope === 'design'
+    route === 'automatic' && scope === 'design'
       ? !targets.includes('local')
         ? '「内容は送らない」には、内容を書くローカルLLMも選んでください。'
         : !cloud.length
@@ -184,14 +183,14 @@ export function RoutePanel({
               <span className={`route-badge ${item.tone}`}>{item.badge}</span>
             </span>
             <small>
-              {item.id === 'auto' && hosted
+              {item.id === 'automatic' && hosted
                 ? 'このブラウザから、PCや社内のローカルLLMに接続して自動で作ります（月額版の自動作成はローカルアプリ版で使えます）。'
                 : item.description}
             </small>
           </button>
         ))}
       </div>
-      {route === 'auto' && !hosted && choice && (
+      {route === 'automatic' && !hosted && choice && (
         <div className="route-targets" role="group" aria-label="作成するAI">
           <span className="route-label">作成するAI（複数選ぶと、AIごとの案を並べて比べられます）</span>
           <div className="ai-picker-targets">
@@ -222,7 +221,7 @@ export function RoutePanel({
           </div>
         </div>
       )}
-      {route === 'auto' && missing.length > 0 && (
+      {route === 'automatic' && missing.length > 0 && (
         <small className="route-note">
           {missing.map(t => targetNames[t]).join('・')}は
           <button type="button" className="text-link" onClick={onSettings}>
@@ -231,7 +230,7 @@ export function RoutePanel({
           で{missing.length === 1 && missing[0] === 'local' ? '接続先とモデルを登録' : '接続・登録'}すると使えます。
         </small>
       )}
-      {route !== 'demo' && (
+      {route !== 'sample' && (
         <>
           <div className="route-step">
             <span className="route-number">2</span>
@@ -240,7 +239,7 @@ export function RoutePanel({
           {sends ? (
             <div className="route-options scopes" role="radiogroup" aria-label="外部のAIに渡す内容">
               {SCOPES.map(item => {
-                const unavailable = item.id === 'design' && route === 'chat';
+                const unavailable = item.id === 'design' && route === 'handoff';
                 return (
                   <button
                     key={item.id}

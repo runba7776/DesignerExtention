@@ -20,7 +20,7 @@ import { fitProblems, applySummaries, assertTextFits } from '../text-fit.js';
 import { diversifyDeck, improveTextFit } from '../../shared/layout-selection.js';
 import { applySavedDesign } from '../design-application.js';
 import { deckBlanks, fillBlanks } from '../../shared/blanks.js';
-import { makingNames } from '../../shared/making.js';
+import { makingNames, writerName } from '../../shared/route.js';
 import type { SessionEngine } from '../engine.js';
 import type { FitDraft, GenerationDraft, AiRun, SessionState } from './session-state.js';
 import { GENERATION_CALL_LIMIT, MAX_VARIANTS, SESSION_CALL_LIMIT } from './session-state.js';
@@ -49,13 +49,13 @@ export class GenerationService {
         // Writing a deck has one cap of its own, 24 calls (resuming starts a new 24, within the presentation's 40).
         if (state.repairOperation) state.repairOperation.limit = GENERATION_CALL_LIMIT;
         if (state.showcase) return this.engine.sample.replayDeck(state, outline);
-        if (state.settings.provider === 'chat') {
+        if (this.engine.route(state).drive === 'handoff') {
           this.engine.chat.prepareChatGeneration(state, outline);
           return state.session;
         }
         let value: unknown,
           extras: Promise<void> = Promise.resolve();
-        if (state.settings.provider === 'demo') value = demoDeck(outline);
+        if (this.engine.route(state).drive === 'sample') value = demoDeck(outline);
         else {
           const key = JSON.stringify({ outline, messages: state.session.messages, settings: state.settings });
           if (state.draft?.key !== key) {
@@ -169,16 +169,7 @@ export class GenerationService {
           deck = applySavedDesign(deck, state.design, true, this.engine.pages.templateTheme(state)).deck;
         assertTextFits(deck);
         state.session.outline = outline;
-        const ai =
-          state.settings.provider === 'local'
-            ? 'ローカルLLM'
-            : state.settings.provider === 'demo'
-              ? 'サンプル'
-              : state.settings.provider === 'subscription'
-                ? state.settings.subscriptionService === 'claude'
-                  ? 'Claude'
-                  : 'ChatGPT'
-                : 'AI';
+        const ai = writerName(this.engine.route(state), state.settings.subscriptionService);
         const main: DeckVariant = {
           id: randomUUID(),
           label: state.sendScope === 'design' ? '内容（ローカルLLM）' : ai,
@@ -661,7 +652,7 @@ export class GenerationService {
    * template page, the AI shortens the wording. When the user chose to finish anyway,
    * type may become as small as half, still without cutting a word or calling an AI. */
   async fitText(state: SessionState, deck: DeckSpec, memo?: FitDraft, run?: AiRun) {
-    if (state.settings.provider === 'demo') {
+    if (!this.engine.route(state).fitsText) {
       assertTextFits(deck);
       return deck;
     }

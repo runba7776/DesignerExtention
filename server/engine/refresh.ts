@@ -9,6 +9,7 @@ import { applyRefresh, planRefresh, RefreshInputError } from '../../shared/refre
 import { AI_THEME_ID } from '../../shared/ai-theme.js';
 import type { SessionEngine } from '../engine.js';
 import type { SessionState } from './session-state.js';
+import { routeOf } from '../../shared/route.js';
 
 /** Recurring reports: the numbers of a saved deck matched with new documents, reviewed by the user, applied without an AI. */
 export class RefreshService {
@@ -125,7 +126,7 @@ export class RefreshService {
           id: randomUUID(),
           provider: settings.provider,
           projectId: state.session.projectId,
-          ...(settings.provider === 'subscription'
+          ...(routeOf(settings.provider).cloud
             ? { subscriptionService: settings.subscriptionService ?? 'chatgpt', cloudConsentRequired: true }
             : {}),
           phase: 'ready',
@@ -155,10 +156,9 @@ export class RefreshService {
           project: state.project,
           createdAt: Date.now(),
           busy: false,
-          subscriptionBinding:
-            settings.provider === 'subscription'
-              ? this.engine.options.subscriptionBinding?.(settings.subscriptionService ?? 'chatgpt')
-              : undefined,
+          subscriptionBinding: routeOf(settings.provider).cloud
+            ? this.engine.options.subscriptionBinding?.(settings.subscriptionService ?? 'chatgpt')
+            : undefined,
           design: state.design,
         };
         this.engine.pages.verifySources(next, deck.slides);

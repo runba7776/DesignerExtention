@@ -20,7 +20,6 @@ import { improveTextFit } from '../../shared/layout-selection.js';
 import { applySavedDesign } from '../design-application.js';
 import { draftMarks } from '../../shared/blanks.js';
 import { coverCrop } from '../../shared/free-design.js';
-import { writerTraits } from '../../shared/making.js';
 import type { SessionEngine } from '../engine.js';
 import type { SessionState } from './session-state.js';
 import { continued, plainOutline } from './helpers.js';
@@ -118,7 +117,7 @@ export class ReviewService {
     // Findings are shown, not acted on: touching pages up took about four in ten of a deck's calls, one in four
     // touched-up pages came out no better and was put back, and pages were left for the user anyway (Claude, 8 and
     // 12 pages, 2026-11-11); gemma4 made some pages worse and called all of them better.
-    const remakes = writerTraits(state.settings.provider).remakesInLook;
+    const remakes = this.engine.route(state).remakesInLook;
     for (const [id, found] of severe)
       if (look.html[id] || !remakes) {
         hints.push(...found);
@@ -440,7 +439,7 @@ export class ReviewService {
         if (
           state.settings.proposalPreviews === false ||
           !this.engine.pages.freeDesign(state) ||
-          state.settings.provider !== 'subscription'
+          !this.engine.route(state).cloud
         )
           throw new AppError(409, '見本は、月額版の自動作成でAIがデザインするときに作れます。');
         const outline = proposal.outline,

@@ -29,6 +29,7 @@ import { validateCustomTheme, validateSlide, validateTheme } from './validation.
 import { fitProblems } from './text-fit.js';
 import type { SettingsStore } from './settings.js';
 import type { ProjectStore } from './projects.js';
+import { routeOf } from '../shared/route.js';
 
 /** One-shot AI tasks that are not part of a generated deck: actions on the slide
  * selected in PowerPoint, and presentation preparation. They use the same
@@ -473,7 +474,7 @@ export class AssistService {
   async start(value: unknown): Promise<AssistState> {
     const settings = this.options.settings.get();
     const input = validateAssistInput(value, settings, this.options.projects);
-    if (settings.provider === 'subscription' && (value as any)?.cloudConsent !== true)
+    if (routeOf(settings.provider).cloud && (value as any)?.cloudConsent !== true)
       throw new AppError(
         400,
         `選択中の内容を${settings.subscriptionService === 'claude' ? 'Claude' : 'ChatGPT'}へ送ることを確認してください。`,
@@ -512,11 +513,11 @@ export class AssistService {
       state: { requestId: id, task: input.task, status: 'handoff' },
     };
     this.pending.set(id, item);
-    if (settings.provider === 'demo') {
+    if (routeOf(settings.provider).drive === 'sample') {
       item.state = { requestId: id, task: input.task, status: 'done', result: demoAssist(input) };
       return item.state;
     }
-    if (settings.provider === 'chat') {
+    if (routeOf(settings.provider).drive === 'handoff') {
       this.expose(item);
       return item.state;
     }

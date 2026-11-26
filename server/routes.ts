@@ -8,6 +8,7 @@ import type { SettingsStore } from './settings.js';
 import type { ProjectStore } from './projects.js';
 import type { AssistService } from './assist.js';
 import type { SubscriptionManager } from './subscription.js';
+import { routeOf } from '../shared/route.js';
 
 /** JSON API shared by the local Express server and the in-browser build. Each
  * handler receives already-authenticated input; transport concerns (cookies,
@@ -103,7 +104,7 @@ export function apiRoutes(ctx: RouteContext): Route[] {
       path: '/settings',
       handler: ({ body }) => {
         if (body?.activeProjectId !== undefined) projects.get(body.activeProjectId);
-        if (ctx.hosted && body?.provider === 'subscription')
+        if (ctx.hosted && routeOf(body?.provider).installedOnly)
           throw new AppError(
             501,
             'このブラウザ版では月額版の自動作成を使えません。手動チャット連携かローカルLLMを選んでください。',

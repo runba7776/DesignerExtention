@@ -28,6 +28,7 @@ import type { SessionEngine } from '../engine.js';
 import type { SessionState } from './session-state.js';
 import { PROPOSAL_CHOICES_FILE, MAX_VARIANTS, SESSION_CALL_LIMIT } from './session-state.js';
 import { darkPalette, chatServiceName, settingsFor } from './helpers.js';
+import { routeOf } from '../../shared/route.js';
 
 /** Starting a presentation and agreeing on its outline: questions, the three directions, the pick and the memory of picks. */
 export class PlanningService {
@@ -56,18 +57,19 @@ export class PlanningService {
     if (choice) {
       Object.assign(settings, settingsFor(settings, choice.targets[0]));
       if (choice.scope === 'design') settings.designMode = 'template';
-    } else if (settings.provider === 'subscription' && input.cloudConsent !== true)
+    }
+    const route = routeOf(settings.provider);
+    if (!choice && route.cloud && input.cloudConsent !== true)
       throw new AppError(
         400,
         `${settings.subscriptionService === 'claude' ? 'Claude' : 'ChatGPT'}へ指示・資料・会話を送ることを確認してください。`,
         'CLOUD_CONSENT_REQUIRED',
       );
-    const subscriptionBinding =
-      settings.provider === 'subscription'
-        ? (choice?.bindings[settings.subscriptionService ?? 'chatgpt'] ??
-          this.engine.options.subscriptionBinding?.(settings.subscriptionService ?? 'chatgpt'))
-        : undefined;
-    if (settings.provider === 'subscription' && !subscriptionBinding)
+    const subscriptionBinding = route.cloud
+      ? (choice?.bindings[settings.subscriptionService ?? 'chatgpt'] ??
+        this.engine.options.subscriptionBinding?.(settings.subscriptionService ?? 'chatgpt'))
+      : undefined;
+    if (route.cloud && !subscriptionBinding)
       throw new AppError(
         409,
         '設定から月額サービスのアカウントに接続してから作成してください。',
@@ -76,10 +78,10 @@ export class PlanningService {
     // Manual chat: what the instruction carries, as is or with names and numbers masked (the project's choice
     // when not given here). The design-only way needs a local LLM, so it is not offered for a chat.
     const chatScope =
-      settings.provider === 'chat' && (input.sendScope === 'full' || input.sendScope === 'masked')
+      route.choosesChatScope && (input.sendScope === 'full' || input.sendScope === 'masked')
         ? input.sendScope
         : undefined;
-    if (settings.provider === 'chat' && input.sendScope !== undefined && !chatScope)
+    if (route.choosesChatScope && input.sendScope !== undefined && !chatScope)
       throw new AppError(400, '手動チャット連携で選べる送る内容は、そのまま送るか伏せ字にするかです。');
     documentContext(documents);
     this.engine.reserveSession();
@@ -89,9 +91,7 @@ export class PlanningService {
       projectId: project.id,
       ...(choice ? { targets: choice.targets, sendScope: choice.scope } : {}),
       ...(chatScope ? { sendScope: chatScope } : {}),
-      ...(settings.provider === 'subscription'
-        ? { subscriptionService: settings.subscriptionService ?? 'chatgpt' }
-        : {}),
+      ...(route.cloud ? { subscriptionService: settings.subscriptionService ?? 'chatgpt' } : {}),
       phase: 'clarifying',
       messages: [{ role: 'user', text: prompt }],
       variants: [],
@@ -101,7 +101,7 @@ export class PlanningService {
     const state: SessionState = {
       ...(choice ? { targets: choice.targets, sendScope: choice.scope, bindings: choice.bindings } : {}),
       ...(chatScope ? { sendScope: chatScope } : {}),
-      ...(settings.provider === 'chat' && input.oneShot === true ? { oneShot: true } : {}),
+      ...(route.choosesChatScope && input.oneShot === true ? { oneShot: true } : {}),
       session,
       documents,
       settings,
@@ -113,7 +113,7 @@ export class PlanningService {
     };
     this.engine.states.set(session.id, state);
     try {
-      const showcase = settings.provider === 'demo' ? await this.engine.sample.loadShowcase() : undefined;
+      const showcase = route.drive === 'sample' ? await this.engine.sample.loadShowcase() : undefined;
       if (showcase) {
         // The recording: its request and its three directions, with the samples made when it was recorded.
         state.showcase = showcase;
@@ -129,13 +129,13 @@ export class PlanningService {
         ];
         const { chosen: _chosen, orderNote: _note, fresh: _fresh, ...set } = structuredClone(showcase.proposals);
         session.proposals = set;
-      } else if (settings.provider === 'demo') {
+      } else if (route.drive === 'sample') {
         session.warnings.unshift(DEMO_WARNING);
         session.messages.push({
           role: 'assistant',
           text: 'デモとして構成と図形配置を確認します。読み手や説明時間、特に伝えたいことを教えてください。「おまかせ」でも進められます。',
         });
-      } else if (settings.provider === 'chat') this.engine.chat.prepareChatPlan(state, session.messages);
+      } else if (route.drive === 'handoff') this.engine.chat.prepareChatPlan(state, session.messages);
       else await this.engine.ai.withRepairs(state, () => this.plan(state, session.messages));
       return session;
     } catch (error) {
@@ -152,7 +152,7 @@ export class PlanningService {
     project: ProjectProfile,
   ) {
     if (input.targets === undefined) return undefined;
-    if (settings.provider !== 'subscription' && settings.provider !== 'local')
+    if (!routeOf(settings.provider).choosesTargets)
       throw new AppError(400, '作成するAIを選べるのは、月額版での自動作成かローカルLLMを使う設定のときです。');
     const targets = input.targets;
     if (
@@ -207,7 +207,7 @@ export class PlanningService {
           { role: 'user' as const, text: requireText(text, 'メッセージ', MAX_PROMPT_CHARACTERS) },
         ];
         this.engine.ai.checkConversation(messages);
-        if (state.settings.provider === 'chat') {
+        if (this.engine.route(state).drive === 'handoff') {
           this.engine.chat.prepareChatPlan(state, messages);
           return state.session;
         }
@@ -221,7 +221,7 @@ export class PlanningService {
           );
           return state.session;
         }
-        if (state.settings.provider === 'demo') {
+        if (this.engine.route(state).drive === 'sample') {
           state.session.messages = messages;
           state.session.outline = demoOutline(
             messages[0].text,
@@ -384,7 +384,7 @@ export class PlanningService {
     return (
       state.settings.outlineProposals !== false &&
       this.engine.pages.freeDesign(state) &&
-      (state.settings.provider === 'subscription' || (state.settings.provider === 'chat' && !state.oneShot)) &&
+      this.engine.route(state).offersDirections &&
       !state.session.outline &&
       !needsInputBrief
     );
@@ -421,7 +421,7 @@ export class PlanningService {
           role: 'assistant',
           text: `「${proposal.direction}」の案で進めます。見出しと説明の順番を確認してください。変更は同じ入力欄から指示できます。`,
         });
-        if (state.settings.provider !== 'demo')
+        if (this.engine.route(state).drive !== 'sample')
           await this.remember(state, {
             type: 'choice',
             typicality: proposal.typicality,

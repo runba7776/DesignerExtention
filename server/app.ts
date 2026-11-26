@@ -17,6 +17,7 @@ import { apiRoutes } from './routes.js';
 import { layoutHtmlSlides } from './html-layout.js';
 import { createImageStore } from './images.js';
 import type { HistoryCipher } from './history.js';
+import { routeOf } from '../shared/route.js';
 
 export interface AppOptions {
   authToken: string;
@@ -53,7 +54,7 @@ export async function createApp(options: AppOptions) {
   const providerFactory =
     options.providerFactory ??
     ((current: Settings) =>
-      current.provider === 'subscription' ? subscriptions.createProvider(current) : createProvider(current));
+      routeOf(current.provider).cloud ? subscriptions.createProvider(current) : createProvider(current));
   const images = createImageStore(path.join(options.dataDir, 'images'));
   const engine = new SessionEngine({
     settings,

@@ -8,7 +8,7 @@ import { systemPrompt, type ModelTask } from '../prompts.js';
 import { repairReason, repairInstruction } from '../repair-policy.js';
 import { candidateLayoutIds } from '../../shared/layout-selection.js';
 import { Masker, sha256 } from '../../shared/confidential.js';
-import { writerTraits } from '../../shared/making.js';
+import { routeOf } from '../../shared/route.js';
 import type { SessionEngine } from '../engine.js';
 import type { RepairOperation, AiRun, SessionState } from './session-state.js';
 import { OPERATION_CALL_LIMIT, SESSION_CALL_LIMIT } from './session-state.js';
@@ -63,7 +63,7 @@ export class AiCalls {
     images?: string[],
   ) {
     const settings = run ? this.targetSettings(state, run.target) : state.settings;
-    if (settings.provider === 'chat')
+    if (routeOf(settings.provider).drive === 'handoff')
       throw new AppError(
         409,
         '月額版との連携は、画面の指示をコピーして返答を取り込んでください。',
@@ -112,7 +112,7 @@ export class AiCalls {
           : task === 'revise'
             ? [request.targetSlide?.layoutId]
             : undefined;
-      const masker = settings.provider === 'subscription' ? this.masking(state) : undefined,
+      const masker = routeOf(settings.provider).cloud ? this.masking(state) : undefined,
         protect = <T>(value: T) => (masker ? masker.maskDeep(value) : value);
       const response = await provider.complete({
         system:
@@ -179,15 +179,15 @@ export class AiCalls {
     if (!state.targets && !other) {
       if (
         current.provider !== state.settings.provider ||
-        (current.provider === 'local' && current.endpoint !== state.settings.endpoint)
+        (routeOf(current.provider).onThisPc && current.endpoint !== state.settings.endpoint)
       )
         throw new AppError(409, '処理先が変更されています。資料の送信先を確認して新しく作成してください。');
-      if (state.settings.provider === 'subscription') this.checkSubscriptionBinding(state);
+      if (this.engine.route(state).cloud) this.checkSubscriptionBinding(state);
       return;
     }
-    if (settings.provider === 'local' && current.endpoint !== state.settings.endpoint)
+    if (routeOf(settings.provider).onThisPc && current.endpoint !== state.settings.endpoint)
       throw new AppError(409, 'ローカルLLMの接続先が変更されています。送信先を確認して新しく作成してください。');
-    if (settings.provider === 'subscription') {
+    if (routeOf(settings.provider).cloud) {
       const service = settings.subscriptionService ?? 'chatgpt',
         binding = this.engine.options.subscriptionBinding?.(service);
       if (!binding)
@@ -208,7 +208,7 @@ export class AiCalls {
   checkSubscriptionBinding(state: SessionState) {
     const current = this.engine.options.settings.get();
     const service = state.settings.subscriptionService ?? 'chatgpt';
-    if (current.provider !== 'subscription' || (current.subscriptionService ?? 'chatgpt') !== service)
+    if (!routeOf(current.provider).cloud || (current.subscriptionService ?? 'chatgpt') !== service)
       throw new AppError(
         409,
         '送信するサービスが変更されています。送信先を確認し、新しく作成するか履歴を開き直してください。',
@@ -250,7 +250,7 @@ export class AiCalls {
   /** Automatic retries of one operation: two, or what the writing AI gets while it designs its own pages. */
   repairs(state: SessionState, settings: Settings) {
     if (this.engine.options.settings.get().autoRepair === false) return 0;
-    return this.engine.pages.freeDesign(state) ? writerTraits(settings.provider).designRetries : 2;
+    return this.engine.pages.freeDesign(state) ? routeOf(settings.provider).designRetries : 2;
   }
   newRun(state: SessionState, target: AiTarget): AiRun {
     return {

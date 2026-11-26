@@ -50,7 +50,7 @@ export class RevisionService {
     if (!slide) throw new AppError(404, '修正するスライドが見つかりません。');
     const instruction = requireText(input.instruction, '修正指示', MAX_PROMPT_CHARACTERS);
     this.engine.ai.checkConversation([...state.session.messages, { role: 'user', text: instruction }]);
-    if (state.settings.provider === 'chat') {
+    if (this.engine.route(state).drive === 'handoff') {
       this.engine.checkChatMode(state);
       const pending: ChatDraft = {
         task: 'revise',
@@ -97,7 +97,7 @@ export class RevisionService {
       const warnings = [...state.session.warnings];
       try {
         const raw =
-          state.settings.provider === 'demo'
+          this.engine.route(state).drive === 'sample'
             ? { ...slide, headline: instruction.slice(0, 120), notes: `${DEMO_WARNING}\n修正指示: ${instruction}` }
             : await this.engine.ai.complete(
                 state,

@@ -21,6 +21,7 @@ import { applySavedDesign } from '../design-application.js';
 import { auditSlide } from '../../shared/source-audit.js';
 import type { SessionEngine } from '../engine.js';
 import type { SessionState } from './session-state.js';
+import { routeOf } from '../../shared/route.js';
 
 /** Projects, history, favourite designs, feedback and rendering of saved work. */
 export class LibraryService {
@@ -176,10 +177,10 @@ export class LibraryService {
       id: randomUUID(),
       provider: settings.provider,
       usage: emptyUsage(),
-      cloudConsentRequired: settings.provider === 'subscription',
+      cloudConsentRequired: routeOf(settings.provider).cloud,
       ...(duplicate ? {} : { historyId: record.id, savedAt: record.updatedAt }),
     };
-    if (settings.provider === 'subscription') session.subscriptionService = settings.subscriptionService ?? 'chatgpt';
+    if (routeOf(settings.provider).cloud) session.subscriptionService = settings.subscriptionService ?? 'chatgpt';
     else delete session.subscriptionService;
     delete session.chatHandoff;
     const state: SessionState = {
@@ -189,10 +190,9 @@ export class LibraryService {
       project,
       createdAt: Date.now(),
       busy: false,
-      subscriptionBinding:
-        settings.provider === 'subscription'
-          ? this.engine.options.subscriptionBinding?.(settings.subscriptionService ?? 'chatgpt')
-          : undefined,
+      subscriptionBinding: routeOf(settings.provider).cloud
+        ? this.engine.options.subscriptionBinding?.(settings.subscriptionService ?? 'chatgpt')
+        : undefined,
       historyRevision: duplicate ? 0 : record.revision,
       design: await this.preferredDesign(settings, project.id, session.warnings),
     };
@@ -219,7 +219,7 @@ export class LibraryService {
     return this.engine.lock(
       id,
       async state => {
-        if (state.settings.provider === 'subscription') this.engine.ai.checkSubscriptionBinding(state);
+        if (this.engine.route(state).cloud) this.engine.ai.checkSubscriptionBinding(state);
         state.session.cloudConsentRequired = false;
         return state.session;
       },
@@ -270,7 +270,7 @@ export class LibraryService {
   listChatTasks() {
     return {
       sessions: [...this.engine.states.values()]
-        .filter(s => s.settings.provider === 'chat')
+        .filter(s => routeOf(s.settings.provider).drive === 'handoff')
         .map(s => ({
           id: s.session.id,
           title: s.session.outline?.title ?? '作成中の資料',
@@ -328,7 +328,7 @@ export class LibraryService {
       mode: 0o600,
     });
     // A rating of a deck made from one of the three directions also weighs that pick for later orders.
-    if (state.session.proposals?.chosen !== undefined && state.settings.provider !== 'demo')
+    if (state.session.proposals?.chosen !== undefined && this.engine.route(state).drive !== 'sample')
       await this.engine.planning.remember(state, { type: 'rating', rating: input.rating });
     await this.loadPreferences();
     return {

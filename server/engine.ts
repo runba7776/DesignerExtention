@@ -29,7 +29,8 @@ import { ChatHandoffService } from './engine/chat-handoff.js';
 import { DraftService } from './engine/drafts.js';
 import { DesignRequestService } from './engine/design-requests.js';
 import { RefreshService } from './engine/refresh.js';
-import type { SessionState } from './engine/session-state.js';
+import type { AiRun, SessionState } from './engine/session-state.js';
+import { routeOf, type Route } from '../shared/route.js';
 
 export interface EngineOptions {
   settings: SettingsStore;
@@ -75,6 +76,13 @@ export class SessionEngine {
   readonly drafts = new DraftService(this);
   readonly designRequests = new DesignRequestService(this);
   readonly refresh = new RefreshService(this);
+
+  /** The route of a session (shared/route.ts), or of the AI of one run when the session has several. */
+  route(state: SessionState, run?: AiRun): Route {
+    return routeOf(run ? this.ai.targetSettings(state, run.target).provider : state.settings.provider, {
+      oneShot: state.oneShot,
+    });
+  }
 
   // The operations the routes call, by part.
 

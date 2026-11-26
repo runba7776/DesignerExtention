@@ -18,7 +18,7 @@ import { AI_THEME_ID, paletteTheme } from '../../shared/ai-theme.js';
 import { templateToTheme } from '../../shared/template-style.js';
 import { sourceValues } from '../../shared/source-audit.js';
 import { numbersIn } from '../../shared/numbers.js';
-import { makingMethod, writerTraits, type MakingMethod } from '../../shared/making.js';
+import { makingMethod, routeOf, type MakingMethod } from '../../shared/route.js';
 import type { SessionEngine } from '../engine.js';
 import type { AiRun, SessionState } from './session-state.js';
 import { looseText } from './helpers.js';
@@ -103,7 +103,7 @@ export class PageRules {
   writer(state: SessionState, run?: AiRun) {
     return (run ? this.engine.ai.targetSettings(state, run.target) : state.settings).provider;
   }
-  /** How this session's pages are written (see shared/making.ts for the table). Once the browser that reads HTML
+  /** How this session's pages are written (see shared/route.ts for the table). Once the browser that reads HTML
    * could not start in this session, the rest is written as if it were not there (coordinates, or the layouts for
    * a local model). */
   making(state: SessionState, run?: AiRun): MakingMethod {
@@ -129,7 +129,7 @@ export class PageRules {
       !!this.engine.options.images &&
       this.freeDesign(state) &&
       state.settings.imageSearch !== false &&
-      [this.writer(state, run), state.settings.provider].every(p => writerTraits(p).photos) &&
+      [this.writer(state, run), state.settings.provider].every(p => routeOf(p).photos) &&
       state.sendScope !== 'design' &&
       !this.engine.ai.masking(state)
     );
@@ -153,7 +153,7 @@ export class PageRules {
         {
           minTextSize: MIN_TEXT_SIZE[state.settings.mode === 'reading' ? 'reading' : 'presentation'],
           screenshot: !run && this.wantsReview(state),
-          keepSmall: writerTraits(this.writer(state, run)).keepsSmallText,
+          keepSmall: routeOf(this.writer(state, run)).keepsSmallText,
         },
       );
     } catch (error) {
@@ -207,7 +207,7 @@ export class PageRules {
     return {
       design: 'free' as const,
       format,
-      local: writerTraits(this.writer(state, run)).localGuide,
+      local: routeOf(this.writer(state, run)).localGuide,
       images: this.imagesFor(state, run),
       editorial: state.settings.editorialGuide !== false,
       outputMode: state.settings.mode,
@@ -307,7 +307,7 @@ export class PageRules {
       // gemma4 returned layout pages with nothing but the title (3 of 5 in one deck); no layout is only a title.
       const { items, body, headline, chart, table, diagram, equation, design } = slide;
       if (
-        state.settings.provider === 'local' &&
+        this.engine.route(state).refusesTitleOnlyPages &&
         slide.layoutId !== 'cover' &&
         !items.length &&
         !(body || headline || chart || table || diagram || equation || design)
