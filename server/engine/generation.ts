@@ -23,7 +23,7 @@ import { deckBlanks, fillBlanks } from '../../shared/blanks.js';
 import { makingNames } from '../../shared/making.js';
 import type { SessionEngine } from '../engine.js';
 import type { FitDraft, GenerationDraft, AiRun, SessionState } from './session-state.js';
-import { MAX_VARIANTS, SESSION_CALL_LIMIT } from './session-state.js';
+import { GENERATION_CALL_LIMIT, MAX_VARIANTS, SESSION_CALL_LIMIT } from './session-state.js';
 import { sameContent, knownTheme, continued, factValues, plainOutline, deckFindings } from './helpers.js';
 
 /** Writing the pages of an agreed outline, fitting their text, and filling blanks the user answers. */
@@ -46,6 +46,8 @@ export class GenerationService {
             '再開の上限に達しました。追加の呼び出しは行っていません。構成から情報を分けるか、優先条件を整理してください。',
           );
         state.session.outline = outline;
+        // Writing a deck has one cap of its own, 24 calls (resuming starts a new 24, within the presentation's 40).
+        if (state.repairOperation) state.repairOperation.limit = GENERATION_CALL_LIMIT;
         if (state.showcase) return this.engine.sample.replayDeck(state, outline);
         if (state.settings.provider === 'chat') {
           this.engine.chat.prepareChatGeneration(state, outline);
@@ -357,12 +359,9 @@ export class GenerationService {
           );
           return this.writePages(state, outline, draft, run);
         }
-        // An operation's 12 calls are used up: the main draft goes on once as a new operation by itself; after that
-        // the next operation may continue, until the presentation's 40.
-        if (error instanceof AppError && error.code === 'CALL_LIMIT') {
-          if (!run && this.engine.ai.continueOperation(state)) continue;
+        // The deck's 24 calls are used up: the user may resume, until the presentation's 40.
+        if (error instanceof AppError && error.code === 'CALL_LIMIT')
           return { canRetry: !run && state.session.usage.calls < SESSION_CALL_LIMIT };
-        }
         if (
           !repairReason(error) ||
           (this.engine.options.settings.get().autoRepair === false && !(error instanceof OutputLimitError))
@@ -616,6 +615,7 @@ export class GenerationService {
       singleFailures: 0,
       compact: false,
     };
+    run.repair.limit = GENERATION_CALL_LIMIT;
     const stopped = await this.writePages(state, outline, draft, run);
     if (stopped)
       throw new AppError(422, `${draft.slides.length} / ${outline.slides.length}枚で止まりました`, 'EXTRA_STOPPED');

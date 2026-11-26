@@ -214,7 +214,7 @@ test('a quote whose numbers are not in the cited line is asked for once more, th
   }
 });
 
-/** An outline of 26 pages: written two at a time, it takes 13 calls, one more than an operation's 12. */
+/** An outline of 26 pages: written two at a time, it takes 13 calls, more than an operation's 12. */
 const long = {
   ...outline,
   slides: Array.from({ length: 26 }, (_, i) =>
@@ -224,30 +224,34 @@ const long = {
   ),
 } as unknown as Outline;
 
-test("a deck that runs out of one operation's 12 calls goes on once as a new operation instead of stopping", async () => {
-  const f = await fixture((id, title) => htmlPage(id, title), browser, long);
-  try {
-    const session = await f.engine.create({ prompt: '26枚', cloudConsent: true }, []);
-    await f.engine.generate(session.id);
-    assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
-    assert.equal(session.recovery, undefined);
-    assert.equal(f.asked.length, 13);
-    assert.equal(session.variants[0].deck.slides.length, 26);
-    assert.match(session.repairReport!.steps[0].reason, /1回の操作のAI呼び出し12回に達した/);
-    assert.equal(session.repairReport!.status, 'recovered');
-  } finally {
-    await f.dispose();
-  }
-});
+for (const autoRepair of [true, false])
+  test(`writing a deck has one cap of 24 calls, not an operation's 12 (automatic repair ${autoRepair ? 'on' : 'off'})`, async () => {
+    const f = await fixture((id, title) => htmlPage(id, title), browser, long, { autoRepair });
+    try {
+      const session = await f.engine.create({ prompt: '26枚', cloudConsent: true }, []);
+      await f.engine.generate(session.id);
+      assert.equal(session.phase, 'ready', JSON.stringify(session.recovery));
+      assert.equal(session.recovery, undefined);
+      assert.equal(f.asked.length, 13);
+      assert.equal(session.variants[0].deck.slides.length, 26);
+    } finally {
+      await f.dispose();
+    }
+  });
 
-test('with automatic repair turned off, a deck still stops at 12 calls for the user to resume', async () => {
-  const f = await fixture((id, title) => htmlPage(id, title), browser, long, { autoRepair: false });
+test('the cap is 24 calls while a deck is written, 12 for any other operation, and 40 for the presentation', async () => {
+  const f = await fixture((id, title) => htmlPage(id, title));
   try {
-    const session = await f.engine.create({ prompt: '26枚', cloudConsent: true }, []);
-    await f.engine.generate(session.id);
-    assert.equal(session.recovery?.stage, 'content');
-    assert.equal(session.recovery?.completedSlides, 24);
-    assert.equal(f.asked.length, 12);
+    const at = (calls: number, limit?: number) =>
+      f.engine.ai.callsLeft({
+        session: { usage: { calls } },
+        repairOperation: { remaining: 0, startedCalls: 5, ...(limit ? { limit } : {}) },
+      } as any);
+    assert.equal(at(5 + 23, 24), true);
+    assert.equal(at(5 + 24, 24), false);
+    assert.equal(at(5 + 11), true);
+    assert.equal(at(5 + 12), false);
+    assert.equal(at(40, 99), false);
   } finally {
     await f.dispose();
   }

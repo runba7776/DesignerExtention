@@ -67,8 +67,8 @@ export interface RepairOperation {
   remaining: number;
   startedCalls: number;
   next?: { task: ModelTask; code: string; detail?: string };
-  /** The operation ran out of its 12 calls once and went on as a new operation (writing a deck only). */
-  continued?: boolean;
+  /** Its own cap on calls, in place of OPERATION_CALL_LIMIT (writing a deck: GENERATION_CALL_LIMIT). */
+  limit?: number;
 }
 
 /** full: the user chose the self-contained instruction for this request. */
@@ -160,6 +160,8 @@ export interface SessionState {
 
 export const MAX_VARIANTS = 3;
 
-/** AI calls: per operation (creating a deck, one revision) and per presentation. */
+/** AI calls: per operation (one revision, a look at the pages), per deck written (the main draft and each other AI's;
+ * resuming a stopped deck is a new one), and per presentation. */
 export const OPERATION_CALL_LIMIT = 12,
+  GENERATION_CALL_LIMIT = 24,
   SESSION_CALL_LIMIT = 40;

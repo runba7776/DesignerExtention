@@ -78,13 +78,15 @@ export class AiCalls {
         `履歴の指示・資料・会話を${state.settings.subscriptionService === 'claude' ? 'Claude' : 'ChatGPT'}へ送ることを確認してください。`,
         'CLOUD_CONSENT_REQUIRED',
       );
-    // 12 calls per operation (each AI of the session has its own), 40 per presentation.
+    // 12 calls per operation, 24 per deck written (each AI of the session has its own), 40 per presentation.
     if (!this.callsLeft(state, run))
       throw new AppError(
         429,
         state.session.usage.calls >= SESSION_CALL_LIMIT
           ? `1つの資料でのAI呼び出しは${SESSION_CALL_LIMIT}回までです。履歴に保存して、新しく作成してください。`
-          : `1回の操作でのAI呼び出しは${OPERATION_CALL_LIMIT}回までです。要点をまとめて指示し直してください。`,
+          : this.callLimit(state, run) === OPERATION_CALL_LIMIT
+            ? `1回の操作でのAI呼び出しは${OPERATION_CALL_LIMIT}回までです。要点をまとめて指示し直してください。`
+            : `1つの資料の作成でのAI呼び出しは${this.callLimit(state, run)}回までです。構成から情報を分けるか、優先する条件を整理してください。`,
         'CALL_LIMIT',
       );
     const provider = (this.engine.options.providerFactory ?? createProvider)(
@@ -235,12 +237,17 @@ export class AiCalls {
   targetSettings(state: SessionState, target: AiTarget): Settings {
     return settingsFor(state.settings, target);
   }
-  /** Whether another AI call is allowed: 12 per operation (or per AI of the session), 40 per presentation. */
+  /** Whether another AI call is allowed: 12 per operation, 24 per deck written (each AI of the session its own), 40 per
+   * presentation. */
   callsLeft(state: SessionState, run?: AiRun) {
     return (
-      (run ? run.calls : this.operationCalls(state)) < OPERATION_CALL_LIMIT &&
+      (run ? run.calls : this.operationCalls(state)) < this.callLimit(state, run) &&
       state.session.usage.calls < SESSION_CALL_LIMIT
     );
+  }
+  /** The cap of the operation (or of the AI's run): 24 while a deck is written, else 12. */
+  private callLimit(state: SessionState, run?: AiRun) {
+    return (run ? run.repair : state.repairOperation)?.limit ?? OPERATION_CALL_LIMIT;
   }
   private operationCalls(state: SessionState) {
     return state.session.usage.calls - (state.repairOperation?.startedCalls ?? 0);
@@ -286,29 +293,6 @@ export class AiCalls {
     operation.next = { task, code, ...(detail ? { detail } : {}) };
     if (run) run.notes.push(reason.reason);
     else this.recordRepair(state, error, adjustment, true);
-    return true;
-  }
-  /** Writing a deck that runs out of one operation's 12 calls goes on once as a new operation of 12, within the
-   * presentation's 40, instead of stopping for the user to press resume (a stop costs the wait, and resuming spends
-   * the same calls). Only once, so one deck takes at most 24 calls; with automatic repair off it stops as before. */
-  continueOperation(state: SessionState) {
-    const operation = state.repairOperation;
-    if (
-      !operation ||
-      operation.continued ||
-      this.engine.options.settings.get().autoRepair === false ||
-      state.session.usage.calls >= SESSION_CALL_LIMIT
-    )
-      return false;
-    operation.continued = true;
-    operation.startedCalls = state.session.usage.calls;
-    operation.remaining = Math.max(operation.remaining, this.repairs(state, state.settings));
-    const report = state.session.repairReport ?? { status: 'stopped' as const, retries: 0, apiCalls: 0, steps: [] };
-    report.steps.push({
-      reason: `1回の操作のAI呼び出し${OPERATION_CALL_LIMIT}回に達した`,
-      adjustment: `止めずに、資料全体の上限${SESSION_CALL_LIMIT}回の範囲で新しい操作として続けました`,
-    });
-    state.session.repairReport = report;
     return true;
   }
   recordRepair(state: SessionState, error: unknown, adjustment: string, retry: boolean) {
