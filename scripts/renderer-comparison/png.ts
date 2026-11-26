@@ -134,11 +134,19 @@ export function encodePng(picture: Picture): Buffer {
 
 /** The share of pixels that clearly differ (any channel by more than threshold), and a picture of them: the native
  * slide faded to grey, with what only differs in red. */
+/** Colours of the difference picture: ink only the first picture (C#) has, ink only the second (TS) has. */
+export const ONLY_FIRST = [220, 30, 40] as const;
+export const ONLY_SECOND = [30, 100, 230] as const;
+
+/** Pixels that differ clearly, coloured by which picture has the darker (inked) pixel there, so a shifted text
+ * shows as one red and one blue copy instead of two copies in the same red. The rest is a pale grey of the first
+ * picture. */
 export function diffPictures(a: Picture, b: Picture, threshold = 48) {
   if (a.width !== b.width || a.height !== b.height)
     throw new Error(`画像の大きさが違います: ${a.width}×${a.height} / ${b.width}×${b.height}`);
   const out = new Uint8Array(a.data.length);
   let changed = 0;
+  const light = (d: Uint8Array, i: number) => d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11;
   for (let i = 0; i < a.data.length; i += 4) {
     const delta = Math.max(
       Math.abs(a.data[i] - b.data[i]),
@@ -147,13 +155,41 @@ export function diffPictures(a: Picture, b: Picture, threshold = 48) {
     );
     if (delta > threshold) {
       changed++;
-      out.set([220, 30, 40, 255], i);
+      out.set([...(light(a.data, i) <= light(b.data, i) ? ONLY_FIRST : ONLY_SECOND), 255], i);
     } else {
-      const grey = Math.round((a.data[i] * 0.3 + a.data[i + 1] * 0.59 + a.data[i + 2] * 0.11) * 0.25 + 191);
+      const grey = Math.round(light(a.data, i) * 0.25 + 191);
       out.set([grey, grey, grey, 255], i);
     }
   }
   return { share: changed / (a.width * a.height), picture: { width: a.width, height: a.height, data: out } };
+}
+
+/** Half size for a difference picture: a block with a marked pixel keeps that colour, so thin strokes stay sharp
+ * instead of fading into pink. */
+export function halveDiff(picture: Picture): Picture {
+  const half = halve(picture);
+  const marked = (i: number) =>
+    (picture.data[i] === ONLY_FIRST[0] &&
+      picture.data[i + 1] === ONLY_FIRST[1] &&
+      picture.data[i + 2] === ONLY_FIRST[2]) ||
+    (picture.data[i] === ONLY_SECOND[0] &&
+      picture.data[i + 1] === ONLY_SECOND[1] &&
+      picture.data[i + 2] === ONLY_SECOND[2]);
+  for (let y = 0; y < half.height; y++)
+    for (let x = 0; x < half.width; x++)
+      for (const [dx, dy] of [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [1, 1],
+      ]) {
+        const i = ((y * 2 + dy) * picture.width + x * 2 + dx) * 4;
+        if (marked(i)) {
+          half.data.set(picture.data.subarray(i, i + 4), (y * half.width + x) * 4);
+          break;
+        }
+      }
+  return half;
 }
 
 /** Half the width and height (each pixel the mean of four), to keep the report small. */
