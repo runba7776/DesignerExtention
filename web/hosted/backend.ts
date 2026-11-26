@@ -1,14 +1,15 @@
 // The first import installs Buffer/process before any server module runs.
 import './polyfills';
-import { initFileSystem } from './shims/fs';
-import { DOCUMENT_LIMITS, documentSummary, type ParsedDocument } from '../../server/document-model';
-import { AppError } from '../../server/errors';
-import { SettingsStore } from '../../server/settings';
-import { DEFAULT_PROJECT_ID, ProjectStore } from '../../server/projects';
-import { SessionEngine } from '../../server/engine';
-import { AssistService } from '../../server/assist';
-import { createProvider } from '../../server/providers';
-import { apiRoutes, matchRoute, type Route } from '../../server/routes';
+import { browserStorage, initFileSystem } from './browser-storage';
+import { useStorage } from '../../core/storage';
+import { DOCUMENT_LIMITS, documentSummary, type ParsedDocument } from '../../core/document-model';
+import { AppError } from '../../core/errors';
+import { SettingsStore } from '../../core/settings';
+import { DEFAULT_PROJECT_ID, ProjectStore } from '../../core/projects';
+import { SessionEngine } from '../../core/engine';
+import { AssistService } from '../../core/assist';
+import { createProvider } from '../../core/providers';
+import { apiRoutes, matchRoute, type Route } from '../../core/routes';
 import { renderInBrowser } from './pptx-renderer';
 
 /** No-install build: the same engine, validation, history and favorites run in
@@ -24,6 +25,7 @@ const DATA_DIR = '/data';
 
 async function create(): Promise<Backend> {
   await initFileSystem();
+  useStorage(browserStorage);
   const settings = await new SettingsStore(DATA_DIR).load();
   const projects = await new ProjectStore(DATA_DIR).load();
   if (!projects.list().some(project => project.id === settings.get().activeProjectId))
@@ -101,7 +103,7 @@ async function upload(state: Backend, body: unknown) {
   if (state.documents.size + files.length > 40)
     throw new AppError(429, '読み込んだ資料が上限に達しました。ページを再読み込みしてください。');
   // PDF/Excel/PowerPoint readers are loaded only when a document is added.
-  const { parseDocument } = await import('../../server/documents');
+  const { parseDocument } = await import('../../core/documents');
   const parsed: ParsedDocument[] = [];
   for (const file of files) parsed.push(await parseDocument(file.name, Buffer.from(await file.arrayBuffer())));
   const sum =

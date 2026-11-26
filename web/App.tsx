@@ -13,21 +13,21 @@ import type {
   Session,
   Settings,
   SubscriptionStatus,
-} from '../shared/contracts';
-import { compileDeck } from '../shared/layouts';
+} from '../core/shared/contracts';
+import { compileDeck } from '../core/shared/layouts';
 import { api, apiFetch } from './api';
 import { canInsertIntoPresentation, inPowerPoint, insertIntoPresentation, readAllSlides } from './office';
 import { SlideActionsPanel } from './SlideActionsPanel';
 import { RehearsalPanel } from './RehearsalPanel';
 import { SourcesDialog } from './SourcesDialog';
 import { AddinGuide } from './AddinGuide';
-import { deckRehearsalSlides } from '../shared/rehearsal';
+import { deckRehearsalSlides } from '../core/shared/rehearsal';
 import { Icon, Spinner } from './ui';
 import { SettingsDialog, withProvider } from './SettingsDialog';
 import { SlidePreview } from './SlidePreview';
-import { themes, TEMPLATE_THEME_ID } from '../shared/themes';
-import { AI_THEME_ID } from '../shared/ai-theme';
-import { MAX_SLIDES, APP_VERSION, MAX_PROMPT_CHARACTERS } from '../shared/contracts';
+import { themes, TEMPLATE_THEME_ID } from '../core/shared/themes';
+import { AI_THEME_ID } from '../core/shared/ai-theme';
+import { MAX_SLIDES, APP_VERSION, MAX_PROMPT_CHARACTERS } from '../core/shared/contracts';
 import { HistoryDialog } from './HistoryDialog';
 import { LayoutDialog } from './LayoutDialog';
 import { ChartDialog } from './ChartDialog';
@@ -59,8 +59,8 @@ import { SlideGrid } from './screen/SlideGrid';
 import { ExportBar, SourceExport } from './screen/ExportBar';
 import { FeedbackSection } from './screen/FeedbackSection';
 import { CompareDialog, TransmissionDialog } from './screen/Dialogs';
-import { deckBlanks } from '../shared/blanks';
-import { routeOf } from '../shared/route';
+import { deckBlanks } from '../core/shared/blanks';
+import { routeOf } from '../core/shared/route';
 
 const defaultSettings: Settings = {
   provider: 'chat',

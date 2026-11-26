@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { makingMethod, routeOf, writerName } from '../shared/route.js';
+import { makingMethod, routeOf, writerName } from '../core/shared/route.js';
 
 test('how a page is written follows where the app runs and how the material is sent, not which AI writes', () => {
   const installed = { canReadHtml: true },

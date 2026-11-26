@@ -1,7 +1,7 @@
-import type { DeckSpec, DeckVariant } from '../../shared/contracts';
-import { themes, TEMPLATE_THEME_ID } from '../../shared/themes';
-import { AI_THEME_ID } from '../../shared/ai-theme';
-import { typographyProfiles } from '../../shared/typography';
+import type { DeckSpec, DeckVariant } from '../../core/shared/contracts';
+import { themes, TEMPLATE_THEME_ID } from '../../core/shared/themes';
+import { AI_THEME_ID } from '../../core/shared/ai-theme';
+import { typographyProfiles } from '../../core/shared/typography';
 import { Icon } from '../ui';
 
 /** With two or more drafts: which two are shown side by side, and which one is chosen. */

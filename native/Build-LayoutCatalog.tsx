@@ -4,9 +4,9 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {renderToStaticMarkup} from 'react-dom/server';
 import React from 'react';
-import {listLayouts,compileDeck} from '../shared/layouts';
-import {sampleSlide,sampleDeck} from '../shared/layout-samples';
-import {researchSources,groupNames} from '../shared/layout-guidance';
+import {listLayouts,compileDeck} from '../core/shared/layouts';
+import {sampleSlide,sampleDeck} from '../core/shared/layout-samples';
+import {researchSources,groupNames} from '../core/shared/layout-guidance';
 import {SlidePreview} from '../web/SlidePreview';
 import {createRenderBridge} from '../server/render-bridge';
 

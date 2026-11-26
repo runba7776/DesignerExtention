@@ -4,12 +4,12 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import { SettingsStore } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { HistoryStore } from '../server/history.js';
-import { demoOutline, demoDeck } from '../server/demo.js';
-import { createProvider, emptyUsage, type CompletionRequest } from '../server/providers.js';
-import type { Session, SubscriptionService, RenderResult } from '../shared/contracts.js';
+import { SettingsStore } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { HistoryStore } from '../core/history.js';
+import { demoOutline, demoDeck } from '../core/demo.js';
+import { createProvider, emptyUsage, type CompletionRequest } from '../core/providers.js';
+import type { Session, SubscriptionService, RenderResult } from '../core/shared/contracts.js';
 
 const render = async (): Promise<RenderResult> => ({
   artifactId: 'sample',

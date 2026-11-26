@@ -3,17 +3,17 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { DeckSpec, LineElement, Session, ShapeElement, SlideSpec, TextElement } from '../shared/contracts.js';
-import { compileDeck } from '../shared/layouts.js';
-import { themes } from '../shared/themes.js';
-import { contrast } from '../shared/color.js';
-import { lineElement } from '../shared/free-design.js';
-import { SettingsStore } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { demoOutline } from '../server/demo.js';
-import { systemPrompt } from '../server/prompts.js';
-import { validateDeck, validateSlide } from '../server/validation.js';
-import { textFields, applySummaries, fitProblems } from '../server/text-fit.js';
+import type { DeckSpec, LineElement, Session, ShapeElement, SlideSpec, TextElement } from '../core/shared/contracts.js';
+import { compileDeck } from '../core/shared/layouts.js';
+import { themes } from '../core/shared/themes.js';
+import { contrast } from '../core/shared/color.js';
+import { lineElement } from '../core/shared/free-design.js';
+import { SettingsStore } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { demoOutline } from '../core/demo.js';
+import { systemPrompt } from '../core/prompts.js';
+import { validateDeck, validateSlide } from '../core/validation.js';
+import { textFields, applySummaries, fitProblems } from '../core/text-fit.js';
 
 const title = (text: string) => ({
   t: 'text',

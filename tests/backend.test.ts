@@ -6,13 +6,13 @@ import path from 'node:path';
 import { createServer } from 'node:http';
 import ExcelJS from 'exceljs';
 import { createApp } from '../server/app.js';
-import { parseDocument, documentContext, DOCUMENT_LIMITS, verifyZipBudget } from '../server/documents.js';
-import { createProvider, parseJsonResponse, emptyUsage, type CompletionRequest } from '../server/providers.js';
-import { validateDeck, validateOutline } from '../server/validation.js';
-import { SettingsStore, validateLocalEndpoint } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { demoDeck, demoOutline } from '../server/demo.js';
-import type { RenderResult } from '../shared/contracts.js';
+import { parseDocument, documentContext, DOCUMENT_LIMITS, verifyZipBudget } from '../core/documents.js';
+import { createProvider, parseJsonResponse, emptyUsage, type CompletionRequest } from '../core/providers.js';
+import { validateDeck, validateOutline } from '../core/validation.js';
+import { SettingsStore, validateLocalEndpoint } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { demoDeck, demoOutline } from '../core/demo.js';
+import type { RenderResult } from '../core/shared/contracts.js';
 
 const rendered: RenderResult = {
   artifactId: 'artifact-test',

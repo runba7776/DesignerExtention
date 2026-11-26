@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ProjectStore } from '../server/projects.js';
-import { DesignLibraryStore } from '../server/design-library.js';
-import { SettingsStore } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { demoDeck, demoOutline } from '../server/demo.js';
+import { ProjectStore } from '../core/projects.js';
+import { DesignLibraryStore } from '../core/design-library.js';
+import { SettingsStore } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { demoDeck, demoOutline } from '../core/demo.js';
 
 test('projects keep guidance local and design sharing exports only reusable visual settings', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'designer-project-sharing-'));

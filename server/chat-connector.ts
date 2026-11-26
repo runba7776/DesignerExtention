@@ -1,8 +1,8 @@
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { ChatHandoff, Session } from '../shared/contracts.js';
-import { APP_VERSION } from '../shared/contracts.js';
-import { AppError } from './errors.js';
+import type { ChatHandoff, Session } from '../core/shared/contracts.js';
+import { APP_VERSION } from '../core/shared/contracts.js';
+import { AppError } from '../core/errors.js';
 
 /** Talks exclusively to our authenticated loopback app. No model endpoint or key. */
 export class ChatConnector {

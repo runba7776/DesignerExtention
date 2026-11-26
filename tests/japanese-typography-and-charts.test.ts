@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileDeck, wrapText, isNegativeValue } from '../shared/layouts';
-import { sampleDeck, sampleSlide } from '../shared/layout-samples';
-import { themes } from '../shared/themes';
-import { itemColor, panelFill, negativeColor, contrast } from '../shared/color';
-import { validateSlide } from '../server/validation';
-import type { ShapeElement, SlideSpec, TextElement } from '../shared/contracts';
+import { compileDeck, wrapText, isNegativeValue } from '../core/shared/layouts';
+import { sampleDeck, sampleSlide } from '../core/shared/layout-samples';
+import { themes } from '../core/shared/themes';
+import { itemColor, panelFill, negativeColor, contrast } from '../core/shared/color';
+import { validateSlide } from '../core/validation';
+import type { ShapeElement, SlideSpec, TextElement } from '../core/shared/contracts';
 
 const word = /[\p{Script=Han}\p{Script=Katakana}ー]/u;
 test('Japanese lines never break inside a kanji/katakana word or a number with its unit', () => {

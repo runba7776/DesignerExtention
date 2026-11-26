@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Session } from '../shared/contracts.js';
-import { Masker } from '../shared/confidential.js';
-import { SettingsStore } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { demoOutline } from '../server/demo.js';
-import type { ParsedDocument } from '../server/document-model.js';
+import type { Session } from '../core/shared/contracts.js';
+import { Masker } from '../core/shared/confidential.js';
+import { SettingsStore } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { demoOutline } from '../core/demo.js';
+import type { ParsedDocument } from '../core/document-model.js';
 
 const text =
   '上場会社名 ミライ精機株式会社。第3四半期の営業利益は4,812億円、前年同期比+12.5%。ロボット事業「アトラス計画」が牽引。問合せ ir@mirai.example.jp';

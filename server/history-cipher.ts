@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { HistoryCipher } from './history.js';
+import type { HistoryCipher } from '../core/history.js';
 import { dpapi } from './subscription-storage.js';
 
 const MAGIC = Buffer.from('DEH1');

@@ -12,8 +12,8 @@ import {
   type ClaudeRunResult,
   type ClaudeRunner,
 } from '../server/claude-subscription.js';
-import { AppError } from '../server/errors.js';
-import { OutputLimitError } from '../server/providers.js';
+import { AppError } from '../core/errors.js';
+import { OutputLimitError } from '../core/providers.js';
 
 const help =
   '--safe-mode --setting-sources --tools --disallowedTools --no-session-persistence --permission-prompts --output-format --model --strict-mcp-config --mcp-config';

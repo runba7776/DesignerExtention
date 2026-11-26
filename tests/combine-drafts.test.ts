@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Session, SlideSpec } from '../shared/contracts.js';
-import { slideContent, transplant } from '../shared/slots.js';
-import { SettingsStore } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { demoOutline } from '../server/demo.js';
-import { validateSlide } from '../server/validation.js';
+import type { Session, SlideSpec } from '../core/shared/contracts.js';
+import { slideContent, transplant } from '../core/shared/slots.js';
+import { SettingsStore } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { demoOutline } from '../core/demo.js';
+import { validateSlide } from '../core/validation.js';
 
 const t = (
   x: number,

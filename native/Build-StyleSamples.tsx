@@ -3,10 +3,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createRenderBridge} from '../server/render-bridge';
-import {sampleDeck,sampleSlide} from '../shared/layout-samples';
-import {themes} from '../shared/themes';
-import {typographyProfiles} from '../shared/typography';
-import {listLayouts} from '../shared/layouts';
+import {sampleDeck,sampleSlide} from '../core/shared/layout-samples';
+import {themes} from '../core/shared/themes';
+import {typographyProfiles} from '../core/shared/typography';
+import {listLayouts} from '../core/shared/layouts';
 
 const root=fileURLToPath(new URL('..',import.meta.url)),bridge=createRenderBridge(root);
 const out=path.join(root,'samples','generated'),qa=path.join(root,'runtime','qa-v05');

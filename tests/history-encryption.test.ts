@@ -6,13 +6,13 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HistoryStore, type HistoryCipher } from '../server/history.js';
+import { HistoryStore, type HistoryCipher } from '../core/history.js';
 import { protectedHistoryCipher } from '../server/history-cipher.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { demoOutline, demoDeck } from '../server/demo.js';
-import { emptyUsage } from '../server/providers.js';
-import type { Session } from '../shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { demoOutline, demoDeck } from '../core/demo.js';
+import { emptyUsage } from '../core/providers.js';
+import type { Session } from '../core/shared/contracts.js';
 
 function ready(): Session {
   const outline = demoOutline('暗号化の確認', 'presentation', []);

@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { SettingsStore } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { HistoryStore } from '../server/history.js';
-import { demoOutline, demoDeck } from '../server/demo.js';
-import { parseDocument, type ParsedDocument } from '../server/documents.js';
-import { assertTextFits } from '../server/text-fit.js';
-import type { DeckSpec, Session } from '../shared/contracts.js';
+import { SettingsStore } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { HistoryStore } from '../core/history.js';
+import { demoOutline, demoDeck } from '../core/demo.js';
+import { parseDocument, type ParsedDocument } from '../core/documents.js';
+import { assertTextFits } from '../core/text-fit.js';
+import type { DeckSpec, Session } from '../core/shared/contracts.js';
 
 const packet = (session: Session) => JSON.parse(session.chatHandoff!.instruction.split('\n\n').at(-2)!);
 const contents = (deck: DeckSpec) => ({

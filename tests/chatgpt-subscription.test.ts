@@ -8,7 +8,7 @@ import { createServer } from 'node:http';
 import { exportJWK, SignJWT } from 'jose';
 import { ChatGptSubscription, type ChatGptSubscriptionOptions } from '../server/chatgpt-subscription.js';
 import type { CredentialStorage } from '../server/subscription-storage.js';
-import { OutputLimitError } from '../server/providers.js';
+import { OutputLimitError } from '../core/providers.js';
 
 const issuer = 'https://auth.openai.com',
   resource = 'https://api.openai.com/v1',

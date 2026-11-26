@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { HistoryEntry, HistoryVersion } from '../shared/contracts';
+import type { HistoryEntry, HistoryVersion } from '../core/shared/contracts';
 import { api } from './api';
 import { Modal, Spinner } from './ui';
 

@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Outline, Settings } from '../shared/contracts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
+import type { Outline, Settings } from '../core/shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
 import {
   ClaudeSubscription,
   type ClaudeRun,
@@ -14,10 +14,10 @@ import {
   type ClaudeRunner,
 } from '../server/claude-subscription.js';
 import { findBrowser, layoutHtmlSlides, type HtmlLayout, type HtmlLayoutOptions } from '../server/html-layout.js';
-import { validateReview } from '../server/validation.js';
-import { reviewPrompt } from '../server/free-prompts.js';
+import { validateReview } from '../core/validation.js';
+import { reviewPrompt } from '../core/free-prompts.js';
 import type { ImageStore } from '../server/images.js';
-import { paletteTheme } from '../shared/ai-theme.js';
+import { paletteTheme } from '../core/shared/ai-theme.js';
 
 const help =
   '--safe-mode --setting-sources --tools --disallowedTools --no-session-persistence --permission-prompts --output-format --model --strict-mcp-config --mcp-config --input-format';

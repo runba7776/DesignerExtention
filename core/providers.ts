@@ -1,0 +1,235 @@
+import type { Settings, Usage } from './shared/contracts.js';
+import { AppError } from './errors.js';
+import { validateLocalEndpoint } from './settings.js';
+
+/** images: pictures sent with the text (drawn slides); only a provider with images:true takes them.
+ * schema: the answer's JSON shape; a local server holds the model to it (structured output). */
+export interface CompletionRequest {
+  system: string;
+  content: string;
+  maxTokens: number;
+  images?: { mediaType: 'image/png'; data: string }[];
+  schema?: object;
+}
+export interface Completion {
+  text: string;
+  usage: Usage;
+}
+export interface Provider {
+  complete(request: CompletionRequest): Promise<Completion>;
+  images?: boolean;
+}
+export const emptyUsage = (): Usage => ({
+  calls: 0,
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+});
+export class OutputLimitError extends AppError {
+  constructor(
+    public usage: Usage,
+    public partialText: string,
+  ) {
+    super(422, 'LLMの返答が出力上限で途中終了しました。入力の文字数制限とは別の上限です。', 'OUTPUT_LIMIT');
+  }
+}
+
+const LOCAL_TIMEOUT_MS = 10 * 60_000;
+
+/** This factory only calls a private/local inference server. Subscription clients
+ * are created by SubscriptionManager after an explicit account connection. */
+export function createProvider(settings: Settings, fetcher: typeof fetch = fetch): Provider {
+  if (settings.provider === 'chat')
+    throw new AppError(
+      400,
+      '月額版との連携は、指示をコピーして返答を取り込みます。自動のAPI呼び出しは行いません。',
+      'CHAT_HANDOFF_REQUIRED',
+    );
+  if (settings.provider === 'subscription')
+    throw new AppError(
+      409,
+      '設定から月額サービスに接続してください。有料APIへの切り替えは行いません。',
+      'SUBSCRIPTION_CONNECTION_REQUIRED',
+    );
+  if (settings.provider !== 'local') throw new AppError(400, 'デモモードはAIを呼び出しません。');
+  const base = validateLocalEndpoint(settings.endpoint ?? '');
+  return {
+    async complete(request) {
+      const url = `${base.replace(/\/chat\/completions$/, '')}/chat/completions`;
+      const plain = {
+        model: settings.model,
+        temperature: 0.25,
+        max_tokens: request.maxTokens,
+        messages: [
+          { role: 'system', content: request.system },
+          {
+            role: 'user',
+            // Drawn pages go as pictures beside the text (OpenAI-compatible; gemma4 reads them).
+            content: request.images?.length
+              ? [
+                  { type: 'text', text: request.content },
+                  ...request.images.map(image => ({
+                    type: 'image_url',
+                    image_url: { url: `data:${image.mediaType};base64,${image.data}` },
+                  })),
+                ]
+              : request.content,
+          },
+        ],
+      };
+      const send = (body: object) =>
+        fetcher(url, {
+          method: 'POST',
+          redirect: 'error',
+          // A PC's GPU writes far slower than a cloud service.
+          signal: AbortSignal.timeout(LOCAL_TIMEOUT_MS),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      let response: Response;
+      try {
+        // A thinking model (gemma4 on Ollama thinks unless told not to) spent 20,000 tokens on a plan and ran
+        // out of time. Answers are held to their JSON shape (the caller's schema): gemma4 otherwise put each page
+        // in its own block, broke the escaping of the HTML inside, or (26B) the syntax of an outline. Plain JSON
+        // mode had made a plan ask questions instead; a schema that names the kinds of answer does not.
+        // A server that refuses the options is asked once more without them.
+        response = await send({
+          ...plain,
+          reasoning_effort: 'none',
+          ...(request.schema
+            ? { response_format: { type: 'json_schema', json_schema: { name: 'answer', schema: request.schema } } }
+            : {}),
+        });
+        if (response.status === 400) {
+          await response.body?.cancel();
+          response = await send(plain);
+        }
+      } catch (error) {
+        if ((error as Error)?.name === 'TimeoutError')
+          throw new AppError(
+            504,
+            `ローカルLLMの返答が${LOCAL_TIMEOUT_MS / 60_000}分以内に終わりませんでした。より小さいモデルにするか、枚数や資料を減らしてください。外部APIへの切り替えは行っていません。`,
+            'PROVIDER_TIMEOUT',
+          );
+        throw new AppError(
+          502,
+          'ローカルLLMに接続できません。起動状態・接続先・モデル名を確認してください。外部APIへの切り替えは行っていません。',
+          'PROVIDER_CONNECTION',
+        );
+      }
+      if (!response.ok) {
+        await response.body?.cancel();
+        const reason =
+          response.status === 401 || response.status === 403
+            ? '認証情報を確認してください。'
+            : response.status === 429
+              ? '利用上限または混雑です。少し時間をおいて再操作してください。'
+              : response.status === 404
+                ? 'モデル名と接続先を確認してください。'
+                : '入力サイズ・モデルの対応状況・サービス状態を確認してください。';
+        throw new AppError(
+          502,
+          `ローカルLLMがエラーを返しました（HTTP ${response.status}）。${reason}`,
+          'PROVIDER_RESPONSE',
+        );
+      }
+      const raw = await boundedResponse(response);
+      let data: any;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        throw new AppError(502, 'LLMの応答がJSONではありません。接続先を確認してください。');
+      }
+      const usage = emptyUsage();
+      usage.calls = 1;
+      usage.inputTokens = number(data.usage?.prompt_tokens);
+      usage.outputTokens = number(data.usage?.completion_tokens);
+      const text = data.choices?.[0]?.message?.content;
+      if (typeof text !== 'string')
+        throw new AppError(502, 'LLMから文章の応答を取得できませんでした。モデルの対応状況を確認してください。');
+      if (data.choices?.[0]?.finish_reason === 'length') throw new OutputLimitError(usage, text);
+      if (
+        data.choices?.[0]?.finish_reason === 'model_context_window_exceeded' ||
+        data.stop_reason === 'model_context_window_exceeded'
+      )
+        throw Object.assign(
+          new AppError(
+            422,
+            '資料と会話がモデルの入力枠を使い切りました。対象の章やページを分けてください。',
+            'CONTEXT_LIMIT',
+          ),
+          { usage },
+        );
+      return { text, usage };
+    },
+    // A model that cannot read pictures answers with an error, and the look at the pages is left out.
+    images: true,
+  };
+}
+
+/** The reply's JSON. A model sometimes adds a sentence before or after it, or a
+ * fenced block in the middle; the complete JSON object inside is accepted as is
+ * (nothing is added or closed). Pages written one per fenced block are taken as
+ * one answer, and a backslash JSON does not allow (a line of HTML ended with one)
+ * is dropped. An unreadable reply keeps its text privately so the caller can
+ * recover finished pages from it. */
+export function parseJsonResponse(text: string): unknown {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '');
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    /* Look for the JSON inside the reply. */
+  }
+  const blocks = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)].map(m => readObject(m[1]));
+  if (blocks.length > 1 && blocks.every(b => typeof b?.id === 'string'))
+    return { mode: blocks[0]!.mode, slides: blocks.map(({ mode: _mode, ...page }: any) => page) };
+  const start = text.indexOf('{'),
+    end = text.lastIndexOf('}');
+  for (const candidate of [blocks[0], start >= 0 && end > start ? readObject(text.slice(start, end + 1)) : undefined])
+    if (candidate) return candidate;
+  throw Object.assign(
+    new AppError(
+      422,
+      'AIの出力形式が正しくありません。最後まで閉じたJSONを返すよう指示してください。',
+      'INVALID_MODEL_JSON',
+    ),
+    { partialText: text },
+  );
+}
+/** One JSON object, read as written or with the escapes JSON does not allow dropped. */
+function readObject(text: string): Record<string, any> | undefined {
+  const loose = () =>
+    text.replace(/\\(\r?\n|[\s\S])/g, (all, c: string) =>
+      '"\\/bfnrtu'.includes(c) ? all : c.endsWith('\n') ? '\\n' : c,
+    );
+  for (const read of [() => text, loose])
+    try {
+      const value = JSON.parse(read());
+      if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+    } catch {
+      /* Try the next form. */
+    }
+  return undefined;
+}
+const number = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0);
+async function boundedResponse(response: Response) {
+  if (!response.body) throw new AppError(502, 'LLMの応答が空です。');
+  const reader = response.body.getReader(),
+    chunks: Uint8Array[] = [];
+  let bytes = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    bytes += value.length;
+    if (bytes > 4 * 1024 * 1024) {
+      await reader.cancel();
+      throw new AppError(502, 'LLMの応答が大きすぎます。');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}

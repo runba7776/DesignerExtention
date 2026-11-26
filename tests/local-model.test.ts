@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { DeckSpec, Outline, TextElement } from '../shared/contracts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { emptyUsage, parseJsonResponse, type CompletionRequest } from '../server/providers.js';
+import type { DeckSpec, Outline, TextElement } from '../core/shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { emptyUsage, parseJsonResponse, type CompletionRequest } from '../core/providers.js';
 import { findBrowser, layoutHtmlSlides, type HtmlLayout } from '../server/html-layout.js';
-import { validateDesign, validateSlide } from '../server/validation.js';
-import { compileDeck } from '../shared/layouts.js';
-import { isDarkColor } from '../shared/free-design.js';
-import { paletteTheme } from '../shared/ai-theme.js';
+import { validateDesign, validateSlide } from '../core/validation.js';
+import { compileDeck } from '../core/shared/layouts.js';
+import { isDarkColor } from '../core/shared/free-design.js';
+import { paletteTheme } from '../core/shared/ai-theme.js';
 
 const usage = { ...emptyUsage(), calls: 1 };
 const title = (id: string, text: string) => ({

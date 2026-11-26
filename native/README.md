@@ -1,6 +1,6 @@
 # Windows / PowerPoint bridge
 
-The renderer runs in an STA .NET Framework process and accepts only the bounded scene data in `shared/contracts.ts`. It creates editable PowerPoint text, shapes, charts with an embedded Excel workbook, real SmartArt, speaker notes, and slide PNGs exported by PowerPoint itself. It never executes generated code or macros.
+The renderer runs in an STA .NET Framework process and accepts only the bounded scene data in `core/shared/contracts.ts`. It creates editable PowerPoint text, shapes, charts with an embedded Excel workbook, real SmartArt, speaker notes, and slide PNGs exported by PowerPoint itself. It never executes generated code or macros.
 
 ## Build
 

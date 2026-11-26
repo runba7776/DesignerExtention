@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { DeckSpec, Outline } from '../shared/contracts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { emptyUsage, parseJsonResponse, type CompletionRequest } from '../server/providers.js';
-import { AppError } from '../server/errors.js';
-import { improveTextFit } from '../shared/layout-selection.js';
-import { fitProblems } from '../server/text-fit.js';
-import { validateDeck } from '../server/validation.js';
-import type { ParsedDocument } from '../server/document-model.js';
+import type { DeckSpec, Outline } from '../core/shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { emptyUsage, parseJsonResponse, type CompletionRequest } from '../core/providers.js';
+import { AppError } from '../core/errors.js';
+import { improveTextFit } from '../core/shared/layout-selection.js';
+import { fitProblems } from '../core/text-fit.js';
+import { validateDeck } from '../core/validation.js';
+import type { ParsedDocument } from '../core/document-model.js';
 
 const t = (x: number, y: number, w: number, h: number, text: string, size: number, role?: string) => ({
   t: 'text',

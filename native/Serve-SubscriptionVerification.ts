@@ -4,8 +4,8 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomBytes} from 'node:crypto';
 import {createApp} from '../server/app';
-import {SettingsStore} from '../server/settings';
-import {demoOutline,demoDeck} from '../server/demo';
+import {SettingsStore} from '../core/settings';
+import {demoOutline,demoDeck} from '../core/demo';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 const dataDir=path.join(root,'runtime','qa-v090','web');

@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { DeckSpec, RefreshPlan, RestoredPresentation } from '../shared/contracts.js';
-import { applyRefresh, formatLike, numberSpans, planRefresh, type RefreshDocument } from '../shared/refresh.js';
-import { validateDeck } from '../server/validation.js';
-import { SettingsStore } from '../server/settings.js';
-import { SessionEngine } from '../server/engine.js';
-import { demoOutline } from '../server/demo.js';
-import type { ParsedDocument } from '../server/document-model.js';
+import type { DeckSpec, RefreshPlan, RestoredPresentation } from '../core/shared/contracts.js';
+import { applyRefresh, formatLike, numberSpans, planRefresh, type RefreshDocument } from '../core/shared/refresh.js';
+import { validateDeck } from '../core/validation.js';
+import { SettingsStore } from '../core/settings.js';
+import { SessionEngine } from '../core/engine.js';
+import { demoOutline } from '../core/demo.js';
+import type { ParsedDocument } from '../core/document-model.js';
 
 const t = (
   x: number,

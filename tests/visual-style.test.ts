@@ -3,16 +3,16 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { compileDeck } from '../shared/layouts';
-import { sampleDeck, sampleSlide } from '../shared/layout-samples';
-import { themes, themeCatalog } from '../shared/themes';
-import { typographyProfiles, withTypography } from '../shared/typography';
-import { contrast, itemColor, panelFill, readableColor } from '../shared/color';
-import { SettingsStore } from '../server/settings';
-import { SessionEngine } from '../server/engine';
-import { validateDeck, validateOutline } from '../server/validation';
-import { demoOutline } from '../server/demo';
-import { systemPrompt } from '../server/prompts';
+import { compileDeck } from '../core/shared/layouts';
+import { sampleDeck, sampleSlide } from '../core/shared/layout-samples';
+import { themes, themeCatalog } from '../core/shared/themes';
+import { typographyProfiles, withTypography } from '../core/shared/typography';
+import { contrast, itemColor, panelFill, readableColor } from '../core/shared/color';
+import { SettingsStore } from '../core/settings';
+import { SessionEngine } from '../core/engine';
+import { validateDeck, validateOutline } from '../core/validation';
+import { demoOutline } from '../core/demo';
+import { systemPrompt } from '../core/prompts';
 
 test('Japanese text, numeric values and equations retain separate font roles and all content', () => {
   const deck = sampleDeck([sampleSlide('cover'), sampleSlide('kpi'), sampleSlide('concept_full')]);

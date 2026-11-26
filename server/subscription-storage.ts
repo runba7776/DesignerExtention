@@ -3,7 +3,7 @@ import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promi
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { AppError } from './errors.js';
+import { AppError } from '../core/errors.js';
 
 /** Only this application's credentials are stored here. No other app's login
  * files, browser cookies or environment API keys are read. */

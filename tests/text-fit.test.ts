@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Outline } from '../shared/contracts.js';
-import { SessionEngine } from '../server/engine.js';
-import { SettingsStore } from '../server/settings.js';
-import { emptyUsage, type CompletionRequest } from '../server/providers.js';
-import { applySummaries, fitProblems } from '../server/text-fit.js';
-import { validateDeck } from '../server/validation.js';
+import type { Outline } from '../core/shared/contracts.js';
+import { SessionEngine } from '../core/engine.js';
+import { SettingsStore } from '../core/settings.js';
+import { emptyUsage, type CompletionRequest } from '../core/providers.js';
+import { applySummaries, fitProblems } from '../core/text-fit.js';
+import { validateDeck } from '../core/validation.js';
 
 const t = (x: number, y: number, w: number, h: number, text: string, size: number, role?: string) => ({
   t: 'text',

@@ -1,7 +1,7 @@
 /** Optional integration check; uses installed PowerPoint, no AI or external data. */
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {sampleDeck,sampleSlide} from '../shared/layout-samples';
+import {sampleDeck,sampleSlide} from '../core/shared/layout-samples';
 import {createRenderBridge} from '../server/render-bridge';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const types=['column','bar','line','pie'] as const;

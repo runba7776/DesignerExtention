@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import type { AiPalette, ProposalSet } from '../shared/contracts';
-import { compileDeck } from '../shared/layouts';
+import type { AiPalette, ProposalSet } from '../core/shared/contracts';
+import { compileDeck } from '../core/shared/layouts';
 import { SlidePreview } from './SlidePreview';
 import { Icon } from './ui';
 

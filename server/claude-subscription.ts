@@ -3,9 +3,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { SubscriptionConnection } from '../shared/contracts.js';
-import { AppError } from './errors.js';
-import { emptyUsage, OutputLimitError, type CompletionRequest, type Provider } from './providers.js';
+import type { SubscriptionConnection } from '../core/shared/contracts.js';
+import { AppError } from '../core/errors.js';
+import { emptyUsage, OutputLimitError, type CompletionRequest, type Provider } from '../core/providers.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const documentationUrl =

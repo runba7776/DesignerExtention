@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { SubscriptionConnection, SubscriptionService, SubscriptionStatus } from '../shared/contracts';
+import type { SubscriptionConnection, SubscriptionService, SubscriptionStatus } from '../core/shared/contracts';
 import { api } from './api';
 import { Icon, Spinner } from './ui';
 

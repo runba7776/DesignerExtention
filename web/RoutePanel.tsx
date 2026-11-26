@@ -1,5 +1,5 @@
-import type { AiTarget, SendScope, Settings, SubscriptionStatus } from '../shared/contracts';
-import { routeOf, type Route as SessionRoute } from '../shared/route';
+import type { AiTarget, SendScope, Settings, SubscriptionStatus } from '../core/shared/contracts';
+import { routeOf, type Route as SessionRoute } from '../core/shared/route';
 
 /** The three ways to make a deck, as the user chooses them before writing the request (a route's drive). */
 export type Route = SessionRoute['drive'];

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import type { ProjectProfile, TemplateTheme } from '../shared/contracts';
-import { templateToTheme } from '../shared/template-style';
+import type { ProjectProfile, TemplateTheme } from '../core/shared/contracts';
+import { templateToTheme } from '../core/shared/template-style';
 import { api } from './api';
 import { Icon, Spinner } from './ui';
 import { canReadPresentationFile, readPresentationFile } from './office';
@@ -54,13 +54,13 @@ export function TemplateSection({
       return;
     }
     void save(async () => {
-      const { extractTemplateTheme } = await import('../shared/template-theme');
+      const { extractTemplateTheme } = await import('../core/shared/template-theme');
       return extractTemplateTheme(new Uint8Array(await file.arrayBuffer()), file.name);
     }, 'file');
   };
   const fromOpenDeck = () =>
     void save(async () => {
-      const { extractTemplateTheme } = await import('../shared/template-theme');
+      const { extractTemplateTheme } = await import('../core/shared/template-theme');
       return extractTemplateTheme(await readPresentationFile(), '開いている資料');
     }, 'deck');
   async function remove() {

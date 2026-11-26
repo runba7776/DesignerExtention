@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { AssistState, OutputMode, ProviderKind, RehearsalPlan, RehearsalSlide } from '../shared/contracts';
-import { formatDuration, localRehearsal, REHEARSAL_LIMITS } from '../shared/rehearsal';
+import type { AssistState, OutputMode, ProviderKind, RehearsalPlan, RehearsalSlide } from '../core/shared/contracts';
+import { formatDuration, localRehearsal, REHEARSAL_LIMITS } from '../core/shared/rehearsal';
 import { api } from './api';
 import { ChatHandoffPanel } from './ChatHandoffPanel';
 import { Icon } from './ui';

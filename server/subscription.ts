@@ -1,9 +1,14 @@
 import path from 'node:path';
-import type { Settings, SubscriptionConnection, SubscriptionService, SubscriptionStatus } from '../shared/contracts.js';
-import type { Provider } from './providers.js';
+import type {
+  Settings,
+  SubscriptionConnection,
+  SubscriptionService,
+  SubscriptionStatus,
+} from '../core/shared/contracts.js';
+import type { Provider } from '../core/providers.js';
 import { ChatGptSubscription, type ChatGptSubscriptionOptions } from './chatgpt-subscription.js';
 import { ClaudeSubscription } from './claude-subscription.js';
-import { AppError } from './errors.js';
+import { AppError } from '../core/errors.js';
 
 export class SubscriptionManager {
   private chatgpt: ChatGptSubscription;

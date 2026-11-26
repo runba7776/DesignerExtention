@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import type { Settings, ProviderKind, TemplateTheme } from '../shared/contracts';
+import type { Settings, ProviderKind, TemplateTheme } from '../core/shared/contracts';
 import { api } from './api';
 import { Icon, Modal, Spinner } from './ui';
-import { MAX_SLIDES } from '../shared/contracts';
-import { themes, TEMPLATE_THEME_ID } from '../shared/themes';
-import { templateToTheme } from '../shared/template-style';
-import { typographyProfiles, withTypography } from '../shared/typography';
-import { makingMethod, makingNames, routeOf } from '../shared/route';
+import { MAX_SLIDES } from '../core/shared/contracts';
+import { themes, TEMPLATE_THEME_ID } from '../core/shared/themes';
+import { templateToTheme } from '../core/shared/template-style';
+import { typographyProfiles, withTypography } from '../core/shared/typography';
+import { makingMethod, makingNames, routeOf } from '../core/shared/route';
 import { chatServices } from './ChatHandoffPanel';
 import { SubscriptionConnectionPanel } from './SubscriptionConnectionPanel';
 import { inWebPowerPoint } from './office';

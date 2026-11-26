@@ -1,4 +1,4 @@
-import type { Session } from '../../shared/contracts';
+import type { Session } from '../../core/shared/contracts';
 import { Icon } from '../ui';
 
 /** The start screen's heading, before a presentation is begun. */

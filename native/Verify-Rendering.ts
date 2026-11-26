@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs/promises';
-import { demoDeck, demoOutline } from '../server/demo';
+import { demoDeck, demoOutline } from '../core/demo';
 import { createRenderBridge } from '../server/render-bridge';
 
 const root = fileURLToPath(new URL('..', import.meta.url));

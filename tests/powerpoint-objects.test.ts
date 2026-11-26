@@ -9,12 +9,12 @@ import type {
   ShapeElement,
   TableElement,
   TextElement,
-} from '../shared/contracts.js';
-import { compileDeck } from '../shared/layouts.js';
-import { fillBlanks } from '../shared/blanks.js';
-import { paletteTheme } from '../shared/ai-theme.js';
+} from '../core/shared/contracts.js';
+import { compileDeck } from '../core/shared/layouts.js';
+import { fillBlanks } from '../core/shared/blanks.js';
+import { paletteTheme } from '../core/shared/ai-theme.js';
 import { findBrowser, layoutHtmlSlides } from '../server/html-layout.js';
-import { validateDesign } from '../server/validation.js';
+import { validateDesign } from '../core/validation.js';
 
 const title = { t: 'text', x: 56, y: 30, w: 600, h: 44, text: '題名', size: 30, role: 'title' } as const;
 const deck = (elements: FreeElement[]): DeckSpec => ({

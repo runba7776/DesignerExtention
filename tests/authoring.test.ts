@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { SettingsStore } from '../server/settings';
-import { SessionEngine } from '../server/engine';
-import { demoDeck, demoOutline } from '../server/demo';
-import { applySummaries, assertTextFits, fitProblems } from '../server/text-fit';
-import { compileDeck, listLayouts } from '../shared/layouts';
-import { themes } from '../shared/themes';
-import { emptyUsage, type CompletionRequest } from '../server/providers';
-import { validateDeck } from '../server/validation';
-import type { RenderResult } from '../shared/contracts';
+import { SettingsStore } from '../core/settings';
+import { SessionEngine } from '../core/engine';
+import { demoDeck, demoOutline } from '../core/demo';
+import { applySummaries, assertTextFits, fitProblems } from '../core/text-fit';
+import { compileDeck, listLayouts } from '../core/shared/layouts';
+import { themes } from '../core/shared/themes';
+import { emptyUsage, type CompletionRequest } from '../core/providers';
+import { validateDeck } from '../core/validation';
+import type { RenderResult } from '../core/shared/contracts';
 
 const rendered: RenderResult = {
   artifactId: 'test',

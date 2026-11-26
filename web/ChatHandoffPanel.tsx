@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatHandoff, ChatService } from '../shared/contracts';
+import type { ChatHandoff, ChatService } from '../core/shared/contracts';
 import { Icon } from './ui';
 import { appUrlFor, openExternal } from './office';
 
