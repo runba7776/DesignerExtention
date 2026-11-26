@@ -23,8 +23,32 @@ import { deckBlanks, fillBlanks } from '../../shared/blanks.js';
 import { makingNames, writerName } from '../../shared/route.js';
 import type { SessionEngine } from '../engine.js';
 import type { FitDraft, GenerationDraft, AiRun, SessionState } from './session-state.js';
+import type { Session } from '../../shared/contracts.js';
 import { GENERATION_CALL_LIMIT, MAX_VARIANTS, SESSION_CALL_LIMIT } from './session-state.js';
 import { sameContent, knownTheme, continued, factValues, plainOutline, deckFindings } from './helpers.js';
+
+/** One page the AI could not get right, and what is known about it. cause: content (the AI's page did not pass)
+ * or text-fit (its text does not fit even at half size). */
+interface FallbackContext {
+  state: SessionState;
+  outline: Outline;
+  target: Outline['slides'][number];
+  /** The pages before it, for the AI to continue from. */
+  before: SlideSpec[];
+  cause: 'content' | 'text-fit';
+  /** The AI's last page, when there is one. */
+  raw?: any;
+  /** Why the AI's page was not kept, for the hint. */
+  why: string;
+  /** The summary layout may be asked for (one call). */
+  allowCall: boolean;
+  run?: AiRun;
+}
+interface PageFallback {
+  id: 'as-written' | 'summary-layout' | 'from-outline';
+  applies: (context: FallbackContext) => boolean;
+  make: (context: FallbackContext) => Promise<{ raw: any; what: string }>;
+}
 
 /** Writing the pages of an agreed outline, fitting their text, and filling blanks the user answers. */
 export class GenerationService {
@@ -57,40 +81,8 @@ export class GenerationService {
           extras: Promise<void> = Promise.resolve();
         if (this.engine.route(state).drive === 'sample') value = demoDeck(outline);
         else {
-          const key = JSON.stringify({ outline, messages: state.session.messages, settings: state.settings });
-          if (state.draft?.key !== key) {
-            state.draft = {
-              key,
-              slides: [],
-              themeId: outline.themeId ?? this.engine.preferredTheme,
-              batchSize: this.baseBatch(state, outline),
-              singleFailures: 0,
-              compact: false,
-            };
-            delete state.session.reviewHints;
-            delete state.session.reviewReport;
-            delete state.session.polish;
-            delete state.polish;
-            // The sample pages of the picked direction are already made: they join the deck in their places.
-            // They were made before the user answered the open facts, so their blanks are filled with the answers.
-            const seed = state.previewSeeds?.find(s => s.outline === plainOutline(outline!));
-            if (seed) {
-              const slides = fillBlanks(
-                {
-                  id: 'seed',
-                  title: outline.title,
-                  mode: outline.mode,
-                  themeId: '',
-                  slides: seed.slides.map(s => structuredClone(s)),
-                },
-                factValues(outline),
-              ).deck.slides;
-              state.draft.pending = Object.fromEntries(slides.map(s => [s.id, s]));
-              state.draft.shots = { ...seed.shots };
-              state.draft.html = { ...seed.html };
-            }
-          }
-          const draft = state.draft;
+          this.prepareDraft(state, outline);
+          const draft = state.draft!;
           // Other AIs chosen at creation write their drafts of the same outline at the same time.
           extras = this.startExtras(state, outline);
           const stopped = await this.writePages(state, outline, draft);
@@ -106,146 +98,205 @@ export class GenerationService {
             slides: draft.slides,
           };
         }
-        let deck!: DeckSpec;
-        // A page whose text does not fit even at half size gives way, as a page the AI could not write does: it is
-        // made again with a layout, then from the outline, and the deck is finished; each step is tried once.
-        for (let gaveWay = 0; ; gaveWay++) {
-          deck = validateDeck(value, outline);
-          if (deck.mode !== outline.mode) throw new AppError(422, '生成された資料のモードが構成案と異なります。');
-          deck.title = outline.title;
-          deck.id = randomUUID();
-          this.engine.pages.verifySources(state, deck.slides);
-          this.engine.pages.styleDeck(state, deck, outline);
-          // Blanks the AI still wrote for facts the user gave are filled with them.
-          deck = fillBlanks(deck, factValues(outline)).deck;
-          const typography = state.settings.typographyId;
-          deck.typographyId =
-            typography && typography !== 'auto' ? typography : (outline.typographyId ?? deck.typographyId);
-          if (state.settings.preferredDesignId && state.design)
-            deck = applySavedDesign(deck, state.design, false, this.engine.pages.templateTheme(state)).deck;
-          const draft = state.draft;
-          if (draft && !draft.fit)
-            draft.fit = { deck: improveTextFit(deck), batchSize: READING_BATCH_SIZE, singleFailures: 0 };
-          if (force && draft?.fit) draft.fit.force = true;
-          try {
-            deck = await this.fitText(state, draft?.fit?.deck ?? improveTextFit(deck), draft?.fit);
-          } catch (error) {
-            if (!draft?.fit || (!repairReason(error) && !(error instanceof AppError && error.code === 'CALL_LIMIT')))
-              throw error;
-            // Text the AI could not fit either is set smaller on this PC (down to half, no call) instead of stopping;
-            // the pages are named in a warning. With automatic repair turned off, it stops here as before, for the
-            // user to resume or to split the outline.
-            const auto = this.engine.options.settings.get().autoRepair !== false;
-            const smaller = !auto
-              ? undefined
-              : await this.fitText(state, draft.fit.deck, { ...draft.fit, force: true }).catch(forced => {
-                  if (forced instanceof AppError && forced.code === 'TEXT_FIT_FORCED') return undefined;
-                  throw forced;
-                });
-            if (!smaller) {
-              const unfitting = auto && gaveWay < 2 ? this.unfitting(draft.fit.deck) : [];
-              if (unfitting.length) {
-                await this.giveWayToFit(state, outline, draft, unfitting, gaveWay === 0);
-                delete draft.fit;
-                value = { ...(value as object), themeId: draft.themeId, slides: draft.slides };
-                continue;
-              }
-              await extras;
-              return this.generationRecovery(
-                state,
-                outline,
-                'text-fit',
-                error instanceof AppError && error.code === 'CALL_LIMIT'
-                  ? state.session.usage.calls < SESSION_CALL_LIMIT
-                  : !!repairReason(error) && draft.fit.singleFailures < 2,
-              );
-            }
-            deck = smaller;
-          }
-          break;
-        }
-        deck = diversifyDeck(deck, state.session.id, this.engine.recentLayouts);
-        if (state.settings.preferredDesignId && state.design)
-          deck = applySavedDesign(deck, state.design, true, this.engine.pages.templateTheme(state)).deck;
-        assertTextFits(deck);
-        state.session.outline = outline;
-        const ai = writerName(this.engine.route(state), state.settings.subscriptionService);
-        const main: DeckVariant = {
-          id: randomUUID(),
-          label: state.sendScope === 'design' ? '内容（ローカルLLM）' : ai,
-          deck,
-          origin: { kind: 'ai', ai },
-        };
-        state.session.variants = [main];
-        await extras;
-        for (const variant of state.extras?.ready ?? [])
-          if (state.session.variants.length < MAX_VARIANTS) state.session.variants.push(variant);
-        for (const failure of state.extras?.failed ?? []) state.session.warnings.push(failure);
-        // Content written on this PC; each chosen cloud AI receives only the skeleton for its design.
-        if (state.sendScope === 'design')
-          await Promise.all(
-            (state.targets ?? [])
-              .filter((t): t is SubscriptionService => t !== 'local')
-              .map(async target => {
-                const run = this.engine.ai.newRun(state, target);
-                try {
-                  const designed = await this.engine.designRequests.designPages(
-                    state,
-                    main.deck,
-                    'structure',
-                    undefined,
-                    run,
-                  );
-                  state.session.variants.push({
-                    id: randomUUID(),
-                    label: `デザイン：${run.label}`,
-                    deck: designed,
-                    origin: {
-                      kind: 'ai',
-                      ai: run.label,
-                      parents: [main.id],
-                      notes: [`${run.label}には内容を送らず、文字の枠の役割・文字数・グラフと表の形だけを渡しました。`],
-                    },
-                  });
-                } catch (error) {
-                  state.session.warnings.push(
-                    `${run.label}のデザインは作成できませんでした（${error instanceof AppError ? error.message : '接続または応答の不備'}）。内容の案はこのPCで作成済みです。`,
-                  );
-                }
-              }),
-          );
-        state.session.phase = 'ready';
-        // The drawn pages are looked at after the deck is shown (polish), so the user can read it meanwhile.
-        const shots = state.draft?.shots,
-          findings = [...(state.draft?.hints ?? []), ...deckFindings(main.deck.slides)];
-        if (shots && Object.keys(shots).length && this.engine.pages.wantsReview(state)) {
-          state.polish = {
-            shots,
-            html: state.draft!.html ?? {},
-            outline,
-            compact: state.draft!.compact,
-            variantId: main.id,
-            findings,
-          };
-          state.session.polish = { state: 'pending', pages: Object.keys(shots).length };
-        }
-        // Without the look at the pages, what the app found itself is shown to the user to fix.
-        else if (findings.length)
-          state.session.reviewHints = findings.map(f => ({ ...f, severity: 'medium' as const }));
-        delete state.session.recovery;
-        delete state.draft;
-        delete state.extras;
-        await this.engine.rememberLayouts(deck, state.session);
-        const others = state.session.variants.slice(1).map(v => v.label);
-        state.session.messages.push({
-          role: 'assistant',
-          text: `${deck.slides.length}枚を作成しました。${others.length ? `${others.join('・')}の案も同じ構成で作りました。並べて比べたり、ページごとに組み合わせたりできます。` : ''}${state.session.polish?.state === 'pending' ? '続けて、描画したページを画像で見直して仕上げます。その間も資料を確認できます。' : 'サムネイルで確認し、必要なら対象のスライドに修正を指示してください。'}${state.session.reviewHints?.length ? `直したほうがよい点を「確認のヒント」に${state.session.reviewHints.length}件載せています。` : ''}${deckBlanks(deck).length ? `まだ決まっていない事実は［　］の記入欄にしています（${deckBlanks(deck).length}項目）。「記入欄」から入力すると、資料全体に反映します。` : ''}`,
-        });
+        const fitted = await this.finishText(state, outline, value, force, extras);
+        if (!('deck' in fitted)) return fitted.stopped;
+        await this.finishDeck(state, outline, fitted.deck, extras);
         return state.session;
       },
       true,
       true,
     );
+  }
+
+  /** A new draft for an outline (or the one kept from an earlier, stopped attempt at the same outline). */
+  private prepareDraft(state: SessionState, outline: Outline) {
+    const key = JSON.stringify({ outline, messages: state.session.messages, settings: state.settings });
+    if (state.draft?.key !== key) {
+      state.draft = {
+        key,
+        slides: [],
+        themeId: outline.themeId ?? this.engine.preferredTheme,
+        batchSize: this.baseBatch(state, outline),
+        singleFailures: 0,
+        compact: false,
+      };
+      delete state.session.reviewHints;
+      delete state.session.reviewReport;
+      delete state.session.polish;
+      delete state.polish;
+      // The sample pages of the picked direction are already made: they join the deck in their places.
+      // They were made before the user answered the open facts, so their blanks are filled with the answers.
+      const seed = state.previewSeeds?.find(s => s.outline === plainOutline(outline!));
+      if (seed) {
+        const slides = fillBlanks(
+          {
+            id: 'seed',
+            title: outline.title,
+            mode: outline.mode,
+            themeId: '',
+            slides: seed.slides.map(s => structuredClone(s)),
+          },
+          factValues(outline),
+        ).deck.slides;
+        state.draft.pending = Object.fromEntries(slides.map(s => [s.id, s]));
+        state.draft.shots = { ...seed.shots };
+        state.draft.html = { ...seed.html };
+      }
+    }
+  }
+  /** The written pages as a deck, its text fitted. Text the AI could not fit either is set smaller on this PC; a
+   * page whose text does not fit even at half size gives way (pageFallbacks), and the deck is finished. Returns the
+   * recovery the deck stopped at instead when it cannot be finished. */
+  private async finishText(
+    state: SessionState,
+    outline: Outline,
+    written: unknown,
+    force: boolean,
+    extras: Promise<void>,
+  ): Promise<{ deck: DeckSpec } | { stopped: Session }> {
+    let deck!: DeckSpec,
+      value = written;
+    // A page whose text does not fit even at half size gives way, as a page the AI could not write does: it is
+    // made again with a layout, then from the outline, and the deck is finished; each step is tried once.
+    for (let gaveWay = 0; ; gaveWay++) {
+      deck = validateDeck(value, outline);
+      if (deck.mode !== outline.mode) throw new AppError(422, '生成された資料のモードが構成案と異なります。');
+      deck.title = outline.title;
+      deck.id = randomUUID();
+      this.engine.pages.verifySources(state, deck.slides);
+      this.engine.pages.styleDeck(state, deck, outline);
+      // Blanks the AI still wrote for facts the user gave are filled with them.
+      deck = fillBlanks(deck, factValues(outline)).deck;
+      const typography = state.settings.typographyId;
+      deck.typographyId =
+        typography && typography !== 'auto' ? typography : (outline.typographyId ?? deck.typographyId);
+      if (state.settings.preferredDesignId && state.design)
+        deck = applySavedDesign(deck, state.design, false, this.engine.pages.templateTheme(state)).deck;
+      const draft = state.draft;
+      if (draft && !draft.fit)
+        draft.fit = { deck: improveTextFit(deck), batchSize: READING_BATCH_SIZE, singleFailures: 0 };
+      if (force && draft?.fit) draft.fit.force = true;
+      try {
+        deck = await this.fitText(state, draft?.fit?.deck ?? improveTextFit(deck), draft?.fit);
+      } catch (error) {
+        if (!draft?.fit || (!repairReason(error) && !(error instanceof AppError && error.code === 'CALL_LIMIT')))
+          throw error;
+        // Text the AI could not fit either is set smaller on this PC (down to half, no call) instead of stopping;
+        // the pages are named in a warning. With automatic repair turned off, it stops here as before, for the
+        // user to resume or to split the outline.
+        const auto = this.engine.options.settings.get().autoRepair !== false;
+        const smaller = !auto
+          ? undefined
+          : await this.fitText(state, draft.fit.deck, { ...draft.fit, force: true }).catch(forced => {
+              if (forced instanceof AppError && forced.code === 'TEXT_FIT_FORCED') return undefined;
+              throw forced;
+            });
+        if (!smaller) {
+          const unfitting = auto && gaveWay < 2 ? this.unfitting(draft.fit.deck) : [];
+          if (unfitting.length) {
+            await this.giveWayToFit(state, outline, draft, unfitting, gaveWay === 0);
+            delete draft.fit;
+            value = { ...(value as object), themeId: draft.themeId, slides: draft.slides };
+            continue;
+          }
+          await extras;
+          return {
+            stopped: this.generationRecovery(
+              state,
+              outline,
+              'text-fit',
+              error instanceof AppError && error.code === 'CALL_LIMIT'
+                ? state.session.usage.calls < SESSION_CALL_LIMIT
+                : !!repairReason(error) && draft.fit.singleFailures < 2,
+            ),
+          };
+        }
+        deck = smaller;
+      }
+      break;
+    }
+    return { deck };
+  }
+  /** The finished deck as the session's first variant, with the other AIs' drafts and designs, then the look at the
+   * drawn pages or the app's own findings. */
+  private async finishDeck(state: SessionState, outline: Outline, fitted: DeckSpec, extras: Promise<void>) {
+    let deck = fitted;
+    deck = diversifyDeck(deck, state.session.id, this.engine.recentLayouts);
+    if (state.settings.preferredDesignId && state.design)
+      deck = applySavedDesign(deck, state.design, true, this.engine.pages.templateTheme(state)).deck;
+    assertTextFits(deck);
+    state.session.outline = outline;
+    const ai = writerName(this.engine.route(state), state.settings.subscriptionService);
+    const main: DeckVariant = {
+      id: randomUUID(),
+      label: state.sendScope === 'design' ? '内容（ローカルLLM）' : ai,
+      deck,
+      origin: { kind: 'ai', ai },
+    };
+    state.session.variants = [main];
+    await extras;
+    for (const variant of state.extras?.ready ?? [])
+      if (state.session.variants.length < MAX_VARIANTS) state.session.variants.push(variant);
+    for (const failure of state.extras?.failed ?? []) state.session.warnings.push(failure);
+    // Content written on this PC; each chosen cloud AI receives only the skeleton for its design.
+    if (state.sendScope === 'design')
+      await Promise.all(
+        (state.targets ?? [])
+          .filter((t): t is SubscriptionService => t !== 'local')
+          .map(async target => {
+            const run = this.engine.ai.newRun(state, target);
+            try {
+              const designed = await this.engine.designRequests.designPages(
+                state,
+                main.deck,
+                'structure',
+                undefined,
+                run,
+              );
+              state.session.variants.push({
+                id: randomUUID(),
+                label: `デザイン：${run.label}`,
+                deck: designed,
+                origin: {
+                  kind: 'ai',
+                  ai: run.label,
+                  parents: [main.id],
+                  notes: [`${run.label}には内容を送らず、文字の枠の役割・文字数・グラフと表の形だけを渡しました。`],
+                },
+              });
+            } catch (error) {
+              state.session.warnings.push(
+                `${run.label}のデザインは作成できませんでした（${error instanceof AppError ? error.message : '接続または応答の不備'}）。内容の案はこのPCで作成済みです。`,
+              );
+            }
+          }),
+      );
+    state.session.phase = 'ready';
+    // The drawn pages are looked at after the deck is shown (polish), so the user can read it meanwhile.
+    const shots = state.draft?.shots,
+      findings = [...(state.draft?.hints ?? []), ...deckFindings(main.deck.slides)];
+    if (shots && Object.keys(shots).length && this.engine.pages.wantsReview(state)) {
+      state.polish = {
+        shots,
+        html: state.draft!.html ?? {},
+        outline,
+        compact: state.draft!.compact,
+        variantId: main.id,
+        findings,
+      };
+      state.session.polish = { state: 'pending', pages: Object.keys(shots).length };
+    }
+    // Without the look at the pages, what the app found itself is shown to the user to fix.
+    else if (findings.length) state.session.reviewHints = findings.map(f => ({ ...f, severity: 'medium' as const }));
+    delete state.session.recovery;
+    delete state.draft;
+    delete state.extras;
+    await this.engine.rememberLayouts(deck, state.session);
+    const others = state.session.variants.slice(1).map(v => v.label);
+    state.session.messages.push({
+      role: 'assistant',
+      text: `${deck.slides.length}枚を作成しました。${others.length ? `${others.join('・')}の案も同じ構成で作りました。並べて比べたり、ページごとに組み合わせたりできます。` : ''}${state.session.polish?.state === 'pending' ? '続けて、描画したページを画像で見直して仕上げます。その間も資料を確認できます。' : 'サムネイルで確認し、必要なら対象のスライドに修正を指示してください。'}${state.session.reviewHints?.length ? `直したほうがよい点を「確認のヒント」に${state.session.reviewHints.length}件載せています。` : ''}${deckBlanks(deck).length ? `まだ決まっていない事実は［　］の記入欄にしています（${deckBlanks(deck).length}項目）。「記入欄」から入力すると、資料全体に反映します。` : ''}`,
+    });
   }
 
   private baseBatch(state: SessionState, outline: Outline) {
@@ -435,10 +486,71 @@ export class GenerationService {
     }
     return undefined;
   }
-  /** A page the AI could not get right does not stop the deck, whichever AI writes (stops cost the user time and
-   * quota, and the user fixes the page anyway): it is kept as last written when only the reading of its HTML found
-   * slips and all its text can be read, else asked once with the summary layout, else made from the outline with a
-   * layout. A hint asks the user to check it. */
+  /** A page the AI could not write, or whose text does not fit even at half size, gives way instead of stopping the
+   * deck, whichever AI writes (stops cost the user time and quota, and the user fixes the page anyway). The steps
+   * are tried in this order, each once for the page, and the first that gives a page that passes is kept; the last
+   * makes a page with no call and always gives one. What was done is named in a hint for the user to check. */
+  private pageFallbacks(): PageFallback[] {
+    const tell = (why: string) => (why ? `（${why}）` : '');
+    return [
+      {
+        // Only the reading of its HTML found slips and all its text can be read: kept as last written.
+        id: 'as-written',
+        applies: c => c.cause === 'content' && !!c.raw?.design && typeof c.raw.htmlProblem === 'string',
+        make: async c => {
+          if (c.raw.htmlUnreadable) throw new Error('no page to keep');
+          const what = `AIが直しきれなかった点があります（${c.raw.htmlProblem.replace(/「[^」]*」/g, '（該当の文字）').slice(0, 120)}）`;
+          delete c.raw.htmlProblem;
+          return { raw: c.raw, what };
+        },
+      },
+      {
+        // Asked once more with the summary layout (a cover is always made from the outline).
+        id: 'summary-layout',
+        applies: c => c.target.id !== 'slide-1' && c.allowCall,
+        make: async c => ({
+          raw: await this.layoutPage(c.state, c.outline, c.target, c.before, c.run),
+          what:
+            c.cause === 'content'
+              ? `AIのデザインが通らなかったため、型に当てはめて作りました${tell(c.why)}`
+              : '文字を半分の大きさにしても枠に収まらなかったため、型に当てはめて作り直しました',
+        }),
+      },
+      {
+        // Made from the outline's key points with a layout, with no call.
+        id: 'from-outline',
+        applies: () => true,
+        make: async c => ({
+          raw: this.outlinePage(c.target),
+          what:
+            c.cause === 'content'
+              ? `AIが作れなかったため、構成案の要点から型で仮に作りました${tell(c.why)}`
+              : '文字を半分の大きさにしても枠に収まらなかったため、構成案の要点から型で仮に作りました',
+        }),
+      },
+    ];
+  }
+  /** Walks the fallbacks for one page; keep checks and places the page (throwing when it does not pass). Returns
+   * what was done. */
+  private async giveWay(context: FallbackContext, keep: (raw: any) => void) {
+    const steps = this.pageFallbacks().filter(step => step.applies(context));
+    for (const [i, step] of steps.entries()) {
+      if (i === steps.length - 1) {
+        const { raw, what } = await step.make(context);
+        keep(raw);
+        return what;
+      }
+      try {
+        const { raw, what } = await step.make(context);
+        keep(raw);
+        return what;
+      } catch {
+        /* the next step */
+      }
+    }
+    throw new Error('no fallback for the page');
+  }
+  /** A page of the batch the AI could not get right, in its place at the end of the draft. */
   private async substitute(
     state: SessionState,
     outline: Outline,
@@ -454,22 +566,10 @@ export class GenerationService {
       .replace(/^slide-\d+：/, '')
       .replace(/「[^」]*」/g, '（該当の文字）')
       .slice(0, 100);
-    let what: string;
-    try {
-      if (!raw?.design || typeof raw.htmlProblem !== 'string' || raw.htmlUnreadable) throw new Error('no page to keep');
-      what = `AIが直しきれなかった点があります（${raw.htmlProblem.replace(/「[^」]*」/g, '（該当の文字）').slice(0, 120)}）`;
-      delete raw.htmlProblem;
-      accept(raw, target.id);
-    } catch {
-      try {
-        if (target.id === 'slide-1') throw new Error('a cover is made from the outline');
-        accept(await this.layoutPage(state, outline, target, draft.slides, run), target.id);
-        what = `AIのデザインが通らなかったため、型に当てはめて作りました${why ? `（${why}）` : ''}`;
-      } catch {
-        what = `AIが作れなかったため、構成案の要点から型で仮に作りました${why ? `（${why}）` : ''}`;
-        accept(this.outlinePage(target), target.id);
-      }
-    }
+    const what = await this.giveWay(
+      { state, outline, target, before: draft.slides, cause: 'content', raw, why, allowCall: true, run },
+      page => accept(page, target.id),
+    );
     (draft.hints ??= []).push({
       slideId: target.id,
       title: target.title,
@@ -483,37 +583,26 @@ export class GenerationService {
   private unfitting(deck: DeckSpec) {
     return [...new Set(fitProblems(improveTextFit(deck, true)).map(p => p.slideId))];
   }
-  /** Pages whose text does not fit even at half size are made again in place in the draft: first asked once with
-   * the summary layout (withLayout), else, and on the second time, from the outline with no call. A hint asks the
-   * user to check each one; the earlier picture of the page is not looked at. */
+  /** Pages whose text does not fit even at half size are made again in place in the draft (allowCall: the summary
+   * layout may be asked for; the second time, they are made from the outline). The earlier picture of the page is
+   * not looked at. */
   private async giveWayToFit(
     state: SessionState,
     outline: Outline,
     draft: GenerationDraft,
     ids: string[],
-    withLayout: boolean,
+    allowCall: boolean,
   ) {
     for (const id of ids) {
       const at = draft.slides.findIndex(s => s.id === id),
         target = outline.slides.find(s => s.id === id);
       if (at < 0 || !target) continue;
-      let slide: SlideSpec | undefined, what: string;
-      if (withLayout && target.id !== 'slide-1')
-        try {
-          slide = this.engine.pages.checkPage(
-            state,
-            await this.layoutPage(state, outline, target, draft.slides.slice(0, at)),
-            id,
-          );
-        } catch {
-          slide = undefined;
-        }
-      if (slide) what = '文字を半分の大きさにしても枠に収まらなかったため、型に当てはめて作り直しました';
-      else {
-        slide = this.engine.pages.checkPage(state, this.outlinePage(target), id);
-        what = '文字を半分の大きさにしても枠に収まらなかったため、構成案の要点から型で仮に作りました';
-      }
-      draft.slides[at] = slide;
+      const what = await this.giveWay(
+        { state, outline, target, before: draft.slides.slice(0, at), cause: 'text-fit', why: '', allowCall },
+        page => {
+          draft.slides[at] = this.engine.pages.checkPage(state, page, id);
+        },
+      );
       delete draft.shots?.[id];
       delete draft.html?.[id];
       draft.hints = [
