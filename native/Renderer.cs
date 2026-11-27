@@ -819,15 +819,8 @@ namespace DesignerExtension.Native
                     int color = colors.Length > 0 ? Color(Convert.ToString(colors[(i - 1) % colors.Length])) : Accent;
                     if (type == "line") { s.Format.Line.ForeColor.RGB = color; s.Format.Line.Weight = 2.5; s.MarkerStyle = 8; s.MarkerSize = 7; s.MarkerForegroundColor = color; s.MarkerBackgroundColor = color; s.Smooth = false; }
                     else { s.Format.Fill.Solid(); s.Format.Fill.ForeColor.RGB = color; s.Format.Line.Visible = 0; }
-                    // Highlighted categories: one colour per bar (the accent for the point of the slide, grey for context).
-                    object[] pointColors = ArrayOf(e, "pointColors");
-                    if (!share && series.Length == 1 && pointColors.Length == categories.Length)
-                        for (int p = 1; p <= categories.Length; p++)
-                        {
-                            dynamic point = s.Points(p);
-                            point.Format.Fill.Solid(); point.Format.Fill.ForeColor.RGB = Color(Convert.ToString(pointColors[p - 1]));
-                            Release((object)point);
-                        }
+                    // Highlighted categories (one colour per bar) are written into the chart XML by
+                    // ChartIntegrity.Synchronize: here the live chart can still hold Excel's template points.
                     if (share) for (int p = 1; p <= categories.Length; p++)
                     {
                         dynamic point = s.Points(p);
@@ -1020,7 +1013,28 @@ namespace DesignerExtension.Native
             }
             if (NodeOverflows(range, availableWidth, availableHeight))
                 throw new InvalidDataException("TEXT_FIT_REQUIRED: スライド " + slideNumber + " の図の項目名が箱に収まりません。項目名を短くしてください（" + Short(Convert.ToString(range.Text)) + "）。");
+            AvoidOrphans(range);
             Release((object)range); Release((object)frame);
+        }
+        /// <summary>A description that wraps with only one or two characters on its second line reads as a mistake
+        /// (毎日 / 記録): it is set a point smaller at a time, down to 11pt, until it keeps to one line.</summary>
+        private static void AvoidOrphans(dynamic range)
+        {
+            try
+            {
+                int count = (int)range.Paragraphs().Count;
+                for (int p = 2; p <= count; p++)
+                {
+                    dynamic paragraph = range.Paragraphs(p);
+                    float size = (float)paragraph.Font.Size;
+                    while ((int)paragraph.Lines().Count == 2 && Convert.ToString(paragraph.Lines(2).Text).Trim().Length <= 2 && size > 11)
+                    {
+                        size -= 1; paragraph.Font.Size = size;
+                    }
+                    Release((object)paragraph);
+                }
+            }
+            catch { }
         }
         private static bool NodeOverflows(dynamic range, float width, float height)
         {

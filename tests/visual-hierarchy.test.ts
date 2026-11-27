@@ -148,3 +148,12 @@ test('a cycle without a note takes the middle of the page', () => {
   const art = scene(slide('cycle', { items, diagram: { type: 'cycle', items } })).find(e => e.kind === 'smartart')!;
   assert.equal(art.x + art.w / 2, 480, 'centred on the page');
 });
+
+test('four list items get a frame PowerPoint sets as a 2 × 2 grid', () => {
+  const items = ['需要予測', '小分け販売', '段階値引き', 'フードバンク'].map(label => ({ label }));
+  const art = scene(slide('grouped_list', { items, diagram: { type: 'list', items } })).find(
+    e => e.kind === 'smartart',
+  )!;
+  assert.ok(art.w / art.h > 2.1 && art.w / art.h < 2.46, 'between the 2 × 2 and 3 + 1 break points');
+  assert.equal(art.x + art.w / 2, 480, 'centred on the page');
+});

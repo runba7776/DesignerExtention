@@ -276,8 +276,12 @@ export function registerExtraLayouts(
     diagram: true,
     textBudget: '項目名8文字、説明12文字。',
     render(c) {
-      const top = c.takeaway({ x: 56, y: 150, w: 848, h: 40 }) ? 204 : 164;
-      helpers.diagram(c, 'list', { x: 56, y: top, w: 848, h: 467 - top });
+      const top = c.takeaway({ x: 56, y: 150, w: 848, h: 40 }) ? 204 : 164,
+        h = 467 - top,
+        count = (c.slide.diagram?.items ?? c.slide.items).length,
+        // PowerPoint's block list sets four boxes 3 + 1 on a wide frame; at about 2.3 : 1 it sets them 2 × 2.
+        w = count === 4 ? Math.min(848, Math.round(h * 2.3)) : 848;
+      helpers.diagram(c, 'list', { x: 56 + (848 - w) / 2, y: top, w, h });
     },
   });
 }
