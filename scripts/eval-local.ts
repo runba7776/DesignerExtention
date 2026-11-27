@@ -8,6 +8,7 @@
 // runtime/images); one outline instead of three directions. Counts the pictures, charts, tables and effects.
 // --guide no-look | off (with --ai): the standing instruction (常設指示) without its section on the look that keeps
 // decoration down, or not sent at all (only how the app's photos, charts and icons are placed is left).
+// --request "<text>" [--slides 9]: one request of your own instead of the five (to compare with a deck made another way).
 // Results: runtime/eval/<time>-<model>.json (with --render, the pages as pictures beside it).
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -41,7 +42,9 @@ const model = arg('model') ?? 'gemma4:12b',
   review = !process.argv.includes('--no-review'),
   design = arg('design') as SubscriptionService | undefined,
   ai = arg('ai') as SubscriptionService | undefined,
-  guide = arg('guide') as 'no-look' | 'off' | undefined;
+  guide = arg('guide') as 'no-look' | 'off' | undefined,
+  requests = arg('request') ? [arg('request')!] : REQUESTS,
+  slideCount = Number(arg('slides') ?? 5);
 const root = path.resolve(import.meta.dirname, '..'),
   out = path.join(
     root,
@@ -103,7 +106,7 @@ async function makeDeck(request: string) {
       ...(ai
         ? { provider: 'subscription' as const, subscriptionService: ai, outlineProposals: false }
         : { provider: 'local' as const, endpoint, model }),
-      slideCount: 5,
+      slideCount,
       mode: 'presentation',
       visualReview: review,
       ...(guide === 'off' && { editorialGuide: false }),
@@ -161,7 +164,7 @@ async function makeDeck(request: string) {
       designed = session.variants.find(v => v.label.startsWith('デザイン：'));
     const hints = session.reviewHints ?? [];
     // Exactly what left this PC for the cloud AI (or what the local model was asked) and what came back.
-    const sentFile = `sent-${REQUESTS.indexOf(request) + 1}-${Date.now()}.json`;
+    const sentFile = `sent-${requests.indexOf(request) + 1}-${Date.now()}.json`;
     if (sent.length)
       await writeFile(
         path.join(out, sentFile),
@@ -259,7 +262,7 @@ async function makeDeck(request: string) {
         const from = path.join(root, 'runtime', 'artifacts', drawn.artifactId);
         const to = path.join(
           out,
-          `deck-${REQUESTS.indexOf(request) + 1}-${variant === designed ? 'design' : 'content'}-${Date.now()}`,
+          `deck-${requests.indexOf(request) + 1}-${variant === designed ? 'design' : 'content'}-${Date.now()}`,
         );
         await mkdir(to, { recursive: true });
         await cp(from, to, { recursive: true });
@@ -277,7 +280,7 @@ async function makeDeck(request: string) {
 await mkdir(out, { recursive: true });
 const results: ({ case: number; run: number } & Awaited<ReturnType<typeof makeDeck>>)[] = [];
 for (let run = 1; run <= runs; run++)
-  for (const [i, request] of REQUESTS.entries()) {
+  for (const [i, request] of requests.entries()) {
     if (only && !only.includes(i + 1)) continue;
     const result = await makeDeck(request);
     results.push({ case: i + 1, run, ...result });
