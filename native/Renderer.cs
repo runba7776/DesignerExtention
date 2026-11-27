@@ -970,6 +970,7 @@ namespace DesignerExtension.Native
                 }
             }
             // Check after all nodes are populated because SmartArt reflows as nodes are added.
+            var fitted = new List<object>();
             foreach (object itemNode in nodes)
             {
                 dynamic node = itemNode;
@@ -982,9 +983,47 @@ namespace DesignerExtension.Native
                     Release((object)nodeShape);
                 }
                 FitSmartArtNode(node,width,height,Number(e,"fontSize",18),slideNumber);
-                Release(itemNode);
+                fitted.Add(itemNode);
             }
+            MatchNodeSizes(fitted);
+            foreach (object itemNode in fitted) Release(itemNode);
             Release((object)art); Release((object)shape); Release((object)layout);
+        }
+
+        /// <summary>The boxes of one diagram share their type sizes: every label and every description takes the
+        /// smallest size any box needed, so one long note does not leave its box in smaller type than its row.</summary>
+        private static void MatchNodeSizes(List<object> nodes)
+        {
+            float label = float.MaxValue, note = float.MaxValue;
+            foreach (object item in nodes)
+            {
+                try
+                {
+                    dynamic range = ((dynamic)item).TextFrame2.TextRange;
+                    int count = (int)range.Paragraphs().Count;
+                    float size = (float)range.Paragraphs(1).Font.Size;
+                    if (size > 0 && size < 200) label = Math.Min(label, size);
+                    for (int p = 2; p <= count; p++)
+                    {
+                        size = (float)range.Paragraphs(p).Font.Size;
+                        if (size > 0 && size < 200) note = Math.Min(note, size);
+                    }
+                    Release((object)range);
+                }
+                catch { }
+            }
+            foreach (object item in nodes)
+            {
+                try
+                {
+                    dynamic range = ((dynamic)item).TextFrame2.TextRange;
+                    int count = (int)range.Paragraphs().Count;
+                    if (label < float.MaxValue) range.Paragraphs(1).Font.Size = label;
+                    if (note < float.MaxValue) for (int p = 2; p <= count; p++) range.Paragraphs(p).Font.Size = note;
+                    Release((object)range);
+                }
+                catch { }
+            }
         }
 
         /// <summary>Fits a SmartArt node: the label first, its description a size smaller (at least 10pt). Fonts with
