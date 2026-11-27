@@ -56,6 +56,7 @@ const guide = (mode: 'presentation' | 'reading', images = false) => `## スラ�
 - 表：{"t":"table","x":…,"y":…,"w":…,"h":…,"headers":[…],"rows":[[…]],"size":…}（6列・10行まで）。
 ${images ? `${imageGuide(false)}\n` : ''}- 1枚の要素は90個まで（グラフは4つ、表は2つまで）。JSONは改行やインデントなしで簡潔に書きます。
 ${textGuide(mode, 'pt')}
+${emphasisGuide('pt')}
 ${figureGuide}
 - 座標・大きさ・文字の大きさは整数で書きます。既定値と同じ項目（bold:false、italic:false、align:"l"、va:"t"、op:1、arrow:"none"、dash:false）と空の配列は書きません。`;
 
@@ -113,8 +114,17 @@ const textGuide = (mode: 'presentation' | 'reading', unit: 'px' | 'pt') => {
       ? `注記（補足、図の目盛りや小さなラベル）の要素にはdata-role="caption"を付けます。data-role="caption"のない文字が${min.body}px未満、注記が${min.caption}px未満のときは、アプリが大きくするか、直すよう依頼します。`
       : '';
   const size = `- 文字の大きさは、本文${min.body}${unit}以上・注記${min.caption}${unit}以上を目安にします。${checked}`;
-  return mode === 'reading' ? `${size}読む資料でも、1ページの文章は見出しの付いた3つまでのまとまりにします。` : size;
+  return mode === 'reading'
+    ? `${size}読む資料でも、1ページの文章は見出しの付いた3つまでのまとまりにします。`
+    : `${size}発表では、本文20${unit}前後・項目名22〜28${unit}・題名28〜36${unit}・主役の数値48${unit}以上と、大きさの差をはっきり付けます。`;
 };
+/** Colour roles and the lead of each page: what international slide guides share (one accent for the point,
+ * grey for context, the takeaway written on the evidence). */
+const emphasisGuide = (unit: 'px' | 'pt') =>
+  `- 色の役割を決めます。文字は濃い文字色（ink）、比べる相手や背景情報は灰色（muted・rule・surface）、アクセント色（accent）はそのページの主役だけに使います。accent2は、増減・前後・自社と他社など意味の違いがあるときだけ使います。全部の箱やグラフをアクセント色で塗りません。
+- 各ページの主役（結論の数値、推奨する案、最も大きな要因）を1つ決め、色・大きさ・位置のどれかで一番強く見せます。強調の手段は重ねず、1つに絞ります。
+- グラフや図には「読み取り」を直接書きます（例：「惣菜と青果で7割」を該当する棒の近くに）。結論に関わる棒や項目だけアクセント色にし、ほかは灰色にします。
+- 本文の領域（題名の下から下端の余白まで）を使い切ります。図を中央に小さく浮かせず、図と短い解説を左右に組むなど、格子に沿って配置します。題名と本文の間を${unit === 'px' ? '40px' : '40pt'}以上空けません。`;
 const figureGuide =
   '- 図は中身まで描きます。軸や枠だけの図にせず、説明用の位置の目安でも、点・棒・図形・文字など図が伝える内容を図の中に置きます。';
 const htmlGuide = (mode: 'presentation' | 'reading', images = false) => `## スライドの作り方（HTML）
@@ -128,6 +138,7 @@ const htmlGuide = (mode: 'presentation' | 'reading', images = false) => `## ス�
 - 表紙以外の各ページに、そのページの題名を<h1>（またはdata-role="title"の要素）で1つ置きます。
 - 文字の高さ（折り返しと行の高さ）はブラウザが決めるため、書いた時点では正確に分かりません。下端の出典欄に入らないよう、文字は上から470px程度までに収めて余裕を残し、高さを固定した囲みに文字を詰め込まないでください。
 ${textGuide(mode, 'px')}
+${emphasisGuide('px')}
 ${figureGuide}
 - PowerPointの図形：<div data-shape="chevron">のようにdata-shapeを付けた要素は、その形の図形になります（背景色が塗り、枠線が線、中の文字はその上）。形はchevron（矢羽根）・pentagon（ホームベース）・arrow・leftArrow・upArrow・downArrow・triangle・diamond・hexagon・octagon・parallelogram・trapezoid。手順・流れはchevronやpentagonを横に並べて表せます。
 - アイコン：<i data-icon="ID" style="width:32px;height:32px;color:var(--accent)"></i>で、アプリのアイコン（IDは一覧）を置けます。PowerPointで編集できる図形になります。大きさはwidth・height、色はcolorで指定します。

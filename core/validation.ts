@@ -191,7 +191,12 @@ export function validateSlide(value: unknown, expectedId?: string): SlideSpec {
       ...(item.parent !== undefined ? { parent: item.parent } : {}),
       ...(item.icon !== undefined ? { icon: item.icon } : {}),
       ...(Array.isArray(item.refs) && item.refs.length ? { refs: [...new Set(item.refs as number[])] } : {}),
+      ...(item.emphasis === true ? { emphasis: true } : {}),
     };
+  });
+  // One lead per page: a second emphasis would make every item loud again.
+  items.forEach((item, i) => {
+    if (item.emphasis && items.findIndex(other => other.emphasis) !== i) delete item.emphasis;
   });
   const slide: SlideSpec = {
     id: expectedId ?? text(data.id, '識別子', 100)!,
@@ -285,6 +290,12 @@ function chartSpec(value: unknown): ChartSpec {
     unit: text(chart.unit, '単位', 40, true),
     caption: text(chart.caption, 'グラフ注釈', 240, true),
   };
+  // Highlighted categories must be categories of this chart; a highlight of everything is no highlight.
+  if (chart.highlight !== undefined) {
+    const named = stringList(chart.highlight, '強調する項目', 8, 40).filter(name => categories.includes(name));
+    const highlight = [...new Set(named)];
+    if (highlight.length && highlight.length < categories.length) result.highlight = highlight;
+  }
   const chartProblem = chartDataProblem(result);
   if (chartProblem) bad(chartProblem);
   return result;

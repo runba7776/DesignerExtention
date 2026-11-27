@@ -17,7 +17,7 @@
    "id": "s2",
    "layoutId": "kpi",
    "title": "いま、毎日これだけ捨てている",
-   "headline": "3店舗合計の現状",
+   "headline": "廃棄の7割は惣菜と青果、損失は年2,900万円",
    "items": [
     {
      "label": "廃棄量",
@@ -27,7 +27,8 @@
     {
      "label": "廃棄額",
      "value": "年2,900万円",
-     "description": "仕入れ値ベース"
+     "description": "仕入れ値ベース",
+     "emphasis": true
     },
     {
      "label": "値引き率",
@@ -65,10 +66,15 @@
      }
     ],
     "unit": "kg/日",
-    "caption": "2026年9月の3店舗平均（架空データ）"
+    "caption": "2026年9月の3店舗平均（架空データ）",
+    "highlight": [
+     "惣菜",
+     "青果"
+    ]
    },
    "notes": "評価用の架空データです。",
-   "sources": []
+   "sources": [],
+   "headline": "惣菜と青果だけで廃棄の7割を占める"
   },
   {
    "id": "s4",
@@ -97,7 +103,8 @@
     ]
    },
    "notes": "評価用の架空データです。",
-   "sources": []
+   "sources": [],
+   "headline": "まず毎日の記録から始め、最後は地域で生かす"
   },
   {
    "id": "s5",
@@ -134,7 +141,8 @@
     ]
    },
    "notes": "評価用の架空データです。",
-   "sources": []
+   "sources": [],
+   "headline": "本部の責任者の下、店舗とデータの二本立てで進める"
   },
   {
    "id": "s6",
@@ -175,7 +183,8 @@
     "items": [
      {
       "label": "需要予測",
-      "description": "天気と曜日で発注"
+      "description": "天気と曜日で発注",
+      "emphasis": true
      },
      {
       "label": "小分け販売",
@@ -192,7 +201,8 @@
     ]
    },
    "notes": "評価用の架空データです。",
-   "sources": []
+   "sources": [],
+   "headline": "どれも新しい設備なしで来月から始められる"
   },
   {
    "id": "s8",
@@ -205,11 +215,13 @@
     },
     {
      "label": "新方式",
-     "description": "データで発注量を決め、夕方から段階的に値引き"
+     "description": "データで発注量を決め、夕方から段階的に値引き",
+     "emphasis": true
     }
    ],
    "notes": "評価用の架空データです。",
-   "sources": []
+   "sources": [],
+   "headline": "勘に頼らず、データで発注し値引きを前倒しする"
   },
   {
    "id": "s9",
@@ -219,15 +231,19 @@
    "items": [
     {
      "label": "廃棄量",
-     "description": "182kg → 90kg/日"
+     "value": "182kg→90kg/日",
+     "description": "惣菜と青果の発注見直しで半減"
     },
     {
      "label": "値引き率",
-     "description": "38% → 25%"
+     "value": "38%→25%",
+     "description": "夕方からの段階値引き",
+     "emphasis": true
     },
     {
      "label": "寄付",
-     "description": "月1.5トンを地域へ"
+     "value": "月1.5トン",
+     "description": "フードバンク2団体へ"
     }
    ],
    "notes": "評価用の架空データです。",

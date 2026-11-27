@@ -1,5 +1,6 @@
 import type { LayoutContext as C, LayoutDefinition } from './layouts';
 import type { Rect } from './contracts';
+import { mixColor, onAccent } from './color';
 
 /** Each grammar expresses a different relationship, not a random decoration. */
 export function registerExtraLayouts(
@@ -208,13 +209,28 @@ export function registerExtraLayouts(
     textBudget: '値は単位付き12文字、項目名12文字、説明30文字。',
     render(c) {
       const step = 848 / Math.max(1, c.slide.items.length);
+      // The takeaway (what the numbers mean together) sits above the cards when there is one.
+      const top = c.takeaway({ x: 56, y: 150, w: 848, h: 40 }) ? 204 : 159,
+        h = 475 - top;
       c.slide.items.forEach((item, i) => {
-        const x = 56 + i * step;
-        c.panel({ x: x - 6, y: 159, w: step - 15, h: 316 }, i);
-        c.text(item.label, { x, y: 177, w: step - 27, h: 71 }, 22, c.itemColor(i), true);
-        c.text(item.value || '', { x, y: 268, w: step - 27, h: 80 }, 38, c.itemColor(i), true);
-        c.line(x, 369, step - 27);
-        c.text(item.description || '', { x, y: 391, w: step - 27, h: 80 }, 18, c.theme.muted);
+        const x = 56 + i * step,
+          lead = c.lead === i,
+          quiet = c.lead >= 0 && !lead,
+          ink = onAccent(c.theme);
+        // The lead number stands on a field of the accent; the others stay on quiet panels in the ink colour.
+        if (lead) c.shape({ x: x - 6, y: top, w: step - 15, h }, c.theme.accent);
+        else c.panel({ x: x - 6, y: top, w: step - 15, h }, i);
+        const label = lead ? ink : quiet ? c.theme.muted : c.itemColor(i),
+          value = lead ? ink : quiet ? c.theme.foreground : c.itemColor(i);
+        c.text(item.label, { x, y: top + h * 0.057, w: step - 27, h: h * 0.22 }, 22, label, true);
+        c.text(item.value || '', { x, y: top + h * 0.345, w: step - 27, h: 80 }, 38, value, true);
+        c.line(x, top + h * 0.665, step - 27, lead ? mixColor(ink, c.theme.accent, 0.4) : undefined);
+        c.text(
+          item.description || '',
+          { x, y: top + h * 0.734, w: step - 27, h: h * 0.25 },
+          18,
+          lead ? mixColor(ink, c.theme.accent, 0.88) : c.theme.muted,
+        );
       });
     },
   });
@@ -260,7 +276,8 @@ export function registerExtraLayouts(
     diagram: true,
     textBudget: '項目名8文字、説明12文字。',
     render(c) {
-      helpers.diagram(c, 'list', { x: 56, y: 164, w: 848, h: 303 });
+      const top = c.takeaway({ x: 56, y: 150, w: 848, h: 40 }) ? 204 : 164;
+      helpers.diagram(c, 'list', { x: 56, y: top, w: 848, h: 467 - top });
     },
   });
 }

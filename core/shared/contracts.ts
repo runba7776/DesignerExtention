@@ -236,6 +236,9 @@ export interface SlideItem {
   parent?: number;
   icon?: IconId | 'none';
   refs?: number[];
+  /** The one item the page is about (the conclusion, the recommended option, the target). It is drawn strongest and
+   * the other items step back to neutral colours. Absent on pages whose items are parallel. */
+  emphasis?: boolean;
 }
 export type ChartType = 'bar' | 'column' | 'line' | 'pie' | 'doughnut' | 'stackedBar' | 'stackedColumn' | 'waterfall';
 export interface ChartSpec {
@@ -244,6 +247,8 @@ export interface ChartSpec {
   series: { name: string; values: number[] }[];
   unit?: string;
   caption?: string;
+  /** Categories the conclusion is about: drawn in the accent colour, the others in grey for context. */
+  highlight?: string[];
 }
 export interface DiagramSpec {
   type: 'process' | 'cycle' | 'hierarchy' | 'list';
@@ -876,6 +881,8 @@ export interface ChartElement extends Rect {
   categories: string[];
   series: ChartSpec['series'];
   colors: string[];
+  /** One colour per category of a single-series bar or column chart (highlighted categories in the accent). */
+  pointColors?: string[];
   unit?: string;
   background?: string;
   gridColor?: string;

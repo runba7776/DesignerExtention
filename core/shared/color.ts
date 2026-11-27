@@ -48,3 +48,17 @@ export function negativeColor(theme: Theme) {
 export function ruleColor(theme: Theme) {
   return mixColor(theme.foreground, theme.background, isDark(theme) ? 0.28 : 0.16);
 }
+/** Grey for the items that give context to the lead (other bars, other boxes): quiet, but still 3:1 against the
+ * background so a chart stays readable. */
+export function contextColor(theme: Theme) {
+  let grey = mixColor(theme.foreground, theme.background, 0.38);
+  for (let w = 0.42; contrast(grey, theme.background) < 3 && w <= 1; w += 0.04)
+    grey = mixColor(theme.foreground, theme.background, w);
+  return grey;
+}
+/** Text on a field of the accent colour (a lead card, a takeaway band). */
+export function onAccent(theme: Theme) {
+  return readableColor(theme.background, theme.accent) === theme.background
+    ? theme.background
+    : readableColor('#FFFFFF', theme.accent);
+}

@@ -188,7 +188,7 @@ function SmartArt({ element: e }: { element: SmartArtElement }) {
       </g>
     );
   }
-  const columns = e.layout === 'list' ? Math.min(count, 3) : count;
+  const columns = e.layout === 'list' ? (count === 4 ? 2 : Math.min(count, 3)) : count;
   const rows = Math.ceil(count / columns),
     gap = e.layout === 'list' ? 18 : 25,
     w = (e.w - gap * (columns - 1)) / columns,

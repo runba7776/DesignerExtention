@@ -819,6 +819,15 @@ namespace DesignerExtension.Native
                     int color = colors.Length > 0 ? Color(Convert.ToString(colors[(i - 1) % colors.Length])) : Accent;
                     if (type == "line") { s.Format.Line.ForeColor.RGB = color; s.Format.Line.Weight = 2.5; s.MarkerStyle = 8; s.MarkerSize = 7; s.MarkerForegroundColor = color; s.MarkerBackgroundColor = color; s.Smooth = false; }
                     else { s.Format.Fill.Solid(); s.Format.Fill.ForeColor.RGB = color; s.Format.Line.Visible = 0; }
+                    // Highlighted categories: one colour per bar (the accent for the point of the slide, grey for context).
+                    object[] pointColors = ArrayOf(e, "pointColors");
+                    if (!share && series.Length == 1 && pointColors.Length == categories.Length)
+                        for (int p = 1; p <= categories.Length; p++)
+                        {
+                            dynamic point = s.Points(p);
+                            point.Format.Fill.Solid(); point.Format.Fill.ForeColor.RGB = Color(Convert.ToString(pointColors[p - 1]));
+                            Release((object)point);
+                        }
                     if (share) for (int p = 1; p <= categories.Length; p++)
                     {
                         dynamic point = s.Points(p);
@@ -979,23 +988,54 @@ namespace DesignerExtension.Native
                     height = Math.Max(height,(float)nodeShape.Height);
                     Release((object)nodeShape);
                 }
-                FitNativeText(node.TextFrame2,width,height,Number(e,"fontSize",18),slideNumber);
-                // A smaller description only frees space, so the fitted size stays valid.
-                try
-                {
-                    dynamic paragraphs = node.TextFrame2.TextRange.Paragraphs();
-                    int count = (int)paragraphs.Count;
-                    if (count > 1)
-                    {
-                        float label = (float)node.TextFrame2.TextRange.Paragraphs(1).Font.Size;
-                        for (int p = 2; p <= count; p++) node.TextFrame2.TextRange.Paragraphs(p).Font.Size = Math.Max(11f, label - 4);
-                    }
-                    Release((object)paragraphs);
-                }
-                catch { }
+                FitSmartArtNode(node,width,height,Number(e,"fontSize",18),slideNumber);
                 Release(itemNode);
             }
             Release((object)art); Release((object)shape); Release((object)layout);
+        }
+
+        /// <summary>Fits a SmartArt node: the label first, its description a size smaller (at least 10pt). Fonts with
+        /// tall lines (Meiryo) can still overflow a small box; then the description is left out with a warning
+        /// instead of failing the whole deck, and only a label that cannot fit at 12pt stops the export.</summary>
+        private static void FitSmartArtNode(dynamic node, float width, float height, float requested, int slideNumber)
+        {
+            dynamic frame = node.TextFrame2;
+            dynamic range = frame.TextRange;
+            float availableWidth = width - (float)frame.MarginLeft - (float)frame.MarginRight;
+            float availableHeight = height - (float)frame.MarginTop - (float)frame.MarginBottom;
+            float minimum = Math.Min(requested, 12f);
+            float size = requested;
+            SizeNodeText(range, size);
+            while (NodeOverflows(range, availableWidth, availableHeight) && size > minimum) { size = Math.Max(minimum, size - 1); SizeNodeText(range, size); }
+            int paragraphs = 1;
+            try { paragraphs = (int)range.Paragraphs().Count; } catch { }
+            if (NodeOverflows(range, availableWidth, availableHeight) && paragraphs > 1)
+            {
+                string label = Convert.ToString(range.Paragraphs(1).Text).TrimEnd('\r', '\n', '\v');
+                range.Text = label;
+                try { range.Font.Bold = -1; } catch { }
+                Warnings.Add("スライド " + slideNumber + ": 図の「" + Short(label) + "」の説明が箱に収まらないため省きました。詳しい説明は発表者ノートに書いてください。");
+                size = requested; SizeNodeText(range, size);
+                while (NodeOverflows(range, availableWidth, availableHeight) && size > minimum) { size = Math.Max(minimum, size - 1); SizeNodeText(range, size); }
+            }
+            if (NodeOverflows(range, availableWidth, availableHeight))
+                throw new InvalidDataException("TEXT_FIT_REQUIRED: スライド " + slideNumber + " の図の項目名が箱に収まりません。項目名を短くしてください（" + Short(Convert.ToString(range.Text)) + "）。");
+            Release((object)range); Release((object)frame);
+        }
+        private static bool NodeOverflows(dynamic range, float width, float height)
+        {
+            return (float)range.BoundHeight > height + 1 || (float)range.BoundWidth > width + 1;
+        }
+        /// <summary>The label at size, any description paragraphs 4pt smaller (at least 10pt).</summary>
+        private static void SizeNodeText(dynamic range, float size)
+        {
+            range.Font.Size = size;
+            try
+            {
+                int count = (int)range.Paragraphs().Count;
+                for (int p = 2; p <= count; p++) range.Paragraphs(p).Font.Size = Math.Max(10f, size - 4);
+            }
+            catch { }
         }
 
         private static void SmartArtFallback(dynamic slide, Dictionary<string, object> e, int slideNumber)

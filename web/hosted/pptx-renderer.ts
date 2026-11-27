@@ -194,9 +194,12 @@ function addChart(pptx: Pptx, slide: Slide, e: ChartElement, font: string, ink: 
       h: inch(e.h),
       barDir: e.chartType === 'bar' || e.chartType === 'stackedBar' ? 'bar' : 'col',
       ...(stacked ? { barGrouping: 'stacked' } : {}),
+      // A single series with highlighted categories is coloured bar by bar (PptxGenJS writes one data point each).
       chartColors: share
         ? e.categories.map((_, i) => colors[i % colors.length])
-        : e.series.map((_, i) => colors[i % colors.length]),
+        : e.pointColors?.length && e.series.length === 1
+          ? e.pointColors.map(color => hex(color))
+          : e.series.map((_, i) => colors[i % colors.length]),
       showLegend: e.series.length > 1 || share,
       legendPos: 'b',
       legendFontSize: e.labelSize ?? 14,
@@ -319,7 +322,7 @@ function addDiagram(pptx: Pptx, slide: Slide, e: SmartArtElement, font: string) 
     box(0, topX, topY, rootW, 75);
     return;
   }
-  const columns = e.layout === 'list' ? Math.min(count, 3) : count,
+  const columns = e.layout === 'list' ? (count === 4 ? 2 : Math.min(count, 3)) : count,
     rows = Math.ceil(count / columns),
     gap = e.layout === 'list' ? 18 : 25;
   const w = (e.w - gap * (columns - 1)) / columns,
