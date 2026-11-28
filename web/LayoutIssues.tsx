@@ -43,7 +43,7 @@ export function LayoutIssues({
         ))}
       </ol>
       <small className="review-note">
-        PowerPointで描いたときに見つかったものです（少し大きいだけの文字は自動で最大1割縮めています）。ページを選んで「文字を減らして」などと指示するか、PowerPointで直接調整してください。
+        PowerPointで描いたときに見つかったものです（重なりは最大2割、ほかは最大1割まで、文字を自動で縮めて直しています。ここにあるのはそれでも残ったものです）。ページを選んで「文字を減らして」などと指示するか、PowerPointで直接調整してください。
       </small>
     </details>
   );

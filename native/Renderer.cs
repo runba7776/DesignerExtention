@@ -1203,9 +1203,9 @@ namespace DesignerExtension.Native
             float across = Math.Max(3f, 0.06f * (box.R - box.L)), down = Math.Max(3f, 0.3f * TextSize(item));
             return ink.L >= box.L - across && ink.R <= box.R + across && ink.T >= box.T - down && ink.B <= box.B + down;
         }
-        /// <summary>Sets a text up to 10% smaller (2% at a time, not below 9pt) until ok holds. Left as it was when that
-        /// is not enough, so a page is not made smaller for nothing.</summary>
-        private static bool ShrinkUntil(object item, Func<bool> ok)
+        /// <summary>Sets a text up to 10% smaller (2% at a time, not below 9pt; steps sets how far) until ok holds. Left
+        /// as it was when that is not enough, so a page is not made smaller for nothing.</summary>
+        private static bool ShrinkUntil(object item, Func<bool> ok, int steps = 5)
         {
             dynamic shape = item;
             dynamic range = shape.TextFrame2.TextRange;
@@ -1214,7 +1214,7 @@ namespace DesignerExtension.Native
             try { runs = (int)range.Runs().Count; for (int r = 1; r <= runs; r++) sizes.Add((float)range.Runs(r).Font.Size); } catch { runs = 0; }
             if (runs == 0 || sizes.Exists(v => !(v > 0 && v < 400))) { Release((object)range); return false; }
             bool done = false;
-            for (int step = 1; step <= 5 && !done; step++)
+            for (int step = 1; step <= steps && !done; step++)
             {
                 for (int r = 1; r <= runs; r++) range.Runs(r).Font.Size = Math.Max(9f, sizes[r - 1] * (1 - 0.02f * step));
                 done = ok();
@@ -1295,7 +1295,8 @@ namespace DesignerExtension.Native
                             Box x = InkBox(first), y = InkBox(second);
                             return Overlap(x.L, x.R, y.L, y.R) <= 3 || Overlap(x.T, x.B, y.T, y.B) <= 3;
                         };
-                        if (apart() || ShrinkUntil(second, apart) || ShrinkUntil(first, apart)) continue;
+                        // Two texts over each other read worse than one a little smaller than its neighbours: up to 20%.
+                        if (apart() || ShrinkUntil(second, apart, 10) || ShrinkUntil(first, apart, 10)) continue;
                         Issue(slideNumber, "overlap", TextOf(first), TextOf(second));
                     }
                 // A text set on a card (most of it over a filled shape behind it) keeps 2pt inside the card's edges.
@@ -1365,7 +1366,7 @@ namespace DesignerExtension.Native
                         if (!ReferenceEquals(other, item) && Share(InkBox(other), box) < 0.5f) continue;
                         object current = other;
                         Func<bool> clear = () => !LineBoxes(current).Exists(line => HitsPoint(line, box, depth, chevron));
-                        if (!clear() || ShrinkUntil(current, clear)) continue;
+                        if (clear() || ShrinkUntil(current, clear)) continue;
                         Issue(slideNumber, "notch", TextOf(current), null);
                     }
                 }
@@ -1373,9 +1374,9 @@ namespace DesignerExtension.Native
             catch (Exception ex) { Warnings.Add("スライド " + slideNumber + ": 文字の重なりを確かめられませんでした（" + Short(ex.Message) + "）。"); }
             foreach (object shape in held) Release(shape);
         }
-        /// <summary>Sets every cell of a table up to 10% smaller (2% at a time, not below 9pt) until ok holds; left as it
+        /// <summary>Sets every cell of a table up to 20% smaller (2% at a time, not below 9pt) until ok holds; left as it
         /// was when that is not enough.</summary>
-        private static bool ShrinkTable(object item, Func<bool> ok)
+        private static bool ShrinkTable(object item, Func<bool> ok, int steps = 10)
         {
             dynamic shape = item;
             dynamic table = shape.Table;
@@ -1389,7 +1390,7 @@ namespace DesignerExtension.Native
                     sizes[r - 1, c - 1] = size > 0 && size < 400 ? size : 0;
                 }
             bool done = false;
-            for (int step = 1; step <= 5 && !done; step++)
+            for (int step = 1; step <= steps && !done; step++)
             {
                 for (int r = 1; r <= rows; r++)
                     for (int c = 1; c <= columns; c++)
