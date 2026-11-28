@@ -1239,7 +1239,8 @@ namespace DesignerExtension.Native
             float nearest = Math.Max(line.T, Math.Min(middle, line.B)), farthest = Math.Abs(line.T - middle) > Math.Abs(line.B - middle) ? line.T : line.B;
             float cutIn = box.L + depth * (1 - Math.Min(1, Math.Abs(nearest - middle) / half));
             float tip = box.R - depth * Math.Min(1, Math.Abs(farthest - middle) / half);
-            return (chevron && line.L < cutIn + 1) || line.R > tip - 1;
+            // A few points of room, not a touch: a character at the very tip of the cut-in reads as cut off.
+            return (chevron && line.L < cutIn + 4) || line.R > tip - 4;
         }
         private static bool Inside(Box ink, Box box, float margin)
         {
@@ -1298,6 +1299,7 @@ namespace DesignerExtension.Native
                         Issue(slideNumber, "overlap", TextOf(first), TextOf(second));
                     }
                 // A text set on a card (most of it over a filled shape behind it) keeps 2pt inside the card's edges.
+                var onCard = new Dictionary<object, List<object>>(); var flagged = new List<object>();
                 foreach (object item in texts)
                 {
                     object current = item, card = null;
@@ -1305,9 +1307,32 @@ namespace DesignerExtension.Native
                     foreach (object candidate in cards)
                         if (!ReferenceEquals(candidate, current) && depthOf[candidate] < depthOf[current] && Share(ink, ShapeBox(candidate)) >= 0.6f
                             && (card == null || depthOf[candidate] > depthOf[card])) card = candidate;
-                    if (card == null || Inside(ink, ShapeBox(card), 2)) continue;
+                    if (card == null) continue;
+                    if (!onCard.ContainsKey(card)) onCard[card] = new List<object>();
+                    onCard[card].Add(current);
+                    if (Inside(ink, ShapeBox(card), 2)) continue;
                     object under = card;
-                    if (!ShrinkUntil(current, () => Inside(InkBox(current), ShapeBox(under), 2))) Issue(slideNumber, "edge", TextOf(current), null);
+                    if (ShrinkUntil(current, () => Inside(InkBox(current), ShapeBox(under), 2))) continue;
+                    Issue(slideNumber, "edge", TextOf(current), null);
+                    flagged.Add(current);
+                }
+                // The card's room below its last text is not squeezed: under 8pt while the room above is 2.5 times that.
+                foreach (var pair in onCard)
+                {
+                    Box card = ShapeBox(pair.Key);
+                    float above = float.MaxValue, below = float.MaxValue;
+                    object lowest = null;
+                    foreach (object text in pair.Value)
+                    {
+                        Box ink = InkBox(text);
+                        above = Math.Min(above, ink.T - card.T);
+                        if (card.B - ink.B < below) { below = card.B - ink.B; lowest = text; }
+                    }
+                    if (lowest == null || flagged.Contains(lowest) || below >= 8 || above < 2.5f * Math.Max(below, 1)) continue;
+                    object last = lowest;
+                    float wanted = Math.Min(8f, above / 2.5f);
+                    if (ShrinkUntil(last, () => card.B - InkBox(last).B >= wanted)) continue;
+                    Issue(slideNumber, "edge", TextOf(last), null);
                 }
                 // A table PowerPoint made taller (its rows grow to their text) must not run over the parts around it.
                 foreach (object item in tables)
@@ -1318,11 +1343,12 @@ namespace DesignerExtension.Native
                         Box box = texts.Contains(other) ? InkBox(other) : ShapeBox(other);
                         // A panel behind the table, or a note set on it, belongs with it.
                         if (Share(grid, ShapeBox(other)) >= 0.9f || Share(box, grid) >= 0.9f) continue;
-                        if (Overlap(grid.L, grid.R, box.L, box.R) > 1 && Overlap(grid.T, grid.B, box.T, box.B) > 1)
-                        {
-                            Issue(slideNumber, "overlap", "表", texts.Contains(other) ? TextOf(other) : "囲み");
-                            break;
-                        }
+                        if (Overlap(grid.L, grid.R, box.L, box.R) <= 1 || Overlap(grid.T, grid.B, box.T, box.B) <= 1) continue;
+                        object table = item;
+                        // Smaller type lets the rows go back to the heights they were given.
+                        if (ShrinkTable(table, () => { Box g = ShapeBox(table); return Overlap(g.L, g.R, box.L, box.R) <= 1 || Overlap(g.T, g.B, box.T, box.B) <= 1; })) continue;
+                        Issue(slideNumber, "overlap", "表", texts.Contains(other) ? TextOf(other) : "囲み");
+                        break;
                     }
                 }
                 foreach (object item in points)
@@ -1346,6 +1372,36 @@ namespace DesignerExtension.Native
             }
             catch (Exception ex) { Warnings.Add("スライド " + slideNumber + ": 文字の重なりを確かめられませんでした（" + Short(ex.Message) + "）。"); }
             foreach (object shape in held) Release(shape);
+        }
+        /// <summary>Sets every cell of a table up to 10% smaller (2% at a time, not below 9pt) until ok holds; left as it
+        /// was when that is not enough.</summary>
+        private static bool ShrinkTable(object item, Func<bool> ok)
+        {
+            dynamic shape = item;
+            dynamic table = shape.Table;
+            int rows = (int)table.Rows.Count, columns = (int)table.Columns.Count;
+            var sizes = new float[rows, columns];
+            for (int r = 1; r <= rows; r++)
+                for (int c = 1; c <= columns; c++)
+                {
+                    float size = 0;
+                    try { size = (float)table.Cell(r, c).Shape.TextFrame2.TextRange.Font.Size; } catch { }
+                    sizes[r - 1, c - 1] = size > 0 && size < 400 ? size : 0;
+                }
+            bool done = false;
+            for (int step = 1; step <= 5 && !done; step++)
+            {
+                for (int r = 1; r <= rows; r++)
+                    for (int c = 1; c <= columns; c++)
+                        if (sizes[r - 1, c - 1] > 0) table.Cell(r, c).Shape.TextFrame2.TextRange.Font.Size = Math.Max(9f, sizes[r - 1, c - 1] * (1 - 0.02f * step));
+                done = ok();
+            }
+            if (!done)
+                for (int r = 1; r <= rows; r++)
+                    for (int c = 1; c <= columns; c++)
+                        if (sizes[r - 1, c - 1] > 0) table.Cell(r, c).Shape.TextFrame2.TextRange.Font.Size = sizes[r - 1, c - 1];
+            Release((object)table);
+            return done;
         }
         private static List<object> Union(List<object> a, List<object> b)
         {
