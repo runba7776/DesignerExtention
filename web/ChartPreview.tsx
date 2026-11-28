@@ -194,7 +194,13 @@ export function ChartPreview({ element: e, textColor }: { element: ChartElement;
               const labelW = horizontal ? (stacked ? Math.max(1, w / 2) : 48) : w;
               return (
                 <g key={i}>
-                  <rect x={x} y={y} width={Math.max(0.3, w)} height={Math.max(0.3, h)} fill={color(j)} />
+                  <rect
+                    x={x}
+                    y={y}
+                    width={Math.max(0.3, w)}
+                    height={Math.max(0.3, h)}
+                    fill={e.pointColors?.[i] ?? color(j)}
+                  />
                   {e.showValues && (!stacked || (horizontal ? w : h) > 28) && (
                     <Label
                       text={chartNumber(v)}

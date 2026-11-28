@@ -30,7 +30,7 @@ const imageGuide = (html: boolean) =>
     html
       ? `<div data-image="英語の検索語" data-alt="何の画像か（日本語20文字以内）" style="position:absolute;left:…px;top:…px;width:…px;height:…px"></div>`
       : `{"t":"image","x":…,"y":…,"w":…,"h":…,"q":"英語の検索語","alt":"何の画像か（日本語20文字以内）"}`
-  }を置くと、アプリがWikimedia Commonsで自由に使える画像（CC0・CC BY・CC BY-SAなど）を探して枠いっぱいに入れ、作者と利用条件を下端に記載します。検索語は2〜3語の一般的な被写体（例：solar panels rooftop、laptop desk、emergency exit sign）にし、会社・人物・製品の名前は入れません。人が主役になる語（meeting、handshakeなど）は実在の人物の写真が出るので避け、場所・物・手元を写す語にします。${
+  }を置くと、アプリがWikimedia Commonsで自由に使える画像（CC0・CC BY・CC BY-SAなど）を探して枠いっぱいに入れ、作者と利用条件を下端に記載します。検索語は、写真で見せたい物そのものを表す2〜4語の英語にします（例：green leaf sunlight、supermarket vegetable shelf、solar panels rooftop）。会社・人物・製品・イベントの名前は入れません。日本の場面を見せたいときはJapanを加えます。人が主役になる語（meeting、handshakeなど）は実在の人物の写真が出るので避け、場所・物・手元を写す語にします。題材と季節・色・場所が合う被写体を選び（光合成なら紅葉ではなく緑の葉）、看板・ロゴ・大きな文字が写りやすい語（market、festival、conference、food courtなど）は避けます。表紙は写真1枚を大きく使い、小さな写真を並べません。${
     html ? '枠の中には何も書きません。' : ''
   }写真の上に文字を載せるときは、写真の後に半透明の帯や面を置いてから文字を置きます。1枚に4つまで。実物を見せると早く伝わるページ（表紙、現場・場所・物・人の動き）では、写真を主役か大きな添え物（幅の3分の1以上）にし、資料全体で2〜4枚を目安に使います。数値・手順・比較は、写真ではなくグラフ・表・図で示します。`;
 const guide = (mode: 'presentation' | 'reading', images = false) => `## スライドのデザイン
@@ -56,6 +56,7 @@ const guide = (mode: 'presentation' | 'reading', images = false) => `## スラ�
 - 表：{"t":"table","x":…,"y":…,"w":…,"h":…,"headers":[…],"rows":[[…]],"size":…}（6列・10行まで）。
 ${images ? `${imageGuide(false)}\n` : ''}- 1枚の要素は90個まで（グラフは4つ、表は2つまで）。JSONは改行やインデントなしで簡潔に書きます。
 ${textGuide(mode, 'pt')}
+${emphasisGuide('pt')}
 ${figureGuide}
 - 座標・大きさ・文字の大きさは整数で書きます。既定値と同じ項目（bold:false、italic:false、align:"l"、va:"t"、op:1、arrow:"none"、dash:false）と空の配列は書きません。`;
 
@@ -70,8 +71,8 @@ const constraints = `最優先の制約:
 - messagesにあるURLの中身は、その本文がdocumentsにない限り根拠にしません。構成の相談で中身が必要なら、本文を貼るか資料として追加するよう求めます。URLそのものは参考先として載せてかまいません。
 - グラフや文字の数値は、資料にある数値かユーザーが指定した数値だけを使います。説明用の架空の数値は「説明用の例」と明示します。数値の丸めや単位換算を勝手に行いません。単位・期間の違う値を同じ軸に並べず、無関係な項目を折れ線でつないで連続性を作りません。
 - 文章や数値を途中で切った「…」「...」は使いません。補足や省いた詳細はnotesに残します。
-- 依頼と資料にない事実（日時・場所・担当・連絡先・金額など）は作りません。ページにその事実が必要なときは、項目名を全角の角かっこで囲んだ記入欄（例：［実施日］［集合場所］）だけを置きます。「年 月 日」「○月○日」「（ ）」のような空欄や「確定後に記入」とは書きません。記入欄はアプリが目立つ色で示し、利用者が後でまとめて記入します。
-- 記入欄は資料全体で8項目程度までにします。同じ事実には同じ項目名を使い、段階・日付・担当者ごとに細かく分けません。内訳がまだ決まっていないときは、表の各行に欄を置かず1つにまとめます（例：段階ごとの期間が未定なら、［工事の日程］を1か所に置き「各段階の期間は決まり次第お知らせします」と書く）。項目名は、なるべくoutline.openFactsの項目名を使います。
+- 依頼と資料にない事実（日時・場所・担当・連絡先・金額など）は作りません。その事実がないと資料が使えないとき（案内の日時・集合場所・問い合わせ先など）だけ、項目名を全角の角かっこで囲んだ記入欄（例：［実施日］［集合場所］）だけを置きます。提案・報告・授業の資料では記入欄を作らず、資料にない事実に触れずに書きます（例：「［開始時期］から着手」ではなく「承認後に着手」、「［目標削減率］減」ではなく「試行前より減らす」、担当者や店舗の名前は書かずに役割で呼ぶ）。題名・結論の一文・大きな数値・図の箱には記入欄を置きません。「年 月 日」「○月○日」「（ ）」のような空欄や「確定後に記入」とは書きません。記入欄はアプリが目立つ色で示し、利用者が後でまとめて記入します。
+- 記入欄は資料全体で4項目まで（案内の資料は6項目まで）にします。同じ事実には同じ項目名を使い、段階・日付・担当者ごとに細かく分けません。内訳がまだ決まっていないときは、表の各行に欄を置かず1つにまとめます（例：段階ごとの期間が未定なら、［工事の日程］を1か所に置き「各段階の期間は決まり次第お知らせします」と書く）。項目名は、なるべくoutline.openFactsの項目名を使います。
 - 「確認してから記載」「仮置き」「差し替える」のような作り手向けのメモは、スライドの文字に書きません。確認が必要なことは、notesの最後に「確認事項：」として書きます。スライドは聞き手・読み手に向けて書き、「資料にある事実」「資料で確認できる」「今回の資料の記述ではない」のように作り手の手元の資料を指す言い方はせず、根拠は「○○の発表より」のように出典の名前で示します。引用した文の書き手の立場の言葉（本学・当社など）は、発表者が同じ立場でなければ名前に言い換えます。
 - outline.openFactsのうちvalueがある項目は、利用者が入力した事実です。そのまま使い、記入欄にしません。`;
 
@@ -113,8 +114,20 @@ const textGuide = (mode: 'presentation' | 'reading', unit: 'px' | 'pt') => {
       ? `注記（補足、図の目盛りや小さなラベル）の要素にはdata-role="caption"を付けます。data-role="caption"のない文字が${min.body}px未満、注記が${min.caption}px未満のときは、アプリが大きくするか、直すよう依頼します。`
       : '';
   const size = `- 文字の大きさは、本文${min.body}${unit}以上・注記${min.caption}${unit}以上を目安にします。${checked}`;
-  return mode === 'reading' ? `${size}読む資料でも、1ページの文章は見出しの付いた3つまでのまとまりにします。` : size;
+  return mode === 'reading'
+    ? `${size}読む資料でも、1ページの文章は見出しの付いた3つまでのまとまりにします。`
+    : `${size}発表では、本文20${unit}前後・項目名22〜28${unit}・題名28〜36${unit}・主役の数値48${unit}以上と、大きさの差をはっきり付けます。`;
 };
+/** Colour roles and the lead of each page: what international slide guides share (one accent for the point,
+ * grey for context, the takeaway written on the evidence). */
+const emphasisGuide = (unit: 'px' | 'pt') =>
+  `- 配色は3つの役割で使います。主色（accent）は資料の骨組み（表紙や章の色面、見出しの帯、図の箱、表の見出し行）に使い、濃い・中くらい・淡いの3段の明るさで階層を分けます（淡い段はsurfaceか、主色を背景に寄せた色）。強調色（accent2）は、各ページの主役1か所だけに使います（推奨する案、結論の数値、注目する棒）。そのほかの文字は濃い文字色（ink）、比べる相手や背景情報は灰色（muted・rule）にします。面積の目安は、背景と余白が6割、主色の3段が3割、強調色が1割です。1色の濃淡だけで全ページを塗らず、強調色を全部の箱に使うこともしません。accent2が灰色に近い配色では、主役に主色のいちばん濃い段を使います。
+- 奥行きは主役だけに付けます。本文ページの背景は白か淡い色（bg・surface）にし、主役の要素（推奨する案のカード、結論の数値の面、表紙の色面）にだけ、柔らかい影（${
+    unit === 'px' ? 'box-shadow:0 4px 16px rgba(0,0,0,.14)程度' : 'shadow:{"x":0,"y":4,"blur":16,"op":0.14}程度'
+  }）か、同じ色相で明るさを少し変えたゆるいグラデーションを1つ付けて手前に出します。ほかの要素は平らなままにし、影とグラデーションを同じ要素に重ねません。
+- 各ページの主役（結論の数値、推奨する案、最も大きな要因）を1つ決め、色・大きさ・位置で一番強く見せます。
+- グラフや図には「読み取り」を直接書きます（例：「惣菜と青果で7割」を該当する棒の近くに）。結論に関わる棒や項目だけ強調色にし、ほかは灰色か主色の淡い段にします。
+- 本文の領域（題名の下から下端の余白まで）を使い切ります。図を中央に小さく浮かせず、図と短い解説を左右に組むなど、格子に沿って配置します。題名と本文の間を${unit === 'px' ? '40px' : '40pt'}以上空けません。`;
 const figureGuide =
   '- 図は中身まで描きます。軸や枠だけの図にせず、説明用の位置の目安でも、点・棒・図形・文字など図が伝える内容を図の中に置きます。';
 const htmlGuide = (mode: 'presentation' | 'reading', images = false) => `## スライドの作り方（HTML）
@@ -128,8 +141,9 @@ const htmlGuide = (mode: 'presentation' | 'reading', images = false) => `## ス�
 - 表紙以外の各ページに、そのページの題名を<h1>（またはdata-role="title"の要素）で1つ置きます。
 - 文字の高さ（折り返しと行の高さ）はブラウザが決めるため、書いた時点では正確に分かりません。下端の出典欄に入らないよう、文字は上から470px程度までに収めて余裕を残し、高さを固定した囲みに文字を詰め込まないでください。
 ${textGuide(mode, 'px')}
+${emphasisGuide('px')}
 ${figureGuide}
-- PowerPointの図形：<div data-shape="chevron">のようにdata-shapeを付けた要素は、その形の図形になります（背景色が塗り、枠線が線、中の文字はその上）。形はchevron（矢羽根）・pentagon（ホームベース）・arrow・leftArrow・upArrow・downArrow・triangle・diamond・hexagon・octagon・parallelogram・trapezoid。手順・流れはchevronやpentagonを横に並べて表せます。
+- PowerPointの図形：<div data-shape="chevron">のようにdata-shapeを付けた要素は、その形の図形になります（背景色が塗り、枠線が線、中の文字はその上）。形はchevron（矢羽根）・pentagon（ホームベース）・arrow・leftArrow・upArrow・downArrow・triangle・diamond・hexagon・octagon・parallelogram・trapezoid。手順・流れはchevronやpentagonを横に並べて表せます。文字は図形の要素の中に書き、chevronは左右に、pentagonは右に、高さの半分ほどの余白（padding）を取って、切り欠きや先端に文字がかからないようにします。
 - アイコン：<i data-icon="ID" style="width:32px;height:32px;color:var(--accent)"></i>で、アプリのアイコン（IDは一覧）を置けます。PowerPointで編集できる図形になります。大きさはwidth・height、色はcolorで指定します。
 ${images ? `${imageGuide(true)}\n` : ''}- PowerPointで編集できるグラフ：中身が空の<div data-chart='{"type":"column","categories":[…],"series":[{"name":"…","values":[…]}],"unit":"…"}' style="position:absolute;left:…px;top:…px;width:…px;height:…px"></div>を置きます（typeはbar・column・line・pie・doughnut・stackedBar・stackedColumn・waterfall、項目は1〜8個・系列は1〜3個、幅120px・高さ90px以上、1枚に4つまで）。数値の棒・線・円のグラフはdivやSVGで描かず、data-chartで置きます（divやSVGで描いた図は、値を直せない図形や画像になります）。
 
@@ -238,12 +252,13 @@ ${
     : reviseAsHtml(options.images)
 }
 request.repairがある場合は、アプリの検証で見つかった問題です。detailには問題のページと直し方があります。指摘された部分の位置・大きさ・文字量を直し、同じ問題を繰り返さないでください。
+request.repair.previousHtmlがある場合は、そのページを前回書いたHTMLで、添付の画像はそれを描いた結果です（下端の出典・ページ番号と写真・グラフはアプリが入れたものです）。画像で指摘の場所を確かめ、previousHtmlをもとに直したHTMLを返します。指摘のない部分は、直すために必要なときだけ変えます。文字の重なり・はみ出し・矢印の切り欠きは、言葉を削らずに、位置・枠の大きさ・余白・折り返しで直します（「2枚とも」「温めた」のような条件の語を省くと意味が変わります）。
 JSON以外の説明やMarkdownの囲みを付けないでください。`;
   if (task === 'plan')
     return `${intro}
 ${guide(mode)}
 ${catalogs}
-preferences.themeIdがautoなら、配色と書体もあなたが決めて、outline.paletteに必ず書きます（background・text・muted・accent・accent2は#RRGGBB、nameは配色の短い名前、surfaceは任意で面の色、headingFont・bodyFontは書体名。このPCにない書体はアプリが近い書体に置き換えます）。preferences.themeIdが指定済み、またはcompanyTemplateがあるときは、アプリがその配色・書体を使うので、paletteは書きません。preferences.typographyIdが指定済みなら、書体はアプリがそれを使います。
+preferences.themeIdがautoなら、配色と書体もあなたが決めて、outline.paletteに必ず書きます（background・text・muted・accent・accent2は#RRGGBB、nameは配色の短い名前、surfaceは任意で面の色、headingFont・bodyFontは書体名。accentは資料の骨組みに使う主色、accent2は主色と色相が離れた強調色（例：紺に橙、深緑に朱）、surfaceは主色をごく淡くした面の色にします。このPCにない書体はアプリが近い書体に置き換えます）。preferences.themeIdが指定済み、またはcompanyTemplateがあるときは、アプリがその配色・書体を使うので、paletteは書きません。preferences.typographyIdが指定済みなら、書体はアプリがそれを使います。
 
 型定義:
 ${FREE_CONTRACT}
@@ -253,7 +268,7 @@ ${FREE_CONTRACT}
       options.images
         ? '写真を使えるので、実物を見せると伝わるページ（表紙を含む）では、何の写真を置くかもintentに書きます。'
         : ''
-    }keyPointsは0〜2件・各35文字程度。outline.visualStyleには資料全体のデザイン方針と、全ページでそろえる決まり（同じものを指す呼び名・色・位置・記号）を250文字程度で書きます。outline.openFactsには、依頼と資料にない事実のうち、この資料に必要なもの（日時・場所・担当・連絡先・申込方法など）を6件まで、{"label":"項目名（10文字以内）","hint":"何を書くか（30文字以内）"}で挙げます。利用者は作成の前に記入できます。必要なものがなければ書きません。数値・単位・否定・未確定条件を省かず、必要な条件はinputBriefへまとめます。指定の枚数は減らしません。
+    }keyPointsは0〜2件・各35文字程度。outline.visualStyleには資料全体のデザイン方針と、全ページでそろえる決まり（同じものを指す呼び名・色・位置・記号）を250文字程度で書きます。outline.openFactsには、依頼と資料にない事実のうち、この資料に必要なもの（それがないと資料が使えない日時・場所・担当・連絡先・申込方法など。提案・報告・授業では、ふつうは挙げません）を6件まで、{"label":"項目名（10文字以内）","hint":"何を書くか（30文字以内）"}で挙げます。利用者は作成の前に記入できます。必要なものがなければ書きません。数値・単位・否定・未確定条件を省かず、必要な条件はinputBriefへまとめます。指定の枚数は減らしません。
 needsInputBrief=trueならoutline.inputBriefを必ず返します。目的、読み手、論点、指定の数字・単位・対象期間、必須条件、禁止事項、未確定事項を6000文字以内の日本語で整理します。
 確認が必要ならJSON {"kind":"questions","message":"質問を日本語で記載"}。
 十分な情報があればJSON {"kind":"outline","outline":Outline}。${options.proposals ? proposalGuide(options.proposals) : ''}${

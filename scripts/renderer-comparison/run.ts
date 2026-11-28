@@ -1,6 +1,6 @@
 /** Draws the comparison decks with both renderers on Windows and writes report.html.
  *
- *   npx tsx scripts/renderer-comparison/run.ts [--quick] [--out <directory>]
+ *   npx tsx scripts/renderer-comparison/run.ts [--quick] [--deck <deck.json>] [--out <directory>]
  *
  * Needs desktop PowerPoint and Excel and the built native renderer (Setup or `npm run build:native`). No AI is
  * called. The C# file comes from the app's own render bridge; the TS file from the browser build's PptxGenJS
@@ -13,9 +13,10 @@ import { fileURLToPath } from 'node:url';
 import { createRenderBridge } from '../../server/render-bridge';
 import { deckToPptx } from '../../web/hosted/pptx-renderer';
 import { comparisonDecks } from './decks';
+import type { DeckSpec } from '../../core/shared/contracts';
 import { readPptx } from './structure';
 import { compareDecks } from './compare';
-import { decodePng, diffPictures, encodePng, halve } from './png';
+import { decodePng, diffPictures, encodePng, halve, halveDiff } from './png';
 import { buildReport, summarize, type ReportSlide } from './report';
 
 const execute = promisify(execFile);
@@ -39,7 +40,14 @@ const commit = await execute('git', ['rev-parse', '--short', 'HEAD'], { cwd: roo
 );
 
 const slides: ReportSlide[] = [];
-for (const item of comparisonDecks(quick)) {
+const deckArg = args.includes('--deck') ? args[args.indexOf('--deck') + 1] : undefined;
+const decks = deckArg
+  ? await fs.readFile(path.resolve(deckArg), 'utf8').then(text => {
+      const deck = JSON.parse(text) as DeckSpec;
+      return [{ id: deck.id, title: deck.title, deck, labels: deck.slides.map(s => s.title) }];
+    })
+  : comparisonDecks(quick);
+for (const item of decks) {
   const dir = path.join(out, item.id);
   await fs.mkdir(dir, { recursive: true });
   console.log(`${item.id}: ${item.deck.slides.length}枚を描画`);
@@ -75,7 +83,7 @@ for (const item of comparisonDecks(quick)) {
     const small = {
       native: encodePng(halve(a)),
       hosted: encodePng(halve(b)),
-      diff: encodePng(halve(diff.picture)),
+      diff: encodePng(halveDiff(diff.picture)),
     };
     await fs.writeFile(path.join(dir, `native-${n}.png`), encodePng(a));
     await fs.writeFile(path.join(dir, `diff-${n}.png`), encodePng(diff.picture));

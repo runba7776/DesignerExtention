@@ -236,6 +236,9 @@ export interface SlideItem {
   parent?: number;
   icon?: IconId | 'none';
   refs?: number[];
+  /** The one item the page is about (the conclusion, the recommended option, the target). It is drawn strongest and
+   * the other items step back to neutral colours. Absent on pages whose items are parallel. */
+  emphasis?: boolean;
 }
 export type ChartType = 'bar' | 'column' | 'line' | 'pie' | 'doughnut' | 'stackedBar' | 'stackedColumn' | 'waterfall';
 export interface ChartSpec {
@@ -244,6 +247,8 @@ export interface ChartSpec {
   series: { name: string; values: number[] }[];
   unit?: string;
   caption?: string;
+  /** Categories the conclusion is about: drawn in the accent colour, the others in grey for context. */
+  highlight?: string[];
 }
 export interface DiagramSpec {
   type: 'process' | 'cycle' | 'hierarchy' | 'list';
@@ -524,6 +529,8 @@ export interface ReviewHint {
   fix: string;
   unresolved?: boolean;
   fixed?: boolean;
+  /** Found by PowerPoint's check of the drawn text (shown by itself; a hint only once the page was made again). */
+  layout?: boolean;
 }
 /** One look at the drawn pages: how many were seen, which were made again, and the calls it took. */
 export interface ReviewReport {
@@ -553,12 +560,24 @@ export interface Usage {
   cacheWriteTokens: number;
   estimatedCostUsd?: number;
 }
+/** Text PowerPoint set differently from the plan, found once the deck is drawn: past its own box (overflow),
+ * over another text or a table grown over the part below it (overlap, with the other), past the edge of the card
+ * it is set on (edge), or into the cut-in or point of a chevron or pentagon (notch). slide counts from 1. Texts a
+ * little too large were already set smaller (up to 20% for an overlap, 10% otherwise); these are what remained. */
+export interface LayoutIssue {
+  slide: number;
+  kind: 'overflow' | 'overlap' | 'edge' | 'notch';
+  text: string;
+  other?: string;
+}
 export interface RenderResult {
   artifactId: string;
   pptxUrl: string;
   thumbnails: string[];
   warnings: string[];
   native: boolean;
+  /** Only from PowerPoint (the browser version cannot measure the drawn text). */
+  issues?: LayoutIssue[];
 }
 /** Where a draft came from: an AI, a restyle of another draft, or a combination of drafts. */
 export interface VariantOrigin {
@@ -876,6 +895,8 @@ export interface ChartElement extends Rect {
   categories: string[];
   series: ChartSpec['series'];
   colors: string[];
+  /** One colour per category of a single-series bar or column chart (highlighted categories in the accent). */
+  pointColors?: string[];
   unit?: string;
   background?: string;
   gridColor?: string;
@@ -892,6 +913,10 @@ export interface SmartArtElement extends Rect {
   accent: string;
   color: string;
   fontSize: number;
+  /** Per item: its box colour and text colour, so the diagram has a lead (the root, the last step) and quieter
+   * supporting boxes. Missing means every box uses accent and color. */
+  fills?: string[];
+  inks?: string[];
 }
 /** One cell of a PowerPoint table. margin: left, top, right, bottom; borders: top, right, bottom, left (null where
  * there is none). */

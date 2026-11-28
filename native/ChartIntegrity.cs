@@ -16,6 +16,7 @@ namespace DesignerExtension.Native
         private const string C = "http://schemas.openxmlformats.org/drawingml/2006/chart";
         private const string R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
         private const string S = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        private const string A = "http://schemas.openxmlformats.org/drawingml/2006/main";
         // Only called for the new presentation just created by Renderer. Generate
         // its embedded data independently of live Excel's asynchronous OLE commit.
         // Verify remains read-only, including for user-provided presentations.
@@ -178,6 +179,8 @@ namespace DesignerExtension.Native
                                 || Double.IsNaN(parsed) || Double.IsInfinity(parsed) || Math.Abs(parsed - number) > Math.Max(1, Math.Abs(number)) * 1e-10) Fail(i, "表示値");
                         }
                     }
+                    if (synchronize && node == "barChart" && wanted.Length == 1 && expected[j].ContainsKey("pointColors"))
+                        PointColors(series[0], Items(expected[j]["pointColors"]), categories.Length, ns);
                     if (synchronize)
                     {
                         // Embedded Excel may restore its automatic title on close.
@@ -216,6 +219,38 @@ namespace DesignerExtension.Native
                         if (orientation == null || orientation.GetAttribute("val") != "maxMin" || origin == null || origin.GetAttribute("val") != "autoZero" || crossing == null || crossing.GetAttribute("val") != "max") Fail(i,"項目順・ゼロ基準");
                     }
                 }
+            }
+        }
+        /// <summary>One colour per bar of a one-series chart: the highlighted categories in the accent, the others
+        /// grey. Written here, once the real points exist; the live chart may still hold Excel's template while it is
+        /// built. c:dPt goes after the series fill and before its labels and data, as the schema orders them.</summary>
+        private static void PointColors(XmlNode series, object[] colors, int count, XmlNamespaceManager ns)
+        {
+            if (colors.Length != count) return;
+            var doc = series.OwnerDocument;
+            var stale = new List<XmlNode>();
+            foreach (XmlNode old in series.SelectNodes("c:dPt", ns)) stale.Add(old);
+            foreach (XmlNode old in stale) series.RemoveChild(old);
+            XmlNode before = null;
+            foreach (string name in new[] { "dLbls", "trendline", "errBars", "cat", "val", "shape", "extLst" })
+            {
+                before = series.SelectSingleNode("c:" + name, ns);
+                if (before != null) break;
+            }
+            for (int p = 0; p < count; p++)
+            {
+                string hex = Convert.ToString(colors[p]).TrimStart('#').ToUpperInvariant();
+                if (hex.Length != 6) continue;
+                var point = doc.CreateElement("c", "dPt", C);
+                var idx = doc.CreateElement("c", "idx", C); idx.SetAttribute("val", p.ToString(CultureInfo.InvariantCulture)); point.AppendChild(idx);
+                var invert = doc.CreateElement("c", "invertIfNegative", C); invert.SetAttribute("val", "0"); point.AppendChild(invert);
+                var bubble = doc.CreateElement("c", "bubble3D", C); bubble.SetAttribute("val", "0"); point.AppendChild(bubble);
+                var look = doc.CreateElement("c", "spPr", C);
+                var fill = doc.CreateElement("a", "solidFill", A);
+                var rgb = doc.CreateElement("a", "srgbClr", A); rgb.SetAttribute("val", hex); fill.AppendChild(rgb); look.AppendChild(fill);
+                var line = doc.CreateElement("a", "ln", A); line.AppendChild(doc.CreateElement("a", "noFill", A)); look.AppendChild(line);
+                point.AppendChild(look);
+                if (before != null) series.InsertBefore(point, before); else series.AppendChild(point);
             }
         }
         private static void Formula(XmlNode series, string selector, string formula, XmlNamespaceManager ns)

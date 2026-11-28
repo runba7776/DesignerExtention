@@ -144,7 +144,7 @@ async function fixture(
       images: true,
       complete: async (r: CompletionRequest) => {
         const req = JSON.parse(r.content).request;
-        if (r.images) {
+        if (req.pages) {
           reviews.push(r);
           return {
             text: JSON.stringify({
@@ -162,7 +162,7 @@ async function fixture(
         }
         if (!req.targetSlides) return { text: JSON.stringify(offer), usage };
         if (req.repair?.reason === 'VISUAL_REVIEW') {
-          remakes.push(req);
+          remakes.push({ ...req, shots: (r.images ?? []).map(i => i.data) });
           const refused = options.refuseFirstRemake && remakes.length === 1;
           return {
             text: JSON.stringify({
@@ -281,6 +281,13 @@ test('a page the user picks is looked at as its PowerPoint picture and remade; a
     );
     assert.equal(JSON.parse(f.reviews[0].content).request.focus, true);
     assert.equal(f.remakes.length, 2, 'refused by the checks, asked once more');
+    assert.deepEqual(
+      f.remakes.map(r => r.shots),
+      [[Buffer.from('PNG-slide-2').toString('base64')], [Buffer.from('PNG-slide-2').toString('base64')]],
+      'the maker sees the page as it was drawn, the second time too',
+    );
+    assert.match(f.remakes[0].repair.instruction, /添付の画像は、このページを描いた結果です/);
+    assert.equal(f.remakes[0].repair.previousHtml, undefined, 'no HTML is kept with a finished deck');
     assert.match(f.remakes[1].repair.detail, /作り直した案は次の検査で通りませんでした/);
     assert.equal((done.variants[0].deck.slides[1].design!.elements[0] as any).text, '直した定番の流れの本文1');
     assert.equal(done.polish?.versions?.['slide-2'].applied, 'after');

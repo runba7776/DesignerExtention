@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { Outline, Settings } from '../core/shared/contracts.js';
+import type { LayoutIssue, Outline, Settings } from '../core/shared/contracts.js';
 import { SessionEngine } from '../core/engine.js';
 import { SettingsStore } from '../core/settings.js';
 import { emptyUsage, type CompletionRequest } from '../core/providers.js';
@@ -158,6 +158,8 @@ async function fixture(
     photo?: boolean;
     crop?: boolean;
     store?: ImageStore;
+    /** What PowerPoint's check of the drawn text finds in each drawing (the first drawing first). */
+    issues?: LayoutIssue[][];
   } = {},
 ) {
   const dir = await mkdtemp(path.join(tmpdir(), 'de-review-'));
@@ -220,6 +222,7 @@ async function fixture(
       thumbnails: deck.slides.map(s => `/artifacts/${artifactId}/${s.id}.png`),
       warnings: [],
       native: true,
+      ...(options.issues?.[drawings - 1] ? { issues: options.issues[drawings - 1] } : {}),
     };
   };
   const engine = new SessionEngine({
@@ -312,7 +315,7 @@ async function fixture(
         }
         if (!req.targetSlides) return { text: JSON.stringify({ kind: 'outline', outline }), usage };
         if (req.repair?.reason === 'VISUAL_REVIEW') {
-          redos.push({ ...req, shots: (r.images ?? []).map(i => i.data) });
+          redos.push({ ...req, shots: (r.images ?? []).map(i => i.data), system: r.system });
           return {
             text: JSON.stringify({
               mode: 'presentation',
@@ -452,7 +455,7 @@ test('a local model only shows what it saw on a page: nothing is touched up or c
   }
 });
 
-test('the deck is ready before the look; the look then shows what it found for the user to fix, with nothing touched up', async () => {
+test('the deck is ready before the look; on a monthly plan a page with a high problem is made again from its HTML and picture, the rest is shown', async () => {
   const f = await fixture();
   try {
     const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
@@ -467,10 +470,10 @@ test('the deck is ready before the look; the look then shows what it found for t
       ),
     );
     const polished = await f.engine.polish(session.id);
-    assert.equal(f.reviews.length, 1, 'three pages in one look, and nothing to compare');
     assert.deepEqual(
       f.reviews[0].images!.map(i => i.data),
       ['SHOT-slide-1', 'SHOT-slide-2', 'SHOT-slide-3'],
+      'three pages in one look',
     );
     assert.equal(
       JSON.parse(f.reviews[0].content).request.final,
@@ -480,24 +483,100 @@ test('the deck is ready before the look; the look then shows what it found for t
     assert.match(f.reviews[0].system, /high（重い）/);
     assert.match(f.reviews[0].system, /簡易な見本/);
     assert.deepEqual(JSON.parse(f.reviews[0].content).documents, []);
-    assert.deepEqual(f.redos, [], 'a high finding is not touched up either');
-    assert.equal(textOf(polished, 1), '問いの地図');
+    // Only the page with a high problem is made again (slide-3's is medium), given its HTML and its picture.
+    assert.deepEqual(
+      f.redos.map(r => r.targetSlides.map((s: any) => s.id)),
+      [['slide-2']],
+    );
+    assert.equal(f.redos[0].repair.previousHtml, page('slide-2', '問いの地図').html);
+    assert.deepEqual(f.redos[0].shots, ['SHOT-slide-2']);
+    assert.match(f.redos[0].repair.instruction, /このページをpreviousHtmlから描いた結果/);
+    assert.match(f.redos[0].repair.detail, /^slide-2：図に中身がない。問いの点を置く$/);
+    assert.match(f.redos[0].system ?? '', /request\.repair\.previousHtml/);
+    assert.match(f.redos[0].system ?? '', /言葉を削らずに、位置・枠の大きさ・余白・折り返しで直します/);
+    // The remake is compared with how the page was, and kept because it got better.
+    const second = JSON.parse(f.reviews[1].content).request;
+    assert.equal(second.compare, true);
+    assert.deepEqual(second.pages[0].asked, ['図に中身がない']);
+    assert.equal(textOf(polished, 1), '直した問いの地図');
+    assert.equal(textOf(polished, 2), 'まとめ');
     assert.deepEqual(
       polished.reviewHints!.map(h => [h.slideId, h.severity, h.what, !!h.unresolved, !!h.fixed]),
       [
-        ['slide-2', 'high', '図に中身がない', false, false],
-        ['slide-2', 'low', '余白が偏る', false, false],
+        ['slide-2', 'high', '図に中身がない', false, true],
+        ['slide-2', 'low', '行間が狭い', false, false],
         ['slide-3', 'medium', '文章が多い', false, false],
       ],
     );
-    assert.deepEqual(polished.reviewReport, { checked: 3, fixed: [], unresolved: [], calls: 1 });
+    assert.deepEqual(polished.reviewReport, { checked: 3, fixed: ['slide-2'], unresolved: [], calls: 3 });
     assert.equal(polished.polish?.state, 'done');
-    assert.equal(polished.polish?.versions, undefined);
+    assert.equal(polished.polish?.versions?.['slide-2'].applied, 'after');
     assert.equal(
       polished.messages.at(-1)!.text,
-      '描画した3枚を画像で見直しました。気づいた点3件は「確認のヒント」にあります。自動では直していないので、直すページを選んで指示するか「見直す」を押してください。この見直しのAI呼び出しは1回です。',
+      '描画した3枚を画像で見直しました。重い問題が見つかった1枚を作り直しました。直す前と見比べて、良くなったページだけを使っています（「確認のヒント」から直す前に戻せます）。気づいた点2件は「確認のヒント」にあります。自動では直していないので、直すページを選んで指示するか「見直す」を押してください。この見直しのAI呼び出しは3回です。',
     );
     await assert.rejects(f.engine.polish(session.id), /見直す資料がありません/, 'once only');
+  } finally {
+    await f.dispose();
+  }
+});
+
+test('text PowerPoint left over other text has its page made again; the hint says so only when the new drawing is clear', async () => {
+  const overlap: LayoutIssue = { slide: 3, kind: 'overlap', text: '売れ残りを', other: '月 1.5トン' },
+    edge: LayoutIssue = { slide: 1, kind: 'edge', text: '表紙の題' };
+  for (const [after, cleared] of [
+    [[edge], true],
+    [[overlap, edge], false],
+  ] as const) {
+    const f = await fixture({}, { drawn: true, issues: [[overlap, edge], [...after]] });
+    try {
+      const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
+      await f.engine.generate(session.id);
+      const polished = await f.engine.polish(session.id);
+      assert.deepEqual(
+        f.redos.map(r => r.targetSlides.map((s: any) => s.id)),
+        [['slide-2'], ['slide-3']],
+        'slide-3 had only a medium finding from the look, and text over text from PowerPoint',
+      );
+      assert.match(f.redos[1].repair.detail, /「売れ残りを」が「月 1.5トン」と重なっています/);
+      assert.match(f.redos[1].repair.detail, /文章が多い/);
+      assert.match(f.redos[1].repair.detail, /言葉は削らずに/);
+      const text = (data: string) => Buffer.from(data, 'base64').toString();
+      assert.deepEqual(f.redos[1].shots.map(text), ['PPT1-slide-3'], 'the page as PowerPoint drew it');
+      assert.deepEqual(polished.reviewReport?.fixed, ['slide-2', 'slide-3']);
+      const layout = polished.reviewHints!.filter(h => h.layout);
+      assert.deepEqual(
+        layout.map(h => [h.slideId, h.what, !!h.fixed]),
+        cleared ? [['slide-3', '「売れ残りを」が「月 1.5トン」と重なっています', true]] : [],
+        'text close to an edge, and what is still there, is shown by the check itself',
+      );
+    } finally {
+      await f.dispose();
+    }
+  }
+});
+
+test('a remake that leaves more text over text than before is not used, whatever the look says; a medium finding alone is not remade', async () => {
+  const f = await fixture(
+    {},
+    { drawn: true, issues: [[], [{ slide: 2, kind: 'overflow', text: '直した問いの地図' }]] },
+  );
+  try {
+    const session = await f.engine.create({ prompt: '3枚', cloudConsent: true }, []);
+    await f.engine.generate(session.id);
+    const polished = await f.engine.polish(session.id);
+    assert.deepEqual(
+      f.redos.map(r => r.targetSlides.map((s: any) => s.id)),
+      [['slide-2']],
+    );
+    assert.equal(textOf(polished, 1), '問いの地図');
+    assert.equal(polished.polish?.versions?.['slide-2'].applied, 'before');
+    assert.deepEqual(polished.reviewReport?.unresolved, ['slide-2']);
+    assert.ok(
+      polished.reviewHints!.some(
+        h => h.slideId === 'slide-2' && h.unresolved && /文字の重なり・はみ出しが増えた/.test(h.what),
+      ),
+    );
   } finally {
     await f.dispose();
   }

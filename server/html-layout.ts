@@ -77,7 +77,14 @@ export const CONVERT_SCRIPT = String.raw`(function(){
   const base=section.getBoundingClientRect(),out=[],problems=[],inks=[],figures=[],wordBacks=new Set(),kinds=new Set(),options=window.__deOptions||{};let background;
   // A PowerPoint shape asked for by name (data-shape="chevron"): the page shows its outline and it is read as that shape.
   const outline=${presetOutline};
-  for(const e of section.querySelectorAll('[data-shape]')){const r=e.getBoundingClientRect(),p=outline(e.dataset.shape,r.width,r.height);if(p)e.style.setProperty('clip-path','polygon('+p.map((v,i)=>(i%2?' ':i?',':'')+round(v)+'px').join('')+')','important');}
+  // Text in a chevron or pentagon keeps clear of its cut-in and point: the room inside is made at least the depth of
+  // a chevron's cut-in (plus 4), or three quarters of a pentagon's point, on both sides (a label in the middle stays
+  // there, as PowerPoint keeps it), the shape keeping its size. Labels ran into the cut-in on 3 of 19 pages, and the
+  // remakes cut words to fit (2026-11-28).
+  for(const e of section.querySelectorAll('[data-shape]')){let r=e.getBoundingClientRect();const kind=e.dataset.shape;
+    if((kind==='chevron'||kind==='pentagon')&&e.textContent.trim()){const cs=getComputedStyle(e),a=Math.min(r.width,r.height)/2,room=kind==='chevron'?a+4:a*.75+4,pl=parseFloat(cs.paddingLeft)||0,pr=parseFloat(cs.paddingRight)||0;
+      if(pl<room||pr<room){for(const [k,v] of [['box-sizing','border-box'],['width',r.width+'px'],['height',r.height+'px'],['flex','0 0 auto']])e.style.setProperty(k,v,'important');for(const [k,v] of [['padding-left',pl],['padding-right',pr]])if(v<room)e.style.setProperty(k,room+'px','important');r=e.getBoundingClientRect();}}
+    const p=outline(kind,r.width,r.height);if(p)e.style.setProperty('clip-path','polygon('+p.map((v,i)=>(i%2?' ':i?',':'')+round(v)+'px').join('')+')','important');}
   const ink=c=>{const middle=(c.r.top+c.r.bottom)/2;return {l:c.r.left,r:c.r.right,t:middle-c.size/2,b:middle+c.size/2};};
   const rect=r=>{const x=Math.max(0,r.left-base.left),y=Math.max(0,r.top-base.top);return {x:round(x),y:round(y),w:round(Math.max(1,Math.min(r.right-base.left,960)-x)),h:round(Math.max(1,Math.min(r.bottom-base.top,540)-y))};};
   const inside=r=>r.width>0.5&&r.height>0.5&&r.right>base.left&&r.bottom>base.top&&r.left<base.right&&r.top<base.bottom;

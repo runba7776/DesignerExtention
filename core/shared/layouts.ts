@@ -22,7 +22,17 @@ import { registerDesignLayouts } from './design-layouts';
 import { iconElements, resolveItemIcon } from './icons';
 import { chartAlt, chartColors, chartGridColor, isShareChart, isStackedChart } from './charts';
 import { withTypography, fontFor } from './typography';
-import { itemColor, panelFill, negativeColor, ruleColor, mixColor, contrast, readableColor } from './color';
+import {
+  itemColor,
+  panelFill,
+  negativeColor,
+  ruleColor,
+  mixColor,
+  contrast,
+  readableColor,
+  contextColor,
+  onAccent,
+} from './color';
 import { chartNumber } from './charts';
 import { drawDesign, footerInk, FREE_LAYOUT_ID } from './free-design';
 import { glueLines } from './connectors';
@@ -72,6 +82,12 @@ export interface LayoutContext {
   shape: (rect: Rect, fill: string, shape?: ShapeElement['shape'], stroke?: string) => void;
   icon: (item: SlideItem, rect: Rect, color?: string) => boolean;
   line: (x: number, y: number, w: number, color?: string) => void;
+  /** Index of the item marked as the page's lead (emphasis), or -1 when the items are parallel. */
+  lead: number;
+  /** The headline as the page's takeaway, in the accent colour above the evidence. True when it took the
+   * given rect (the evidence moves down); false when there is none or it fits the white space under a one-line
+   * title, so the evidence keeps its usual top. */
+  takeaway: (rect: Rect, size?: number) => boolean;
 }
 
 const registry = new Map<string, LayoutDefinition>();
@@ -354,6 +370,29 @@ function baseContext(slide: SlideSpec, theme: Theme, mode: DeckSpec['mode']): La
     line(x, y, w, color = theme.pale) {
       scene.elements.push({ kind: 'line', x, y, w, h: 0, stroke: color, strokeWidth: 1 });
     },
+    lead: slide.items.findIndex(item => item.emphasis),
+    takeaway(rect, size = 22) {
+      if (!slide.headline) return false;
+      const color = readableColor(theme.accent, theme.background),
+        titleSize = mode === 'presentation' ? 34 : 32;
+      // Under a one-line title the takeaway sits right below it, as its subtitle, instead of opening a gap.
+      // A margin on both widths keeps it clear when PowerPoint's glyphs run wider than the estimate.
+      if (
+        wrapText(slide.title, 848 * 0.9, titleSize).length === 1 &&
+        wrapText(slide.headline, rect.w * 0.92, size).length === 1
+      ) {
+        // The title's box gives up the second line it does not use, so the two never share space.
+        const clean = (s: string) => s.replace(/\s/g, ''),
+          title = scene.elements.find(
+            e => e.kind === 'text' && e.role === 'heading' && clean(e.text) === clean(slide.title),
+          );
+        if (title) title.h = Math.min(title.h, 60);
+        ctx.text(slide.headline, { x: rect.x, y: 96, w: rect.w, h: 40 }, size, color, true, 'left', 'label');
+        return false;
+      }
+      ctx.text(slide.headline, rect, size, color, true, 'left', 'label');
+      return true;
+    },
   };
   return ctx;
 }
@@ -375,15 +414,58 @@ function itemsColumn(c: LayoutContext, x: number, y: number, w: number, h: numbe
     return;
   }
   const step = h / items.length;
+  // With a lead item, it alone keeps the accent (on a tinted panel); the others step back to the ink colour.
+  const labelColor = (i: number) => (c.lead < 0 || c.lead === i ? c.itemColor(i) : c.theme.foreground);
+  // When every point carries a number, the number leads its row: large, in its own column, with the label and
+  // note beside it. Row numbers would compete with it, so they step aside.
+  const valueColumn = w >= 400 && items.every(item => item.value) ? Math.min(270, w * 0.34) : 0;
   items.forEach((item, i) => {
-    const left = numbered ? x + 42 : x;
-    c.panel({ x: x - 8, y: y + i * step - 3, w: w + 8, h: step - 10 }, i);
+    const left = numbered && !valueColumn ? x + 42 : x;
+    if (c.lead === i)
+      c.shape(
+        { x: x - 8, y: y + i * step - 3, w: w + 8, h: step - 10 },
+        mixColor(c.theme.accent, c.theme.background, 0.13),
+      );
+    else c.panel({ x: x - 8, y: y + i * step - 3, w: w + 8, h: step - 10 }, i);
+    if (valueColumn) {
+      const row = { y: y + i * step, h: step - 13 },
+        textX = x + valueColumn,
+        textW = w - valueColumn,
+        stacked = step >= 85 && !!item.description;
+      c.text(
+        item.value!,
+        { x: x + 4, ...row, w: valueColumn - 20 },
+        c.mode === 'reading' ? 26 : 30,
+        labelColor(i),
+        true,
+      );
+      alignLast(c, 'middle');
+      if (stacked) {
+        const labelHeight = Math.min(row.h * 0.48, 32);
+        c.text(item.label, { x: textX, y: row.y + 4, w: textW, h: labelHeight }, 21, c.theme.foreground, true);
+        c.text(
+          item.description!,
+          { x: textX, y: row.y + labelHeight + 8, w: textW, h: row.h - labelHeight - 8 },
+          17,
+          c.theme.muted,
+        );
+      } else {
+        const labelW = item.description ? textW * 0.34 : textW;
+        c.text(item.label, { x: textX, ...row, w: labelW }, 20, c.theme.foreground, true);
+        alignLast(c, 'middle');
+        if (item.description) {
+          c.text(item.description, { x: textX + textW * 0.37, ...row, w: textW * 0.63 }, 17, c.theme.muted);
+          alignLast(c, 'middle');
+        }
+      }
+      return;
+    }
     if (numbered)
       c.text(String(i + 1).padStart(2, '0'), { x, y: y + i * step, w: 32, h: 32 }, 19, c.theme.accent, true);
     const label = item.value ? `${item.value}  ${item.label}` : item.label;
     if (step < 85 && item.description) {
       const available = w - (left - x);
-      c.text(label, { x: left, y: y + i * step, w: available * 0.34, h: step - 13 }, 20, c.itemColor(i), true);
+      c.text(label, { x: left, y: y + i * step, w: available * 0.34, h: step - 13 }, 20, labelColor(i), true);
       c.text(
         item.description,
         { x: left + available * 0.38, y: y + i * step, w: available * 0.62, h: step - 13 },
@@ -396,7 +478,7 @@ function itemsColumn(c: LayoutContext, x: number, y: number, w: number, h: numbe
     const labelHeight = item.description
       ? Math.min(step * 0.48, Math.max(29, wrapText(label, w - (left - x) - 8, 21).length * 28.5))
       : step - 9;
-    c.text(label, { x: left, y: y + i * step, w: w - (left - x), h: labelHeight }, 21, c.itemColor(i), true);
+    c.text(label, { x: left, y: y + i * step, w: w - (left - x), h: labelHeight }, 21, labelColor(i), true);
     if (item.description)
       c.text(
         item.description,
@@ -408,6 +490,11 @@ function itemsColumn(c: LayoutContext, x: number, y: number, w: number, h: numbe
   });
 }
 
+/** Sets the vertical alignment of the text just drawn (a row's parts share one middle line). */
+function alignLast(c: LayoutContext, verticalAlign: TextElement['verticalAlign']) {
+  const last = c.scene.elements[c.scene.elements.length - 1];
+  if (last?.kind === 'text') last.verticalAlign = verticalAlign;
+}
 /** Earlier period in grey, the latest in the brand colour, when two series are periods. */
 function seriesColors(c: LayoutContext, data: NonNullable<SlideSpec['chart']>) {
   const colors = chartColors(c.theme),
@@ -519,13 +606,26 @@ function chartAt(c: LayoutContext, data: NonNullable<SlideSpec['chart']>, rect: 
     const labelSize = isShareChart(data.type) || data.type === 'line' || fits(base) ? base : fits(12) ? 12 : base;
     const showValues =
       rect.h >= 200 && bars <= 12 && (isShareChart(data.type) || data.type === 'line' || fits(labelSize));
+    // Highlighted categories in the accent, the rest in grey: the eye goes to what the title is about.
+    const highlight = data.highlight?.length && data.series.length === 1 && !isStackedChart(data.type),
+      byCategory = highlight
+        ? data.categories.map((name, i) =>
+            data.highlight!.includes(name)
+              ? chartColors(c.theme)[0]
+              : // Neighbouring slices of a pie alternate two greys so the parts stay apart.
+                isShareChart(data.type) && i % 2
+                ? mixColor(contextColor(c.theme), c.theme.background, 0.6)
+                : contextColor(c.theme),
+          )
+        : undefined;
     c.scene.elements.push({
       kind: 'chart',
       ...rect,
       chartType: data.type,
       categories: data.categories,
       series: data.series,
-      colors: seriesColors(c, data),
+      colors: byCategory && isShareChart(data.type) ? byCategory : seriesColors(c, data),
+      ...(byCategory && (data.type === 'bar' || data.type === 'column') ? { pointColors: byCategory } : {}),
       unit: data.unit,
       background: c.theme.background,
       gridColor: chartGridColor(c.theme),
@@ -690,15 +790,37 @@ function diagram(c: LayoutContext, layout: 'process' | 'cycle' | 'hierarchy' | '
     const fit = measureText(text, { x: 0, y: 0, w: itemWidth - 12, h: layout === 'hierarchy' ? 66 : 100 }, fontSize);
     if (fit.overflow) (c.scene.textIssues ??= []).push({ text, maxCharacters: fit.maxCharacters });
   }
+  const type = c.slide.diagram?.type ?? layout;
+  const weights = diagramWeights(type, items);
+  const fills = weights.map(w => (w >= 1 ? c.theme.accent : mixColor(c.theme.accent, c.theme.background, w)));
   c.scene.elements.push({
     kind: 'smartart',
     ...rect,
-    layout: c.slide.diagram?.type ?? layout,
+    layout: type,
     items,
     accent: c.theme.accent,
     color: c.theme.background,
     fontSize,
+    fills,
+    inks: fills.map(fill => (fill === c.theme.accent ? c.theme.background : readableColor(c.theme.background, fill))),
   });
+}
+/** How strongly each box carries the accent: the root of a hierarchy and the last step of a process lead, and
+ * the boxes around them step back. Cycles and lists have no lead, so every box is equal. */
+export function diagramWeights(type: 'process' | 'cycle' | 'hierarchy' | 'list', items: SlideItem[]): number[] {
+  // An item marked as the lead outranks the shape's own order: it alone is strong, the rest step back.
+  if (items.some(item => item.emphasis)) return items.map(item => (item.emphasis ? 1 : 0.4));
+  if (type === 'process' && items.length > 1) return items.map((_, i) => 0.45 + (0.55 * i) / (items.length - 1));
+  if (type === 'hierarchy') {
+    const depth = (i: number, seen = 0): number => {
+      const parent = items[i]?.parent;
+      return i === 0 || parent === undefined || parent < 0 || parent >= i || seen > items.length
+        ? Math.min(i, 1)
+        : 1 + depth(parent, seen + 1);
+    };
+    return items.map((_, i) => [1, 0.62, 0.4][Math.min(2, depth(i))]);
+  }
+  return items.map(() => 1);
 }
 
 registerLayout({
@@ -715,7 +837,8 @@ registerLayout({
       return;
     }
     if (c.theme.coverStyle === 'split') {
-      c.shape({ x: 0, y: 0, w: 310, h: 540 }, c.theme.pale);
+      // A committed field of the accent, not an empty pale band.
+      c.shape({ x: 0, y: 0, w: 310, h: 540 }, c.theme.accent);
       c.text(c.slide.title, { x: 353, y: 104, w: 550, h: 230 }, 40, c.theme.foreground, true);
       c.text(c.slide.headline || c.slide.body || '', { x: 355, y: 368, w: 540, h: 102 }, 22, c.theme.muted);
       return;
@@ -771,17 +894,41 @@ registerLayout({
     }
     const items = c.slide.items.slice(0, 3);
     const count = Math.max(items.length, 1),
-      cw = 848 / count;
+      cw = 848 / count,
+      // Two columns have the width for larger type; it fills the panels instead of leaving their lower half bare.
+      labelSize = count <= 2 ? 30 : 26,
+      bodySize = count <= 2 ? 23 : 20;
+    // The takeaway (which option wins, and why) above the columns; the recommended option on the accent field.
+    const top = c.takeaway({ x: 56, y: 150, w: 848, h: 40 }) ? 202 : 157,
+      shift = top - 157,
+      ink = onAccent(c.theme);
     items.forEach((it, i) => {
-      const x = 56 + i * cw;
-      c.panel({ x: x - 8, y: 157, w: cw - 18, h: 318 }, i);
-      c.text(it.label, { x, y: 181, w: cw - 32, h: 68 }, 26, c.itemColor(i), true);
-      if (it.value) c.text(it.value, { x, y: 270, w: cw - 32, h: 66 }, 38, c.theme.accent, true);
+      const x = 56 + i * cw,
+        lead = c.lead === i,
+        quiet = c.lead >= 0 && !lead;
+      if (lead) c.shape({ x: x - 8, y: top, w: cw - 18, h: 318 - shift }, c.theme.accent);
+      else c.panel({ x: x - 8, y: top, w: cw - 18, h: 318 - shift }, i);
+      c.text(
+        it.label,
+        { x, y: 181 + shift, w: cw - 32, h: 68 },
+        labelSize,
+        lead ? ink : quiet ? c.theme.foreground : c.itemColor(i),
+        true,
+      );
+      if (it.value)
+        c.text(
+          it.value,
+          { x, y: 270 + shift * 0.6, w: cw - 32, h: 66 },
+          38,
+          lead ? ink : quiet ? c.theme.foreground : c.theme.accent,
+          true,
+        );
+      const bodyTop = (it.value ? 345 : 262) + shift * (it.value ? 0.6 : 1);
       c.text(
         it.description ?? '',
-        { x, y: it.value ? 345 : 274, w: cw - 32, h: it.value ? 100 : 170 },
-        20,
-        c.theme.muted,
+        { x, y: bodyTop, w: cw - 32, h: 466 - bodyTop },
+        bodySize,
+        lead ? mixColor(ink, c.theme.accent, 0.88) : c.theme.muted,
       );
     });
     if (c.slide.items.length > 3) {
@@ -803,7 +950,9 @@ registerLayout({
   diagram: true,
   textBudget: '項目名8文字、説明8文字以内。本文40文字。',
   render(c) {
-    diagram(c, 'process', { x: 56, y: 166, w: 848, h: 235 });
+    const top = c.takeaway({ x: 56, y: 150, w: 848, h: 40 }) ? 206 : 166;
+    // Without a note under the steps, the steps take its room so the page's lower third is not left empty.
+    diagram(c, 'process', { x: 56, y: top, w: 848, h: (c.slide.body ? 401 : 461) - top });
     c.text(c.slide.body || '', { x: 58, y: 425, w: 844, h: 48 }, 18, c.theme.muted);
   },
 });
@@ -815,7 +964,8 @@ registerLayout({
   diagram: true,
   textBudget: '項目名8文字。詳しい説明はノート。',
   render(c) {
-    diagram(c, 'hierarchy', { x: 56, y: 147, w: 848, h: 306 });
+    const top = c.takeaway({ x: 56, y: 150, w: 848, h: 40 }) ? 200 : 147;
+    diagram(c, 'hierarchy', { x: 56, y: top, w: 848, h: 453 - top });
   },
 });
 registerLayout({
@@ -826,8 +976,14 @@ registerLayout({
   diagram: true,
   textBudget: '項目名8文字、説明8文字。本文70文字。',
   render(c) {
+    const note = c.slide.body || c.slide.headline || '';
+    // Without a note beside it, the cycle takes the middle of the page instead of leaving the right half empty.
+    if (!note) {
+      diagram(c, 'cycle', { x: 160, y: 146, w: 640, h: 330 });
+      return;
+    }
     diagram(c, 'cycle', { x: 68, y: 146, w: 534, h: 321 });
-    c.text(c.slide.body || c.slide.headline || '', { x: 648, y: 216, w: 242, h: 202 }, 24, c.theme.accent, true);
+    c.text(note, { x: 648, y: 216, w: 242, h: 202 }, 24, c.theme.accent, true);
   },
 });
 registerLayout({
@@ -886,8 +1042,18 @@ registerLayout({
   maxItems: 5,
   render(c) {
     if (c.slide.chart) {
-      chart(c, { x: 56, y: 162, w: 560, h: 280 });
-      itemsColumn(c, 664, 163, 240, 290);
+      const top = c.takeaway({ x: 56, y: 150, w: 848, h: 40 }) ? 200 : 162;
+      chart(c, { x: 56, y: top, w: 560, h: 442 - top });
+      itemsColumn(c, 664, top + 1, 240, 453 - top);
+      return;
+    }
+    // The page's conclusion (often the number everything adds up to) on a band of the accent, the points below.
+    if (c.slide.headline && c.slide.items.length) {
+      const field = c.theme.accent;
+      c.shape({ x: 56, y: 150, w: 848, h: 92 }, field);
+      c.text(c.slide.headline, { x: 80, y: 158, w: 800, h: 76 }, 28, onAccent(c.theme), true, 'left', 'label');
+      alignLast(c, 'middle');
+      itemsColumn(c, 66, 264, 826, 210, true);
       return;
     }
     itemsColumn(c, 66, 164, 826, 302, true);
@@ -1147,7 +1313,8 @@ registerLayout({
   avoidWhen: '複数の文章を同じページで説明したい場合は読み取り付きの構図を使う。',
   textBudget: '項目名16文字程度、注釈55文字。本文はノートへ。',
   render(c) {
-    chart(c, { x: 56, y: 158, w: 848, h: 288 });
+    const top = c.takeaway({ x: 56, y: 150, w: 848, h: 40 }) ? 200 : 158;
+    chart(c, { x: 56, y: top, w: 848, h: 446 - top });
   },
 });
 registerLayout({

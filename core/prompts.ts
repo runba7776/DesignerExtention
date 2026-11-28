@@ -10,7 +10,7 @@ import { freeSystemPrompt, freeKitSection, reviewPrompt } from './free-prompts.j
 export const contract = `
 Outline = {title:string, mode:"presentation"|"reading", themeId:string, typographyId?:string, audience:string, inputBrief?:string, assumptions:string[], slides:[{id:"slide-1",title:string,intent:string,layoutId:string,keyPoints:string[],sourceIds?:string[]}]}
 DeckSpec = {id:string,title:string,mode:"presentation"|"reading",themeId:string,typographyId?:string,slides:SlideSpec[]}
-SlideSpec = {id:string,title:string,layoutId:string,headline?:string,body?:string,items:[{label:string,description?:string,value?:string,parent?:number,icon?:string,refs?:number[]}],notes:string,sources:[{documentId:string,locator:string,quote?:string}],chart?:{type:"bar"|"column"|"line"|"pie"|"doughnut"|"stackedBar"|"stackedColumn"|"waterfall",categories:string[],series:[{name:string,values:number[]}],unit?:string,caption?:string},diagram?:{type:"process"|"cycle"|"hierarchy"|"list",items:[{label:string,description?:string,parent?:number}]},table?:{headers:string[],rows:string[][]},equation?:{text:string,explanation?:string}}
+SlideSpec = {id:string,title:string,layoutId:string,headline?:string,body?:string,items:[{label:string,description?:string,value?:string,parent?:number,icon?:string,refs?:number[],emphasis?:boolean}],notes:string,sources:[{documentId:string,locator:string,quote?:string}],chart?:{type:"bar"|"column"|"line"|"pie"|"doughnut"|"stackedBar"|"stackedColumn"|"waterfall",categories:string[],series:[{name:string,values:number[]}],unit?:string,caption?:string,highlight?:string[]},diagram?:{type:"process"|"cycle"|"hierarchy"|"list",items:[{label:string,description?:string,parent?:number}]},table?:{headers:string[],rows:string[][]},equation?:{text:string,explanation?:string}}
 `;
 
 export type ModelTask = 'plan' | 'generate' | 'revise' | 'summarize' | 'review';
@@ -114,6 +114,12 @@ preferences.typographyIdが指定済みならその書体を優先。autoなら�
 視認性の設計:
 - 1枚で最初に伝えたい主張を決め、titleを短く具体的に書きます。結論と根拠を分け、headline・value・項目名・説明の役割を混ぜません。見出しに論点と長い結論を重ねず、詳細は本文またはノートへ。
 - 発表では大きい主張・数値、太い項目名、短い説明の順に視線を導きます。読む資料でも大小と余白を保ちます。大きくするために根拠のない優先度を付けません。design_statementは明示された主張がある場合のみ。
+- 主役を指定します。ページの結論にあたる項目（推奨する案、目標値、最も大きな要因など）が1つあるときだけ、その項目にitems[].emphasis=trueを付けます（1ページに1つまで）。主役はアクセント色で一番強く描かれ、ほかの項目は灰色系に下がります。並列の列挙や順位のない項目には付けません。比較では推奨する側、要点では最も重要な1点、数値の強調では結論の数値に付けます。
+- グラフでは、題名の結論に関わるカテゴリ名をchart.highlight（1〜2個、categoriesと同じ表記）に入れます。そのカテゴリだけアクセント色、ほかは灰色で描かれ、視線が結論に向きます。全部を強調しない、結論と関係のないカテゴリを強調しない。
+- headlineは、図・グラフ・数値のページでは「読み取り」の一文（例：惣菜と青果で廃棄の7割）にします。根拠の上にアクセント色で表示されます。titleの言い換えにせず、titleの結論を支える具体的な数値や比較を書きます。要点（summary）ではheadlineがページの結論として色帯に大きく表示されるので、資料全体で一番伝えたい数値や判断を書きます。
+- 目標・変化・前後の比較は、valueに「182kg→90kg」のように数値で書き、説明に繰り返しません。
+- 強調は1つの手段に絞ります（太字・色・大きさを重ねない）。文字の階層は題名・項目名・説明の3段までにします。
+- 発表の時間が分かるときは、1枚1〜2分を目安に枚数を決めます。
 - 関係のない列挙はdesign_icon_circles / design_icon_tiles / design_icon_rows、順序のある工程はdesign_process_badges / design_process_rows、比較はdesign_comparisonなども検討します。円や枠の中に項目名を置き、説明を近くに配置します。枠やアイコンを意味なく増やしません。順序・因果がある場合だけ矢印を使用します。
 - 主要な数値2〜4個を最初に印象づけるページはdesign_stat_hero（valueに単位付きの値、descriptionに前年比などの増減）。金額など長いvalueはdesign_metric_grid / design_metric_rowsの広い欄へ。数字・桁区切り・符号・単位は一続きで保持します。数値を丸めたり、改行用に分解したりしません。数式はdesign_equationも検討し、成立条件を残します。
 - items.iconには内容に合う次のIDを任意に指定できます: ${JSON.stringify(iconCatalog)}。アイコン不要ならnone、未指定なら項目名から適合するものだけをローカルで選びます。アイコンは理解を補助するために使い、事実や実績を表す証拠として使いません。会社名から実在ロゴを生成しません。全体の余白・整列・色の意味を統一し、説明が多いページと一つの主張を強く見せるページに緩急を付けます。

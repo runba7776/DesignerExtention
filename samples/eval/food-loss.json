@@ -1,0 +1,253 @@
+{
+ "id": "eval-food-loss",
+ "title": "食品ロス削減計画",
+ "mode": "presentation",
+ "themeId": "warm",
+ "slides": [
+  {
+   "id": "s1",
+   "layoutId": "cover",
+   "title": "食品ロスを半分にする",
+   "headline": "地域スーパー3店舗の1年計画",
+   "items": [],
+   "notes": "評価用の架空データです。",
+   "sources": []
+  },
+  {
+   "id": "s2",
+   "layoutId": "kpi",
+   "title": "いま、毎日これだけ捨てている",
+   "headline": "廃棄の7割は惣菜と青果、損失は年2,900万円",
+   "items": [
+    {
+     "label": "廃棄量",
+     "value": "182kg/日",
+     "description": "惣菜と青果が7割"
+    },
+    {
+     "label": "廃棄額",
+     "value": "年2,900万円",
+     "description": "仕入れ値ベース",
+     "emphasis": true
+    },
+    {
+     "label": "値引き率",
+     "value": "38%",
+     "description": "閉店前の見切り品"
+    }
+   ],
+   "notes": "評価用の架空データです。",
+   "sources": []
+  },
+  {
+   "id": "s3",
+   "layoutId": "chart_spacious",
+   "title": "惣菜と青果が廃棄の中心",
+   "items": [],
+   "chart": {
+    "type": "bar",
+    "categories": [
+     "惣菜",
+     "青果",
+     "パン",
+     "日配",
+     "精肉"
+    ],
+    "series": [
+     {
+      "name": "廃棄量",
+      "values": [
+       68,
+       59,
+       24,
+       19,
+       12
+      ]
+     }
+    ],
+    "unit": "kg/日",
+    "caption": "2026年9月の3店舗平均（架空データ）",
+    "highlight": [
+     "惣菜",
+     "青果"
+    ]
+   },
+   "notes": "評価用の架空データです。",
+   "sources": [],
+   "headline": "惣菜と青果だけで廃棄の7割を占める"
+  },
+  {
+   "id": "s4",
+   "layoutId": "process",
+   "title": "4段階で廃棄を減らす",
+   "items": [],
+   "diagram": {
+    "type": "process",
+    "items": [
+     {
+      "label": "見える化",
+      "description": "廃棄を品目別に毎日記録"
+     },
+     {
+      "label": "発注の見直し",
+      "description": "曜日と天気で量を調整"
+     },
+     {
+      "label": "売り切り",
+      "description": "夕方に段階値引き"
+     },
+     {
+      "label": "寄付・堆肥化",
+      "description": "残りを地域で生かす"
+     }
+    ]
+   },
+   "notes": "評価用の架空データです。",
+   "sources": [],
+   "headline": "まず毎日の記録から始め、最後は地域で生かす"
+  },
+  {
+   "id": "s5",
+   "layoutId": "hierarchy",
+   "title": "推進体制",
+   "items": [],
+   "diagram": {
+    "type": "hierarchy",
+    "items": [
+     {
+      "label": "推進責任者",
+      "description": "本部 店舗運営部長"
+     },
+     {
+      "label": "店舗リーダー",
+      "description": "3店舗の副店長",
+      "parent": 0
+     },
+     {
+      "label": "データ担当",
+      "description": "本部 情報システム",
+      "parent": 0
+     },
+     {
+      "label": "惣菜チーム",
+      "description": "発注と製造量",
+      "parent": 1
+     },
+     {
+      "label": "青果チーム",
+      "description": "陳列と鮮度",
+      "parent": 1
+     }
+    ]
+   },
+   "notes": "評価用の架空データです。",
+   "sources": [],
+   "headline": "本部の責任者の下、店舗とデータの二本立てで進める"
+  },
+  {
+   "id": "s6",
+   "layoutId": "cycle",
+   "title": "毎週回す改善の輪",
+   "items": [],
+   "diagram": {
+    "type": "cycle",
+    "items": [
+     {
+      "label": "記録",
+      "description": "廃棄を量る"
+     },
+     {
+      "label": "分析",
+      "description": "原因を特定"
+     },
+     {
+      "label": "対策",
+      "description": "発注を修正"
+     },
+     {
+      "label": "確認",
+      "description": "翌週に効果測定"
+     }
+    ]
+   },
+   "notes": "評価用の架空データです。",
+   "sources": []
+  },
+  {
+   "id": "s7",
+   "layoutId": "grouped_list",
+   "title": "すぐ始める4つの施策",
+   "items": [],
+   "diagram": {
+    "type": "list",
+    "items": [
+     {
+      "label": "需要予測",
+      "description": "天気と曜日で発注",
+      "emphasis": true
+     },
+     {
+      "label": "小分け販売",
+      "description": "惣菜を少量パックに"
+     },
+     {
+      "label": "段階値引き",
+      "description": "17時・19時の2回"
+     },
+     {
+      "label": "フードバンク",
+      "description": "閉店後に寄付"
+     }
+    ]
+   },
+   "notes": "評価用の架空データです。",
+   "sources": [],
+   "headline": "どれも新しい設備なしで来月から始められる"
+  },
+  {
+   "id": "s8",
+   "layoutId": "comparison",
+   "title": "従来と新方式の違い",
+   "items": [
+    {
+     "label": "従来",
+     "description": "店長の勘で発注し、閉店前にまとめて値引き"
+    },
+    {
+     "label": "新方式",
+     "description": "データで発注量を決め、夕方から段階的に値引き",
+     "emphasis": true
+    }
+   ],
+   "notes": "評価用の架空データです。",
+   "sources": [],
+   "headline": "勘に頼らず、データで発注し値引きを前倒しする"
+  },
+  {
+   "id": "s9",
+   "layoutId": "summary",
+   "title": "1年後の目標",
+   "headline": "廃棄を半分、利益は年1,200万円改善",
+   "items": [
+    {
+     "label": "廃棄量",
+     "value": "182kg→90kg/日",
+     "description": "惣菜と青果の発注見直しで半減"
+    },
+    {
+     "label": "値引き率",
+     "value": "38%→25%",
+     "description": "夕方からの段階値引き",
+     "emphasis": true
+    },
+    {
+     "label": "寄付",
+     "value": "月1.5トン",
+     "description": "フードバンク2団体へ"
+    }
+   ],
+   "notes": "評価用の架空データです。",
+   "sources": []
+  }
+ ]
+}

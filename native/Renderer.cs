@@ -17,6 +17,9 @@ namespace DesignerExtension.Native
     internal static class Renderer
     {
         private static readonly List<string> Warnings = new List<string>();
+        // Text PowerPoint set differently from the plan (past its box, over another text, into a chevron's cut-in),
+        // listed for the app to show once the deck is made.
+        private static readonly List<Dictionary<string, object>> Issues = new List<Dictionary<string, object>>();
         private static string FontName = "Yu Gothic", HeadingFont = "Yu Gothic";
         // The deck's own theme colours, as the theme colour (ObjectThemeColor) each is written as; none for a deck
         // that takes a company template's theme.
@@ -142,6 +145,8 @@ namespace DesignerExtension.Native
                     }
                     Release((object)lastShape);
                     if (!titled && (int)slide.Shapes.HasTitle != 0) slide.Shapes.Title.Delete();
+                    Stage = "スライド " + (i + 1) + " の文字の重なりの確認";
+                    CheckTextLayout(slide, i + 1);
                     foreach (var line in glued) Glue(slide, line.Key, line.Value, boxes);
                     GroupShapes(slide, groups);
                     // A group takes the place of its top part, and the title cannot join one: a card grouped with the text under the title would cover it.
@@ -178,7 +183,7 @@ namespace DesignerExtension.Native
                     Release((object)slide);
                 }
                 File.WriteAllText(Path.Combine(output, "render-result.json"), serializer.Serialize(new {
-                    pptx = "presentation.pptx", thumbnails = thumbs, warnings = Warnings, native = true
+                    pptx = "presentation.pptx", thumbnails = thumbs, warnings = Warnings, issues = Issues, native = true
                 }), new UTF8Encoding(false));
                 Console.WriteLine("PowerPoint presentation and previews created.");
                 return 0;
@@ -333,8 +338,8 @@ namespace DesignerExtension.Native
             }
             // Browser-measured text keeps its lines; only report if PowerPoint sets it wider. BoundWidth runs up to a
             // quarter of the size past the characters whatever their number ("4.8" at 130: 24pt wider, its ink is not).
-            if (Boolean(e, "exact")) { if ((float)range.BoundWidth - 0.25f * Number(e, "fontSize", 22) > w * 1.08f) Warnings.Add("スライド " + slideNumber + ": 文字がわずかに枠より広く表示されます（" + Short(Convert.ToString(range.Text)) + "）。"); }
-            else FitNativeText(frame, w, h, Number(e,"fontSize",22), slideNumber, Number(e, "minFontSize", 0));
+            // Browser-measured text keeps its lines; CheckTextLayout looks at it once the slide is complete.
+            if (!Boolean(e, "exact")) FitNativeText(frame, w, h, Number(e,"fontSize",22), slideNumber, Number(e, "minFontSize", 0));
             return shape;
         }
 
@@ -819,6 +824,8 @@ namespace DesignerExtension.Native
                     int color = colors.Length > 0 ? Color(Convert.ToString(colors[(i - 1) % colors.Length])) : Accent;
                     if (type == "line") { s.Format.Line.ForeColor.RGB = color; s.Format.Line.Weight = 2.5; s.MarkerStyle = 8; s.MarkerSize = 7; s.MarkerForegroundColor = color; s.MarkerBackgroundColor = color; s.Smooth = false; }
                     else { s.Format.Fill.Solid(); s.Format.Fill.ForeColor.RGB = color; s.Format.Line.Visible = 0; }
+                    // Highlighted categories (one colour per bar) are written into the chart XML by
+                    // ChartIntegrity.Synchronize: here the live chart can still hold Excel's template points.
                     if (share) for (int p = 1; p <= categories.Length; p++)
                     {
                         dynamic point = s.Points(p);
@@ -939,17 +946,23 @@ namespace DesignerExtension.Native
                 }
                 else { previous = nodes[i - 1]; nodes.Add(previous.AddNode(2, 1)); }
             }
-            int nodeColor = Color(Text(e, "accent", null), Accent);
+            int accentColor = Color(Text(e, "accent", null), Accent);
+            object[] fills = ArrayOf(e, "fills"), inks = ArrayOf(e, "inks");
             for (int i = 0; i < items.Length; i++)
             {
                 dynamic node = nodes[i];
                 var item = AsObject(items[i]);
+                // The lead box (root, last step) keeps the full accent; supporting boxes step back to a tint.
+                int nodeColor = i < fills.Length ? Color(Convert.ToString(fills[i]), accentColor) : accentColor;
+                int inkColor = i < inks.Length ? Color(Convert.ToString(inks[i]), Color(Text(e, "color", "#FFFFFF"))) : Color(Text(e, "color", "#FFFFFF"));
                 string description = Text(item, "description", "");
-                node.TextFrame2.TextRange.Text = Text(item, "label", "") + (description.Length > 0 ? "\n" + description : "");
+                node.TextFrame2.TextRange.Text = Text(item, "label", "") + (description.Length > 0 ? "\r" + description : "");
                 node.TextFrame2.TextRange.Font.Name = FontName;
                 node.TextFrame2.TextRange.Font.NameFarEast = FontName;
                 node.TextFrame2.TextRange.Font.Size = Number(e, "fontSize", 18);
-                node.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = Color(Text(e, "color", "#FFFFFF"));
+                node.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = inkColor;
+                // The label is the heading of its box; the description below it is quieter (sized after fitting).
+                try { node.TextFrame2.TextRange.Paragraphs(1).Font.Bold = -1; } catch { }
                 for (int s = 1; s <= (int)node.Shapes.Count; s++)
                 {
                     dynamic nodeShape = node.Shapes.Item(s);
@@ -962,6 +975,7 @@ namespace DesignerExtension.Native
                 }
             }
             // Check after all nodes are populated because SmartArt reflows as nodes are added.
+            var fitted = new List<object>();
             foreach (object itemNode in nodes)
             {
                 dynamic node = itemNode;
@@ -973,10 +987,113 @@ namespace DesignerExtension.Native
                     height = Math.Max(height,(float)nodeShape.Height);
                     Release((object)nodeShape);
                 }
-                FitNativeText(node.TextFrame2,width,height,Number(e,"fontSize",18),slideNumber);
-                Release(itemNode);
+                FitSmartArtNode(node,width,height,Number(e,"fontSize",18),slideNumber);
+                fitted.Add(itemNode);
             }
+            MatchNodeSizes(fitted);
+            foreach (object itemNode in fitted) Release(itemNode);
             Release((object)art); Release((object)shape); Release((object)layout);
+        }
+
+        /// <summary>The boxes of one diagram share their type sizes: every label and every description takes the
+        /// smallest size any box needed, so one long note does not leave its box in smaller type than its row.</summary>
+        private static void MatchNodeSizes(List<object> nodes)
+        {
+            float label = float.MaxValue, note = float.MaxValue;
+            foreach (object item in nodes)
+            {
+                try
+                {
+                    dynamic range = ((dynamic)item).TextFrame2.TextRange;
+                    int count = (int)range.Paragraphs().Count;
+                    float size = (float)range.Paragraphs(1).Font.Size;
+                    if (size > 0 && size < 200) label = Math.Min(label, size);
+                    for (int p = 2; p <= count; p++)
+                    {
+                        size = (float)range.Paragraphs(p).Font.Size;
+                        if (size > 0 && size < 200) note = Math.Min(note, size);
+                    }
+                    Release((object)range);
+                }
+                catch { }
+            }
+            foreach (object item in nodes)
+            {
+                try
+                {
+                    dynamic range = ((dynamic)item).TextFrame2.TextRange;
+                    int count = (int)range.Paragraphs().Count;
+                    if (label < float.MaxValue) range.Paragraphs(1).Font.Size = label;
+                    if (note < float.MaxValue) for (int p = 2; p <= count; p++) range.Paragraphs(p).Font.Size = note;
+                    Release((object)range);
+                }
+                catch { }
+            }
+        }
+
+        /// <summary>Fits a SmartArt node: the label first, its description a size smaller (at least 10pt). Fonts with
+        /// tall lines (Meiryo) can still overflow a small box; then the description is left out with a warning
+        /// instead of failing the whole deck, and only a label that cannot fit at 12pt stops the export.</summary>
+        private static void FitSmartArtNode(dynamic node, float width, float height, float requested, int slideNumber)
+        {
+            dynamic frame = node.TextFrame2;
+            dynamic range = frame.TextRange;
+            float availableWidth = width - (float)frame.MarginLeft - (float)frame.MarginRight;
+            float availableHeight = height - (float)frame.MarginTop - (float)frame.MarginBottom;
+            float minimum = Math.Min(requested, 12f);
+            float size = requested;
+            SizeNodeText(range, size);
+            while (NodeOverflows(range, availableWidth, availableHeight) && size > minimum) { size = Math.Max(minimum, size - 1); SizeNodeText(range, size); }
+            int paragraphs = 1;
+            try { paragraphs = (int)range.Paragraphs().Count; } catch { }
+            if (NodeOverflows(range, availableWidth, availableHeight) && paragraphs > 1)
+            {
+                string label = Convert.ToString(range.Paragraphs(1).Text).TrimEnd('\r', '\n', '\v');
+                range.Text = label;
+                try { range.Font.Bold = -1; } catch { }
+                Warnings.Add("スライド " + slideNumber + ": 図の「" + Short(label) + "」の説明が箱に収まらないため省きました。詳しい説明は発表者ノートに書いてください。");
+                size = requested; SizeNodeText(range, size);
+                while (NodeOverflows(range, availableWidth, availableHeight) && size > minimum) { size = Math.Max(minimum, size - 1); SizeNodeText(range, size); }
+            }
+            if (NodeOverflows(range, availableWidth, availableHeight))
+                throw new InvalidDataException("TEXT_FIT_REQUIRED: スライド " + slideNumber + " の図の項目名が箱に収まりません。項目名を短くしてください（" + Short(Convert.ToString(range.Text)) + "）。");
+            AvoidOrphans(range);
+            Release((object)range); Release((object)frame);
+        }
+        /// <summary>A description that wraps with only one or two characters on its second line reads as a mistake
+        /// (毎日 / 記録): it is set a point smaller at a time, down to 11pt, until it keeps to one line.</summary>
+        private static void AvoidOrphans(dynamic range)
+        {
+            try
+            {
+                int count = (int)range.Paragraphs().Count;
+                for (int p = 2; p <= count; p++)
+                {
+                    dynamic paragraph = range.Paragraphs(p);
+                    float size = (float)paragraph.Font.Size;
+                    while ((int)paragraph.Lines().Count == 2 && Convert.ToString(paragraph.Lines(2).Text).Trim().Length <= 2 && size > 11)
+                    {
+                        size -= 1; paragraph.Font.Size = size;
+                    }
+                    Release((object)paragraph);
+                }
+            }
+            catch { }
+        }
+        private static bool NodeOverflows(dynamic range, float width, float height)
+        {
+            return (float)range.BoundHeight > height + 1 || (float)range.BoundWidth > width + 1;
+        }
+        /// <summary>The label at size, any description paragraphs 4pt smaller (at least 10pt).</summary>
+        private static void SizeNodeText(dynamic range, float size)
+        {
+            range.Font.Size = size;
+            try
+            {
+                int count = (int)range.Paragraphs().Count;
+                for (int p = 2; p <= count; p++) range.Paragraphs(p).Font.Size = Math.Max(10f, size - 4);
+            }
+            catch { }
         }
 
         private static void SmartArtFallback(dynamic slide, Dictionary<string, object> e, int slideNumber)
@@ -1016,6 +1133,309 @@ namespace DesignerExtension.Native
             for (int i = 0; i < 3; i++) channels[i] = channels[i] <= .04045 ? channels[i]/12.92 : Math.Pow((channels[i]+.055)/1.055,2.4);
             double light = .2126*channels[0]+.7152*channels[1]+.0722*channels[2];
             return light < .179 ? Color("#FFFFFF") : Color("#172D4A");
+        }
+        private struct Box { public float L, T, R, B; }
+        // The helpers take object, not dynamic, so calls to them (and the lambdas passed to them) bind at compile time.
+        private static Box ShapeBox(object item)
+        {
+            dynamic shape = item;
+            var box = new Box();
+            box.L = (float)shape.Left; box.T = (float)shape.Top;
+            box.R = box.L + (float)shape.Width; box.B = box.T + (float)shape.Height;
+            return box;
+        }
+        private static float TextSize(object item)
+        {
+            dynamic shape = item;
+            try { float size = (float)shape.TextFrame2.TextRange.Font.Size; if (size > 0 && size < 400) return size; } catch { }
+            return 18;
+        }
+        /// <summary>Where the characters of each line of a shape's text are. A line's box holds the leading above and
+        /// below its characters, so a sixth of it is taken off the top and an eighth off the bottom; BoundWidth runs up
+        /// to a quarter of the size past the last character, so that much is taken off the right.</summary>
+        private static List<Box> LineBoxes(object item)
+        {
+            dynamic shape = item;
+            dynamic range = shape.TextFrame2.TextRange;
+            var boxes = new List<Box>();
+            int lines = 0;
+            try { lines = (int)range.Lines().Count; } catch { }
+            for (int i = 1; i <= lines; i++)
+            {
+                dynamic line = range.Lines(i);
+                float size = 18;
+                try { float s = (float)line.Font.Size; if (s > 0 && s < 400) size = s; } catch { }
+                var box = new Box();
+                box.L = (float)line.BoundLeft; box.T = (float)line.BoundTop;
+                box.R = box.L + (float)line.BoundWidth - 0.25f * size; box.B = box.T + (float)line.BoundHeight;
+                float height = box.B - box.T;
+                box.T += height / 6; box.B -= height / 8;
+                if (box.R > box.L + 1 && box.B > box.T) boxes.Add(box);
+                Release((object)line);
+            }
+            Release((object)range);
+            return boxes;
+        }
+        /// <summary>Where the characters of a shape's text are: the lines' boxes together.</summary>
+        private static Box InkBox(object item)
+        {
+            List<Box> lines = LineBoxes(item);
+            if (lines.Count == 0) return ShapeBox(item);
+            Box ink = lines[0];
+            foreach (Box line in lines) { ink.L = Math.Min(ink.L, line.L); ink.T = Math.Min(ink.T, line.T); ink.R = Math.Max(ink.R, line.R); ink.B = Math.Max(ink.B, line.B); }
+            return ink;
+        }
+        private static float Overlap(float a1, float a2, float b1, float b2) { return Math.Min(a2, b2) - Math.Max(a1, b1); }
+        private static string TextOf(object item)
+        {
+            dynamic shape = item;
+            try
+            {
+                string text = Convert.ToString(shape.TextFrame2.TextRange.Text);
+                return Short(text.Replace("\r", " ").Replace("\n", " ").Replace("\v", " ").Trim());
+            }
+            catch { return ""; }
+        }
+        /// <summary>Whether a text's characters stay in its own box: a few points of slack, a third of a line below.</summary>
+        private static bool StaysInBox(object item)
+        {
+            Box box = ShapeBox(item), ink = InkBox(item);
+            float across = Math.Max(3f, 0.06f * (box.R - box.L)), down = Math.Max(3f, 0.3f * TextSize(item));
+            return ink.L >= box.L - across && ink.R <= box.R + across && ink.T >= box.T - down && ink.B <= box.B + down;
+        }
+        /// <summary>Sets a text up to 10% smaller (2% at a time, not below 9pt; steps sets how far) until ok holds. Left
+        /// as it was when that is not enough, so a page is not made smaller for nothing.</summary>
+        private static bool ShrinkUntil(object item, Func<bool> ok, int steps = 5)
+        {
+            dynamic shape = item;
+            dynamic range = shape.TextFrame2.TextRange;
+            var sizes = new List<float>();
+            int runs = 0;
+            try { runs = (int)range.Runs().Count; for (int r = 1; r <= runs; r++) sizes.Add((float)range.Runs(r).Font.Size); } catch { runs = 0; }
+            if (runs == 0 || sizes.Exists(v => !(v > 0 && v < 400))) { Release((object)range); return false; }
+            bool done = false;
+            for (int step = 1; step <= steps && !done; step++)
+            {
+                for (int r = 1; r <= runs; r++) range.Runs(r).Font.Size = Math.Max(9f, sizes[r - 1] * (1 - 0.02f * step));
+                done = ok();
+            }
+            if (!done) for (int r = 1; r <= runs; r++) range.Runs(r).Font.Size = sizes[r - 1];
+            Release((object)range);
+            return done;
+        }
+        private static void Issue(int slideNumber, string kind, string text, string other)
+        {
+            var issue = new Dictionary<string, object>();
+            issue["slide"] = slideNumber; issue["kind"] = kind; issue["text"] = text;
+            if (other != null) issue["other"] = other;
+            Issues.Add(issue);
+        }
+        /// <summary>Whether a line runs into the cut-in (chevron) or point (chevron, pentagon) of a shape, taken at the
+        /// heights the line covers: the cut-in is deepest at the middle, the point narrows towards the top and bottom.</summary>
+        private static bool HitsPoint(Box line, Box box, float depth, bool chevron)
+        {
+            float middle = (box.T + box.B) / 2, half = (box.B - box.T) / 2;
+            if (half <= 0) return false;
+            float nearest = Math.Max(line.T, Math.Min(middle, line.B)), farthest = Math.Abs(line.T - middle) > Math.Abs(line.B - middle) ? line.T : line.B;
+            float cutIn = box.L + depth * (1 - Math.Min(1, Math.Abs(nearest - middle) / half));
+            float tip = box.R - depth * Math.Min(1, Math.Abs(farthest - middle) / half);
+            // A few points of room, not a touch: a character at the very tip of the cut-in reads as cut off.
+            return (chevron && line.L < cutIn + 4) || line.R > tip - 4;
+        }
+        /// <summary>Whether the texts on a card can move up by shift together without coming onto a part in front of
+        /// the card that they were clear of (a text by where its characters are).</summary>
+        private static bool CanLift(List<object> lifted, object card, List<object> parts, List<object> texts, Dictionary<object, int> depthOf, float shift)
+        {
+            if (shift <= 0) return false;
+            foreach (object other in parts)
+            {
+                if (ReferenceEquals(other, card) || lifted.Contains(other) || depthOf[other] < depthOf[card]) continue;
+                Box box = texts.Contains(other) ? InkBox(other) : ShapeBox(other);
+                foreach (object text in lifted)
+                {
+                    Box ink = InkBox(text), up = ink;
+                    up.T -= shift; up.B -= shift;
+                    bool before = Overlap(ink.L, ink.R, box.L, box.R) > 1 && Overlap(ink.T, ink.B, box.T, box.B) > 1;
+                    bool after = Overlap(up.L, up.R, box.L, box.R) > 1 && Overlap(up.T, up.B, box.T, box.B) > 1;
+                    if (after && !before) return false;
+                }
+            }
+            return true;
+        }
+        private static bool Inside(Box ink, Box box, float margin)
+        {
+            return ink.L >= box.L + margin && ink.T >= box.T + margin && ink.R <= box.R - margin && ink.B <= box.B - margin;
+        }
+        private static float Share(Box ink, Box box)
+        {
+            float wide = Overlap(ink.L, ink.R, box.L, box.R), tall = Overlap(ink.T, ink.B, box.T, box.B), area = (ink.R - ink.L) * (ink.B - ink.T);
+            return wide <= 0 || tall <= 0 || area <= 0 ? 0 : wide * tall / area;
+        }
+        /// <summary>Text as PowerPoint set it, checked once the slide's parts are placed: text past its own box, two
+        /// texts over each other, text past the edge of the card under it, a table grown over the part below it, and
+        /// text running into the cut-in or point of a chevron or pentagon (its own label too). A text a little too large
+        /// is set up to 10% smaller first; what remains is listed (Issues) for the app to show once the deck is made.</summary>
+        private static void CheckTextLayout(dynamic slide, int slideNumber)
+        {
+            var texts = new List<object>(); var cards = new List<object>(); var points = new List<object>(); var tables = new List<object>(); var held = new List<object>();
+            var depthOf = new Dictionary<object, int>();
+            int count = (int)slide.Shapes.Count;
+            for (int k = 1; k <= count; k++)
+            {
+                object item = slide.Shapes.Item(k);
+                dynamic shape = item;
+                held.Add(item);
+                depthOf[item] = k; // Shapes are listed back to front.
+                int type = 0, auto = 0;
+                try { type = (int)shape.Type; } catch { }
+                try { if (type == 1) auto = (int)shape.AutoShapeType; } catch { }
+                bool text = false, filled = false, table = false;
+                try { text = (type == 1 || type == 14 || type == 17) && (int)shape.HasTextFrame != 0 && (int)shape.TextFrame2.HasText != 0; } catch { }
+                try { filled = type == 1 && (int)shape.Fill.Visible != 0; } catch { }
+                try { table = (int)shape.HasTable != 0; } catch { }
+                if (text) texts.Add(item);
+                if (filled) cards.Add(item);
+                if (table) tables.Add(item);
+                if (auto == 52 || auto == 51) points.Add(item); // chevron, pentagon (home plate)
+            }
+            try
+            {
+                foreach (object item in texts)
+                {
+                    object current = item;
+                    if (!StaysInBox(current) && !ShrinkUntil(current, () => StaysInBox(current)))
+                        Issue(slideNumber, "overflow", TextOf(current), null);
+                }
+                for (int a = 0; a < texts.Count; a++)
+                    for (int b = a + 1; b < texts.Count; b++)
+                    {
+                        object first = texts[a], second = texts[b];
+                        Func<bool> apart = () =>
+                        {
+                            Box x = InkBox(first), y = InkBox(second);
+                            return Overlap(x.L, x.R, y.L, y.R) <= 3 || Overlap(x.T, x.B, y.T, y.B) <= 3;
+                        };
+                        // Two texts over each other read worse than one a little smaller than its neighbours: up to 20%.
+                        if (apart() || ShrinkUntil(second, apart, 10) || ShrinkUntil(first, apart, 10)) continue;
+                        Issue(slideNumber, "overlap", TextOf(first), TextOf(second));
+                    }
+                // A text set on a card (most of it over a filled shape behind it) keeps 2pt inside the card's edges.
+                var onCard = new Dictionary<object, List<object>>(); var flagged = new List<object>();
+                foreach (object item in texts)
+                {
+                    object current = item, card = null;
+                    Box ink = InkBox(current);
+                    foreach (object candidate in cards)
+                        if (!ReferenceEquals(candidate, current) && depthOf[candidate] < depthOf[current] && Share(ink, ShapeBox(candidate)) >= 0.6f
+                            && (card == null || depthOf[candidate] > depthOf[card])) card = candidate;
+                    if (card == null) continue;
+                    if (!onCard.ContainsKey(card)) onCard[card] = new List<object>();
+                    onCard[card].Add(current);
+                    if (Inside(ink, ShapeBox(card), 2)) continue;
+                    object under = card;
+                    if (ShrinkUntil(current, () => Inside(InkBox(current), ShapeBox(under), 2))) continue;
+                    Issue(slideNumber, "edge", TextOf(current), null);
+                    flagged.Add(current);
+                }
+                // The card's room below its last text is not squeezed: under 8pt while the room above is 2.5 times that.
+                foreach (var pair in onCard)
+                {
+                    Box card = ShapeBox(pair.Key);
+                    float above = float.MaxValue, below = float.MaxValue;
+                    object lowest = null;
+                    foreach (object text in pair.Value)
+                    {
+                        Box ink = InkBox(text);
+                        above = Math.Min(above, ink.T - card.T);
+                        if (card.B - ink.B < below) { below = card.B - ink.B; lowest = text; }
+                    }
+                    if (lowest == null || flagged.Contains(lowest) || below >= 8 || above < 2.5f * Math.Max(below, 1)) continue;
+                    object last = lowest;
+                    float wanted = Math.Min(8f, above / 2.5f);
+                    // The card's texts move up together first, their sizes kept (the room above stays the larger),
+                    // unless that brings one onto another part in front of the card.
+                    if (CanLift(pair.Value, pair.Key, held, texts, depthOf, wanted - below))
+                    {
+                        foreach (object text in pair.Value) { dynamic moved = text; moved.Top = (float)moved.Top - (wanted - below); }
+                        continue;
+                    }
+                    if (ShrinkUntil(last, () => card.B - InkBox(last).B >= wanted)) continue;
+                    Issue(slideNumber, "edge", TextOf(last), null);
+                }
+                // A table PowerPoint made taller (its rows grow to their text) must not run over the parts around it.
+                foreach (object item in tables)
+                {
+                    Box grid = ShapeBox(item);
+                    foreach (object other in Union(texts, cards))
+                    {
+                        Box box = texts.Contains(other) ? InkBox(other) : ShapeBox(other);
+                        // A panel behind the table, or a note set on it, belongs with it.
+                        if (Share(grid, ShapeBox(other)) >= 0.9f || Share(box, grid) >= 0.9f) continue;
+                        if (Overlap(grid.L, grid.R, box.L, box.R) <= 1 || Overlap(grid.T, grid.B, box.T, box.B) <= 1) continue;
+                        object table = item;
+                        // Smaller type lets the rows go back to the heights they were given.
+                        if (ShrinkTable(table, () => { Box g = ShapeBox(table); return Overlap(g.L, g.R, box.L, box.R) <= 1 || Overlap(g.T, g.B, box.T, box.B) <= 1; })) continue;
+                        Issue(slideNumber, "overlap", "表", texts.Contains(other) ? TextOf(other) : "囲み");
+                        break;
+                    }
+                }
+                foreach (object item in points)
+                {
+                    dynamic point = item;
+                    Box box = ShapeBox(item);
+                    float adjust = 0.5f;
+                    try { adjust = (float)point.Adjustments.Item(1); } catch { }
+                    float depth = adjust * Math.Min(box.R - box.L, box.B - box.T);
+                    bool chevron = (int)point.AutoShapeType == 52;
+                    foreach (object other in texts)
+                    {
+                        // Only a text set on this shape (its own label, or most of a text over it).
+                        if (!ReferenceEquals(other, item) && Share(InkBox(other), box) < 0.5f) continue;
+                        object current = other;
+                        Func<bool> clear = () => !LineBoxes(current).Exists(line => HitsPoint(line, box, depth, chevron));
+                        if (clear() || ShrinkUntil(current, clear)) continue;
+                        Issue(slideNumber, "notch", TextOf(current), null);
+                    }
+                }
+            }
+            catch (Exception ex) { Warnings.Add("スライド " + slideNumber + ": 文字の重なりを確かめられませんでした（" + Short(ex.Message) + "）。"); }
+            foreach (object shape in held) Release(shape);
+        }
+        /// <summary>Sets every cell of a table up to 20% smaller (2% at a time, not below 9pt) until ok holds; left as it
+        /// was when that is not enough.</summary>
+        private static bool ShrinkTable(object item, Func<bool> ok, int steps = 10)
+        {
+            dynamic shape = item;
+            dynamic table = shape.Table;
+            int rows = (int)table.Rows.Count, columns = (int)table.Columns.Count;
+            var sizes = new float[rows, columns];
+            for (int r = 1; r <= rows; r++)
+                for (int c = 1; c <= columns; c++)
+                {
+                    float size = 0;
+                    try { size = (float)table.Cell(r, c).Shape.TextFrame2.TextRange.Font.Size; } catch { }
+                    sizes[r - 1, c - 1] = size > 0 && size < 400 ? size : 0;
+                }
+            bool done = false;
+            for (int step = 1; step <= steps && !done; step++)
+            {
+                for (int r = 1; r <= rows; r++)
+                    for (int c = 1; c <= columns; c++)
+                        if (sizes[r - 1, c - 1] > 0) table.Cell(r, c).Shape.TextFrame2.TextRange.Font.Size = Math.Max(9f, sizes[r - 1, c - 1] * (1 - 0.02f * step));
+                done = ok();
+            }
+            if (!done)
+                for (int r = 1; r <= rows; r++)
+                    for (int c = 1; c <= columns; c++)
+                        if (sizes[r - 1, c - 1] > 0) table.Cell(r, c).Shape.TextFrame2.TextRange.Font.Size = sizes[r - 1, c - 1];
+            Release((object)table);
+            return done;
+        }
+        private static List<object> Union(List<object> a, List<object> b)
+        {
+            var all = new List<object>(a);
+            foreach (object item in b) if (!all.Contains(item)) all.Add(item);
+            return all;
         }
         private static string Short(string text) { return text.Length > 28 ? text.Substring(0, 28) + "…" : text; }
         private static Dictionary<string, object> AsObject(object value) { return value as Dictionary<string, object> ?? new Dictionary<string, object>(); }

@@ -195,13 +195,24 @@ test('the instructions ask for one kind of blank, keep notes off the slides, lis
     json = freeSystemPrompt('generate', { outputMode: 'presentation' });
   for (const prompt of [plan, html, json]) {
     assert.match(prompt, /項目名を全角の角かっこで囲んだ記入欄（例：［実施日］［集合場所］）だけを置きます/);
-    assert.match(prompt, /記入欄は資料全体で8項目程度までにします。同じ事実には同じ項目名を使い/);
+    assert.match(prompt, /提案・報告・授業の資料では記入欄を作らず/);
+    assert.match(prompt, /題名・結論の一文・大きな数値・図の箱には記入欄を置きません/);
+    assert.match(prompt, /記入欄は資料全体で4項目まで（案内の資料は6項目まで）にします。同じ事実には同じ項目名を使い/);
     assert.match(
       prompt,
       /作り手向けのメモは、スライドの文字に書きません。確認が必要なことは、notesの最後に「確認事項：」/,
     );
   }
   assert.match(plan, /outline\.openFactsには、依頼と資料にない事実のうち、この資料に必要なもの/);
+  assert.match(plan, /accent2は主色と色相が離れた強調色/);
+  for (const prompt of [html, json]) {
+    assert.match(prompt, /配色は3つの役割で使います。主色（accent）は資料の骨組み/);
+    assert.match(prompt, /奥行きは主役だけに付けます/);
+  }
+  assert.match(
+    freeSystemPrompt('generate', { format: 'html', outputMode: 'presentation', images: true }),
+    /看板・ロゴ・大きな文字が写りやすい語/,
+  );
   assert.match(plan, /openFactsは、どの案にも同じものを書きます/);
   assert.match(plan, /背景の明るさ・主な色・文字と図の割合のうち、少なくとも2つを案ごとに変えます/);
   for (const prompt of [html, json])
@@ -408,7 +419,7 @@ test('open facts: answers go with the outline, blanks left are filled across the
   }
 });
 
-test('the look after the deck is shown also lists a page with a note to the maker, even when the AI saw nothing', async () => {
+test('the look after the deck is shown also acts on a page with a note to the maker, even when the AI saw nothing', async () => {
   const layout: HtmlLayout = async (pages, _t, opts) =>
     pages.map(p => {
       const title = /<h1>(.*?)<\/h1>/.exec(p.html)?.[1] ?? '',
@@ -479,9 +490,18 @@ test('the look after the deck is shown also lists a page with a note to the make
     assert.equal(shown.polish!.state, 'pending');
     assert.equal(shown.reviewHints, undefined, 'the finding waits for the look');
     const done = await f.engine.polish(s.id);
-    assert.deepEqual(remakes, [], 'shown for the user to fix, not remade');
-    assert.deepEqual(done.reviewReport!.fixed, []);
-    assert.ok(done.reviewHints!.some(h => h.slideId === 'slide-3' && /作り手向けのメモ/.test(h.what) && !h.fixed));
+    assert.deepEqual(
+      remakes.map(r => r.targetSlides.map((t: any) => t.id)),
+      [['slide-3']],
+      'a high finding of the app is made again like one of the look',
+    );
+    assert.match(remakes[0].repair.detail, /作り手向けのメモ/);
+    assert.equal(
+      remakes[0].repair.previousHtml,
+      '<section class="slide"><h1>注意</h1><p>持ち物は仮置き。確定後に差し替える</p></section>',
+    );
+    assert.deepEqual(done.reviewReport!.fixed, ['slide-3']);
+    assert.ok(done.reviewHints!.some(h => h.slideId === 'slide-3' && /作り手向けのメモ/.test(h.what) && h.fixed));
   } finally {
     await f.dispose();
   }
