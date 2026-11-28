@@ -1242,6 +1242,26 @@ namespace DesignerExtension.Native
             // A few points of room, not a touch: a character at the very tip of the cut-in reads as cut off.
             return (chevron && line.L < cutIn + 4) || line.R > tip - 4;
         }
+        /// <summary>Whether the texts on a card can move up by shift together without coming onto a part in front of
+        /// the card that they were clear of (a text by where its characters are).</summary>
+        private static bool CanLift(List<object> lifted, object card, List<object> parts, List<object> texts, Dictionary<object, int> depthOf, float shift)
+        {
+            if (shift <= 0) return false;
+            foreach (object other in parts)
+            {
+                if (ReferenceEquals(other, card) || lifted.Contains(other) || depthOf[other] < depthOf[card]) continue;
+                Box box = texts.Contains(other) ? InkBox(other) : ShapeBox(other);
+                foreach (object text in lifted)
+                {
+                    Box ink = InkBox(text), up = ink;
+                    up.T -= shift; up.B -= shift;
+                    bool before = Overlap(ink.L, ink.R, box.L, box.R) > 1 && Overlap(ink.T, ink.B, box.T, box.B) > 1;
+                    bool after = Overlap(up.L, up.R, box.L, box.R) > 1 && Overlap(up.T, up.B, box.T, box.B) > 1;
+                    if (after && !before) return false;
+                }
+            }
+            return true;
+        }
         private static bool Inside(Box ink, Box box, float margin)
         {
             return ink.L >= box.L + margin && ink.T >= box.T + margin && ink.R <= box.R - margin && ink.B <= box.B - margin;
@@ -1332,6 +1352,13 @@ namespace DesignerExtension.Native
                     if (lowest == null || flagged.Contains(lowest) || below >= 8 || above < 2.5f * Math.Max(below, 1)) continue;
                     object last = lowest;
                     float wanted = Math.Min(8f, above / 2.5f);
+                    // The card's texts move up together first, their sizes kept (the room above stays the larger),
+                    // unless that brings one onto another part in front of the card.
+                    if (CanLift(pair.Value, pair.Key, held, texts, depthOf, wanted - below))
+                    {
+                        foreach (object text in pair.Value) { dynamic moved = text; moved.Top = (float)moved.Top - (wanted - below); }
+                        continue;
+                    }
                     if (ShrinkUntil(last, () => card.B - InkBox(last).B >= wanted)) continue;
                     Issue(slideNumber, "edge", TextOf(last), null);
                 }
