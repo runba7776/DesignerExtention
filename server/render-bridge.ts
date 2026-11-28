@@ -172,7 +172,7 @@ export function createRenderBridge(projectRoot: string) {
  * (at most 50, texts cut to 40 characters). */
 export function layoutIssues(value: unknown, slides: number): LayoutIssue[] {
   if (!Array.isArray(value)) return [];
-  const kinds = ['overflow', 'overlap', 'notch'] as const,
+  const kinds = ['overflow', 'overlap', 'edge', 'notch'] as const,
     clip = (text: unknown) => (typeof text === 'string' ? text.slice(0, 40) : '');
   return value
     .flatMap((raw): LayoutIssue[] => {

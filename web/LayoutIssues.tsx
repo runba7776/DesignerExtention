@@ -2,7 +2,8 @@ import type { LayoutIssue } from '../core/shared/contracts';
 
 const what = {
   overflow: '文字が枠からはみ出しています',
-  overlap: '文字どうしが重なっています',
+  overlap: '文字や表が重なっています',
+  edge: '文字が囲みの縁に接しているか、はみ出しています',
   notch: '矢羽根の切り欠きや先端に文字がかかっています',
 } as const;
 

@@ -1150,18 +1150,40 @@ namespace DesignerExtension.Native
             try { float size = (float)shape.TextFrame2.TextRange.Font.Size; if (size > 0 && size < 400) return size; } catch { }
             return 18;
         }
-        /// <summary>Where the characters of a shape's text are. BoundWidth runs up to a quarter of the size past the
-        /// last character, so that much is taken off its right side.</summary>
-        private static Box InkBox(object item)
+        /// <summary>Where the characters of each line of a shape's text are. A line's box holds the leading above and
+        /// below its characters, so a sixth of it is taken off the top and an eighth off the bottom; BoundWidth runs up
+        /// to a quarter of the size past the last character, so that much is taken off the right.</summary>
+        private static List<Box> LineBoxes(object item)
         {
             dynamic shape = item;
             dynamic range = shape.TextFrame2.TextRange;
-            float size = TextSize(item);
-            var box = new Box();
-            box.L = (float)range.BoundLeft; box.T = (float)range.BoundTop;
-            box.R = box.L + Math.Max(0, (float)range.BoundWidth - 0.25f * size); box.B = box.T + (float)range.BoundHeight;
+            var boxes = new List<Box>();
+            int lines = 0;
+            try { lines = (int)range.Lines().Count; } catch { }
+            for (int i = 1; i <= lines; i++)
+            {
+                dynamic line = range.Lines(i);
+                float size = 18;
+                try { float s = (float)line.Font.Size; if (s > 0 && s < 400) size = s; } catch { }
+                var box = new Box();
+                box.L = (float)line.BoundLeft; box.T = (float)line.BoundTop;
+                box.R = box.L + (float)line.BoundWidth - 0.25f * size; box.B = box.T + (float)line.BoundHeight;
+                float height = box.B - box.T;
+                box.T += height / 6; box.B -= height / 8;
+                if (box.R > box.L + 1 && box.B > box.T) boxes.Add(box);
+                Release((object)line);
+            }
             Release((object)range);
-            return box;
+            return boxes;
+        }
+        /// <summary>Where the characters of a shape's text are: the lines' boxes together.</summary>
+        private static Box InkBox(object item)
+        {
+            List<Box> lines = LineBoxes(item);
+            if (lines.Count == 0) return ShapeBox(item);
+            Box ink = lines[0];
+            foreach (Box line in lines) { ink.L = Math.Min(ink.L, line.L); ink.T = Math.Min(ink.T, line.T); ink.R = Math.Max(ink.R, line.R); ink.B = Math.Max(ink.B, line.B); }
+            return ink;
         }
         private static float Overlap(float a1, float a2, float b1, float b2) { return Math.Min(a2, b2) - Math.Max(a1, b1); }
         private static string TextOf(object item)
@@ -1208,25 +1230,51 @@ namespace DesignerExtension.Native
             if (other != null) issue["other"] = other;
             Issues.Add(issue);
         }
+        /// <summary>Whether a line runs into the cut-in (chevron) or point (chevron, pentagon) of a shape, taken at the
+        /// heights the line covers: the cut-in is deepest at the middle, the point narrows towards the top and bottom.</summary>
+        private static bool HitsPoint(Box line, Box box, float depth, bool chevron)
+        {
+            float middle = (box.T + box.B) / 2, half = (box.B - box.T) / 2;
+            if (half <= 0) return false;
+            float nearest = Math.Max(line.T, Math.Min(middle, line.B)), farthest = Math.Abs(line.T - middle) > Math.Abs(line.B - middle) ? line.T : line.B;
+            float cutIn = box.L + depth * (1 - Math.Min(1, Math.Abs(nearest - middle) / half));
+            float tip = box.R - depth * Math.Min(1, Math.Abs(farthest - middle) / half);
+            return (chevron && line.L < cutIn + 1) || line.R > tip - 1;
+        }
+        private static bool Inside(Box ink, Box box, float margin)
+        {
+            return ink.L >= box.L + margin && ink.T >= box.T + margin && ink.R <= box.R - margin && ink.B <= box.B - margin;
+        }
+        private static float Share(Box ink, Box box)
+        {
+            float wide = Overlap(ink.L, ink.R, box.L, box.R), tall = Overlap(ink.T, ink.B, box.T, box.B), area = (ink.R - ink.L) * (ink.B - ink.T);
+            return wide <= 0 || tall <= 0 || area <= 0 ? 0 : wide * tall / area;
+        }
         /// <summary>Text as PowerPoint set it, checked once the slide's parts are placed: text past its own box, two
-        /// texts over each other, and text running into the cut-in or point of a chevron or pentagon under it (text
-        /// written in such a shape is set in from its edges by PowerPoint and is fine). A text a little too large is
-        /// set up to 10% smaller first; what remains is listed (Issues) for the app to show once the deck is made.</summary>
+        /// texts over each other, text past the edge of the card under it, a table grown over the part below it, and
+        /// text running into the cut-in or point of a chevron or pentagon (its own label too). A text a little too large
+        /// is set up to 10% smaller first; what remains is listed (Issues) for the app to show once the deck is made.</summary>
         private static void CheckTextLayout(dynamic slide, int slideNumber)
         {
-            var texts = new List<object>(); var points = new List<object>(); var held = new List<object>();
+            var texts = new List<object>(); var cards = new List<object>(); var points = new List<object>(); var tables = new List<object>(); var held = new List<object>();
+            var depthOf = new Dictionary<object, int>();
             int count = (int)slide.Shapes.Count;
             for (int k = 1; k <= count; k++)
             {
                 object item = slide.Shapes.Item(k);
                 dynamic shape = item;
                 held.Add(item);
+                depthOf[item] = k; // Shapes are listed back to front.
                 int type = 0, auto = 0;
                 try { type = (int)shape.Type; } catch { }
                 try { if (type == 1) auto = (int)shape.AutoShapeType; } catch { }
-                bool text = false;
+                bool text = false, filled = false, table = false;
                 try { text = (type == 1 || type == 14 || type == 17) && (int)shape.HasTextFrame != 0 && (int)shape.TextFrame2.HasText != 0; } catch { }
+                try { filled = type == 1 && (int)shape.Fill.Visible != 0; } catch { }
+                try { table = (int)shape.HasTable != 0; } catch { }
                 if (text) texts.Add(item);
+                if (filled) cards.Add(item);
+                if (table) tables.Add(item);
                 if (auto == 52 || auto == 51) points.Add(item); // chevron, pentagon (home plate)
             }
             try
@@ -1249,29 +1297,61 @@ namespace DesignerExtension.Native
                         if (apart() || ShrinkUntil(second, apart) || ShrinkUntil(first, apart)) continue;
                         Issue(slideNumber, "overlap", TextOf(first), TextOf(second));
                     }
+                // A text set on a card (most of it over a filled shape behind it) keeps 2pt inside the card's edges.
+                foreach (object item in texts)
+                {
+                    object current = item, card = null;
+                    Box ink = InkBox(current);
+                    foreach (object candidate in cards)
+                        if (!ReferenceEquals(candidate, current) && depthOf[candidate] < depthOf[current] && Share(ink, ShapeBox(candidate)) >= 0.6f
+                            && (card == null || depthOf[candidate] > depthOf[card])) card = candidate;
+                    if (card == null || Inside(ink, ShapeBox(card), 2)) continue;
+                    object under = card;
+                    if (!ShrinkUntil(current, () => Inside(InkBox(current), ShapeBox(under), 2))) Issue(slideNumber, "edge", TextOf(current), null);
+                }
+                // A table PowerPoint made taller (its rows grow to their text) must not run over the parts around it.
+                foreach (object item in tables)
+                {
+                    Box grid = ShapeBox(item);
+                    foreach (object other in Union(texts, cards))
+                    {
+                        Box box = texts.Contains(other) ? InkBox(other) : ShapeBox(other);
+                        // A panel behind the table, or a note set on it, belongs with it.
+                        if (Share(grid, ShapeBox(other)) >= 0.9f || Share(box, grid) >= 0.9f) continue;
+                        if (Overlap(grid.L, grid.R, box.L, box.R) > 1 && Overlap(grid.T, grid.B, box.T, box.B) > 1)
+                        {
+                            Issue(slideNumber, "overlap", "表", texts.Contains(other) ? TextOf(other) : "囲み");
+                            break;
+                        }
+                    }
+                }
                 foreach (object item in points)
                 {
                     dynamic point = item;
                     Box box = ShapeBox(item);
                     float adjust = 0.5f;
                     try { adjust = (float)point.Adjustments.Item(1); } catch { }
-                    float depth = adjust * Math.Min(box.R - box.L, box.B - box.T), middle = (box.T + box.B) / 2, quarter = (box.B - box.T) / 4;
+                    float depth = adjust * Math.Min(box.R - box.L, box.B - box.T);
                     bool chevron = (int)point.AutoShapeType == 52;
                     foreach (object other in texts)
                     {
-                        if (ReferenceEquals(other, item)) continue;
-                        Box ink = InkBox(other);
-                        float wide = Overlap(ink.L, ink.R, box.L, box.R), tall = Overlap(ink.T, ink.B, box.T, box.B);
-                        // Only a text set on this shape: most of it inside the shape's box.
-                        if (wide <= 0 || tall <= 0 || wide * tall < 0.5f * (ink.R - ink.L) * (ink.B - ink.T)) continue;
-                        bool cut = chevron && ink.L < box.L + depth - 2 && ink.T < middle + quarter && ink.B > middle - quarter;
-                        bool tip = ink.R > box.R - depth / 2 + 2;
-                        if (cut || tip) Issue(slideNumber, "notch", TextOf(other), null);
+                        // Only a text set on this shape (its own label, or most of a text over it).
+                        if (!ReferenceEquals(other, item) && Share(InkBox(other), box) < 0.5f) continue;
+                        object current = other;
+                        Func<bool> clear = () => !LineBoxes(current).Exists(line => HitsPoint(line, box, depth, chevron));
+                        if (!clear() || ShrinkUntil(current, clear)) continue;
+                        Issue(slideNumber, "notch", TextOf(current), null);
                     }
                 }
             }
             catch (Exception ex) { Warnings.Add("スライド " + slideNumber + ": 文字の重なりを確かめられませんでした（" + Short(ex.Message) + "）。"); }
             foreach (object shape in held) Release(shape);
+        }
+        private static List<object> Union(List<object> a, List<object> b)
+        {
+            var all = new List<object>(a);
+            foreach (object item in b) if (!all.Contains(item)) all.Add(item);
+            return all;
         }
         private static string Short(string text) { return text.Length > 28 ? text.Substring(0, 28) + "…" : text; }
         private static Dictionary<string, object> AsObject(object value) { return value as Dictionary<string, object> ?? new Dictionary<string, object>(); }

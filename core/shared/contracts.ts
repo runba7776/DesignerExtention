@@ -559,11 +559,12 @@ export interface Usage {
   estimatedCostUsd?: number;
 }
 /** Text PowerPoint set differently from the plan, found once the deck is drawn: past its own box (overflow),
- * over another text (overlap, with the other text), or into the cut-in or point of a chevron or pentagon (notch).
- * slide counts from 1. Texts a little too large were already set up to 10% smaller; these are what remained. */
+ * over another text or a table grown over the part below it (overlap, with the other), past the edge of the card
+ * it is set on (edge), or into the cut-in or point of a chevron or pentagon (notch). slide counts from 1. Texts a
+ * little too large were already set up to 10% smaller; these are what remained. */
 export interface LayoutIssue {
   slide: number;
-  kind: 'overflow' | 'overlap' | 'notch';
+  kind: 'overflow' | 'overlap' | 'edge' | 'notch';
   text: string;
   other?: string;
 }
