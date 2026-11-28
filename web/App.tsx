@@ -48,6 +48,7 @@ import {
 } from './RoutePanel';
 import { ProposalPicker } from './ProposalPicker';
 import { ReviewHints } from './ReviewHints';
+import { LayoutIssues } from './LayoutIssues';
 import { BlankFields } from './BlankFields';
 import { Topbar } from './screen/Topbar';
 import { Intro, SessionHeading } from './screen/SessionHeading';
@@ -1661,6 +1662,13 @@ export default function App() {
                     </button>
                   </div>
                 )}
+                {currentVariant?.render?.issues?.length ? (
+                  <LayoutIssues
+                    issues={currentVariant.render.issues}
+                    busy={!!busy || handoffPending}
+                    onSelect={index => revise(currentVariant, index)}
+                  />
+                ) : null}
                 {(session.reviewHints?.length || session.reviewReport) && (
                   <ReviewHints
                     hints={session.reviewHints ?? []}

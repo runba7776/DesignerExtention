@@ -13,7 +13,7 @@
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { DeckSpec, SubscriptionService } from '../core/shared/contracts.js';
+import type { DeckSpec, RenderResult, SubscriptionService } from '../core/shared/contracts.js';
 import { SessionEngine } from '../core/engine.js';
 import { SettingsStore } from '../core/settings.js';
 import { layoutHtmlSlides } from '../server/html-layout.js';
@@ -252,13 +252,15 @@ async function makeDeck(request: string) {
           : (session.recovery?.message ?? session.messages.at(-1)?.text)?.slice(0, 160),
     };
     if (render && deck && session.phase === 'ready') {
-      const pictures: string[] = [];
+      const pictures: string[] = [],
+        issues: NonNullable<RenderResult['issues']> = [];
       for (const variant of [session.variants[0], ...(designed ? [designed] : [])]) {
         const drawn = await engine.render(session.id, variant.id).catch((error: Error) => error);
         if (drawn instanceof Error) {
           pictures.push(`${variant.label}: ${drawn.message.slice(0, 200)}`);
           continue;
         }
+        issues.push(...(drawn.issues ?? []));
         const from = path.join(root, 'runtime', 'artifacts', drawn.artifactId);
         const to = path.join(
           out,
@@ -269,7 +271,12 @@ async function makeDeck(request: string) {
         await rm(from, { recursive: true, force: true });
         pictures.push(path.relative(out, to));
       }
-      Object.assign(result, { pictures });
+      Object.assign(result, { pictures, layoutIssues: issues });
+      // Text PowerPoint set over another text, past its box or into a chevron's cut-in (what the app shows).
+      for (const issue of issues)
+        console.log(
+          `  issue slide ${issue.slide} ${issue.kind}: ${issue.text}${issue.other ? ` / ${issue.other}` : ''}`,
+        );
     }
     return result;
   } finally {

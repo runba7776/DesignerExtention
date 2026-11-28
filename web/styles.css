@@ -3956,3 +3956,6 @@ html.taskpane .slide-action-buttons {
   margin: 10px 0 0;
   font-size: 10px;
 }
+.layout-issues {
+  border-color: #e3b7b0;
+}

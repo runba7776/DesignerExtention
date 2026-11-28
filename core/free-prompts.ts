@@ -143,7 +143,7 @@ const htmlGuide = (mode: 'presentation' | 'reading', images = false) => `## ス�
 ${textGuide(mode, 'px')}
 ${emphasisGuide('px')}
 ${figureGuide}
-- PowerPointの図形：<div data-shape="chevron">のようにdata-shapeを付けた要素は、その形の図形になります（背景色が塗り、枠線が線、中の文字はその上）。形はchevron（矢羽根）・pentagon（ホームベース）・arrow・leftArrow・upArrow・downArrow・triangle・diamond・hexagon・octagon・parallelogram・trapezoid。手順・流れはchevronやpentagonを横に並べて表せます。
+- PowerPointの図形：<div data-shape="chevron">のようにdata-shapeを付けた要素は、その形の図形になります（背景色が塗り、枠線が線、中の文字はその上）。形はchevron（矢羽根）・pentagon（ホームベース）・arrow・leftArrow・upArrow・downArrow・triangle・diamond・hexagon・octagon・parallelogram・trapezoid。手順・流れはchevronやpentagonを横に並べて表せます。文字は図形の要素の中に書き、chevronは左右に、pentagonは右に、高さの半分ほどの余白（padding）を取って、切り欠きや先端に文字がかからないようにします。
 - アイコン：<i data-icon="ID" style="width:32px;height:32px;color:var(--accent)"></i>で、アプリのアイコン（IDは一覧）を置けます。PowerPointで編集できる図形になります。大きさはwidth・height、色はcolorで指定します。
 ${images ? `${imageGuide(true)}\n` : ''}- PowerPointで編集できるグラフ：中身が空の<div data-chart='{"type":"column","categories":[…],"series":[{"name":"…","values":[…]}],"unit":"…"}' style="position:absolute;left:…px;top:…px;width:…px;height:…px"></div>を置きます（typeはbar・column・line・pie・doughnut・stackedBar・stackedColumn・waterfall、項目は1〜8個・系列は1〜3個、幅120px・高さ90px以上、1枚に4つまで）。数値の棒・線・円のグラフはdivやSVGで描かず、data-chartで置きます（divやSVGで描いた図は、値を直せない図形や画像になります）。
 

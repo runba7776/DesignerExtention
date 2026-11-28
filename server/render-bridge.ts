@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { DeckSpec, RenderResult } from '../core/shared/contracts';
+import type { DeckSpec, LayoutIssue, RenderResult } from '../core/shared/contracts';
 import { compileDeck } from '../core/shared/layouts';
 import { IMAGE_SRC } from '../core/shared/free-design';
 import { AppError } from '../core/errors';
@@ -123,6 +123,7 @@ export function createRenderBridge(projectRoot: string) {
         pptx: string;
         thumbnails: string[];
         warnings?: string[];
+        issues?: unknown;
         native?: boolean;
       };
       if (!result.pptx || !Array.isArray(result.thumbnails) || result.thumbnails.length !== scene.slides.length)
@@ -131,7 +132,8 @@ export function createRenderBridge(projectRoot: string) {
         if (path.basename(name) !== name) throw new Error('出力ファイル名が不正です。');
         await fs.access(path.join(directory, name));
       }
-      const url = (file: string) => `/api/artifacts/${artifactId}/${encodeURIComponent(file)}`;
+      const url = (file: string) => `/api/artifacts/${artifactId}/${encodeURIComponent(file)}`,
+        issues = layoutIssues(result.issues, scene.slides.length);
       return {
         artifactId,
         pptxUrl: url(result.pptx),
@@ -144,6 +146,7 @@ export function createRenderBridge(projectRoot: string) {
           ]),
         ],
         native: result.native === true,
+        ...(issues.length && { issues }),
       };
     });
   }
@@ -163,4 +166,23 @@ export function createRenderBridge(projectRoot: string) {
     );
   }
   return { artifactRoot, nativeAvailable, render, open };
+}
+
+/** The renderer's list of text it found set differently from the plan, kept to well-formed entries of this deck
+ * (at most 50, texts cut to 40 characters). */
+export function layoutIssues(value: unknown, slides: number): LayoutIssue[] {
+  if (!Array.isArray(value)) return [];
+  const kinds = ['overflow', 'overlap', 'notch'] as const,
+    clip = (text: unknown) => (typeof text === 'string' ? text.slice(0, 40) : '');
+  return value
+    .flatMap((raw): LayoutIssue[] => {
+      if (!raw || typeof raw !== 'object') return [];
+      const item = raw as Record<string, unknown>,
+        kind = kinds.find(k => k === item.kind);
+      if (!kind || !Number.isInteger(item.slide) || (item.slide as number) < 1 || (item.slide as number) > slides)
+        return [];
+      const other = clip(item.other);
+      return [{ slide: item.slide as number, kind, text: clip(item.text), ...(other && { other }) }];
+    })
+    .slice(0, 50);
 }

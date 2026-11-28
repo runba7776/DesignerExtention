@@ -558,12 +558,23 @@ export interface Usage {
   cacheWriteTokens: number;
   estimatedCostUsd?: number;
 }
+/** Text PowerPoint set differently from the plan, found once the deck is drawn: past its own box (overflow),
+ * over another text (overlap, with the other text), or into the cut-in or point of a chevron or pentagon (notch).
+ * slide counts from 1. Texts a little too large were already set up to 10% smaller; these are what remained. */
+export interface LayoutIssue {
+  slide: number;
+  kind: 'overflow' | 'overlap' | 'notch';
+  text: string;
+  other?: string;
+}
 export interface RenderResult {
   artifactId: string;
   pptxUrl: string;
   thumbnails: string[];
   warnings: string[];
   native: boolean;
+  /** Only from PowerPoint (the browser version cannot measure the drawn text). */
+  issues?: LayoutIssue[];
 }
 /** Where a draft came from: an AI, a restyle of another draft, or a combination of drafts. */
 export interface VariantOrigin {
