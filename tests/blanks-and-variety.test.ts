@@ -419,7 +419,7 @@ test('open facts: answers go with the outline, blanks left are filled across the
   }
 });
 
-test('the look after the deck is shown also lists a page with a note to the maker, even when the AI saw nothing', async () => {
+test('the look after the deck is shown also acts on a page with a note to the maker, even when the AI saw nothing', async () => {
   const layout: HtmlLayout = async (pages, _t, opts) =>
     pages.map(p => {
       const title = /<h1>(.*?)<\/h1>/.exec(p.html)?.[1] ?? '',
@@ -490,9 +490,18 @@ test('the look after the deck is shown also lists a page with a note to the make
     assert.equal(shown.polish!.state, 'pending');
     assert.equal(shown.reviewHints, undefined, 'the finding waits for the look');
     const done = await f.engine.polish(s.id);
-    assert.deepEqual(remakes, [], 'shown for the user to fix, not remade');
-    assert.deepEqual(done.reviewReport!.fixed, []);
-    assert.ok(done.reviewHints!.some(h => h.slideId === 'slide-3' && /作り手向けのメモ/.test(h.what) && !h.fixed));
+    assert.deepEqual(
+      remakes.map(r => r.targetSlides.map((t: any) => t.id)),
+      [['slide-3']],
+      'a high finding of the app is made again like one of the look',
+    );
+    assert.match(remakes[0].repair.detail, /作り手向けのメモ/);
+    assert.equal(
+      remakes[0].repair.previousHtml,
+      '<section class="slide"><h1>注意</h1><p>持ち物は仮置き。確定後に差し替える</p></section>',
+    );
+    assert.deepEqual(done.reviewReport!.fixed, ['slide-3']);
+    assert.ok(done.reviewHints!.some(h => h.slideId === 'slide-3' && /作り手向けのメモ/.test(h.what) && h.fixed));
   } finally {
     await f.dispose();
   }

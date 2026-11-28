@@ -529,6 +529,8 @@ export interface ReviewHint {
   fix: string;
   unresolved?: boolean;
   fixed?: boolean;
+  /** Found by PowerPoint's check of the drawn text (shown by itself; a hint only once the page was made again). */
+  layout?: boolean;
 }
 /** One look at the drawn pages: how many were seen, which were made again, and the calls it took. */
 export interface ReviewReport {

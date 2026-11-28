@@ -252,6 +252,7 @@ ${
     : reviseAsHtml(options.images)
 }
 request.repairがある場合は、アプリの検証で見つかった問題です。detailには問題のページと直し方があります。指摘された部分の位置・大きさ・文字量を直し、同じ問題を繰り返さないでください。
+request.repair.previousHtmlがある場合は、そのページを前回書いたHTMLで、添付の画像はそれを描いた結果です（下端の出典・ページ番号と写真・グラフはアプリが入れたものです）。画像で指摘の場所を確かめ、previousHtmlをもとに直したHTMLを返します。指摘のない部分は、直すために必要なときだけ変えます。
 JSON以外の説明やMarkdownの囲みを付けないでください。`;
   if (task === 'plan')
     return `${intro}

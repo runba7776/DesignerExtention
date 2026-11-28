@@ -271,6 +271,34 @@ async function makeDeck(request: string) {
         await rm(from, { recursive: true, force: true });
         pictures.push(path.relative(out, to));
       }
+      // The pages the look made again, drawn in the version not used (how they were, when the remake was kept).
+      const versions = session.polish?.versions;
+      if (versions && bridge) {
+        const unused = structuredClone(deck);
+        unused.slides = unused.slides.map(slide => {
+          const version = versions[slide.id];
+          return version ? (version.applied === 'after' ? version.before : version.after) : slide;
+        });
+        const drawn = await bridge.render(unused, 'unused').catch((error: Error) => error);
+        if (drawn instanceof Error) pictures.push(`unused: ${drawn.message.slice(0, 200)}`);
+        else {
+          const from = path.join(root, 'runtime', 'artifacts', drawn.artifactId),
+            to = path.join(out, `deck-${requests.indexOf(request) + 1}-unused-${Date.now()}`);
+          await mkdir(to, { recursive: true });
+          await cp(from, to, { recursive: true });
+          await rm(from, { recursive: true, force: true });
+          pictures.push(path.relative(out, to));
+        }
+        const remade = Object.entries(versions).map(
+          ([id, version]) => `${deck.slides.findIndex(s => s.id === id) + 1}:${version.applied}`,
+        );
+        Object.assign(result, { remade });
+        console.log(`  remade pages (kept version): ${remade.join(' ')}`);
+      }
+      for (const hint of session.reviewHints ?? [])
+        console.log(
+          `  hint ${hint.slideId} ${hint.severity}${hint.fixed ? ' fixed' : hint.unresolved ? ' unresolved' : ''}${hint.layout ? ' layout' : ''}: ${hint.what}`,
+        );
       Object.assign(result, { pictures, layoutIssues: issues });
       // Text PowerPoint set over another text, past its box or into a chevron's cut-in (what the app shows).
       for (const issue of issues)

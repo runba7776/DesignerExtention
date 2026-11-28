@@ -7,6 +7,7 @@ import {
   REVIEW_OUTPUT_TOKENS,
   type DeckSpec,
   type DeckVariant,
+  type LayoutIssue,
   type Outline,
   type PhotoSide,
   type PolishState,
@@ -38,6 +39,53 @@ interface Look {
 
 /** Pages touched up after one look at most: one call each, one after another (a subscription takes one call at a time). */
 const TOUCH_UPS = 4;
+/** Pages written in HTML made again after one look at most (a monthly plan keeps its quota for the user's own fixes). */
+const HTML_TOUCH_UPS = 2;
+/** Text PowerPoint left over other text, past its box or in a chevron's cut-in is a high problem; text close to the
+ * edge of its card is a medium one. */
+const LAYOUT_HINTS: Record<LayoutIssue['kind'], (issue: LayoutIssue) => Omit<ReviewHint, 'slideId' | 'title'>> = {
+  overlap: i => ({
+    severity: 'high',
+    what: `「${i.text}」が${i.other ? `「${i.other}」` : 'ほかの文字'}と重なっています`,
+    fix: '重ならないよう位置をずらすか、文字を短くします',
+  }),
+  overflow: i => ({
+    severity: 'high',
+    what: `「${i.text}」が枠からはみ出しています`,
+    fix: '枠を広げるか、文字を短くします',
+  }),
+  notch: i => ({
+    severity: 'high',
+    what: `「${i.text}」が矢印の切り欠きにかかっています`,
+    fix: '矢印の中の文字を短くするか、矢印の左右の余白を広げます',
+  }),
+  edge: i => ({
+    severity: 'medium',
+    what: `「${i.text}」が囲みの端に接しています`,
+    fix: '囲みを広げるか、文字を短くして余白を取ります',
+  }),
+};
+/** What PowerPoint's check of the drawn text found, as findings on the deck's pages. */
+function layoutHints(slides: SlideSpec[], issues: LayoutIssue[] = []): ReviewHint[] {
+  return issues.flatMap(issue => {
+    const slide = slides[issue.slide - 1];
+    return slide ? [{ slideId: slide.id, title: slide.title, ...LAYOUT_HINTS[issue.kind](issue), layout: true }] : [];
+  });
+}
+/** Text PowerPoint left over other text, past its box or in a cut-in on each page (text close to an edge not counted). */
+function badText(slides: SlideSpec[], issues: LayoutIssue[] = []) {
+  const count = new Map<string, number>();
+  for (const issue of issues) {
+    const slide = slides[issue.slide - 1];
+    if (slide && issue.kind !== 'edge') count.set(slide.id, (count.get(slide.id) ?? 0) + 1);
+  }
+  return count;
+}
+/** What PowerPoint's check of the drawn text found in the variant's last drawing (read through a call: the drawing
+ * is dropped and made again in between). */
+const renderIssues = (variant: DeckVariant) => variant.render?.issues;
+/** A finding of the look that is the app's to act on without making the page again (a photo it replaces). */
+const photoOnly = (hint: ReviewHint) => (hint as ReviewHint & { photo?: boolean }).photo === true;
 /** A finding about a place the user fills in (［実施日］) is not acted on: the place is the user's to fill. */
 const BLANK = /［|未記入|記入欄/;
 /** The one photo of a page, when its cut can move towards the side (it is cut along that side). */
@@ -54,9 +102,10 @@ export class ReviewService {
   constructor(private readonly engine: SessionEngine) {}
 
   /** Shows the drawn pages to the AI, a deck of usual length in one look so that its pages are compared too. What it
-   * finds is shown for the user to fix; only a local model has a page made from a layout in place of its design (no
+   * finds is shown for the user to fix. A local model has a page made from a layout in place of its design (no
    * HTML at hand) made again once, when the page has a high or medium problem or one the app found (up to
-   * TOUCH_UPS, high ones first). Returns the new pages (checked, not yet finished), the findings acted on by page,
+   * TOUCH_UPS, high ones first); a monthly plan has a page written in HTML made again once from its HTML and its
+   * picture, when it has a high problem (up to HTML_TOUCH_UPS). Returns the new pages (checked, not yet finished), the findings acted on by page,
    * the other findings, and the pages that could not be made again. Nothing in the deck is changed here. */
   private async reviewPages(
     state: SessionState,
@@ -114,21 +163,28 @@ export class ReviewService {
         );
       }
     }
-    // Findings are shown, not acted on: touching pages up took about four in ten of a deck's calls, one in four
-    // touched-up pages came out no better and was put back, and pages were left for the user anyway (Claude, 8 and
-    // 12 pages, 2026-11-11); gemma4 made some pages worse and called all of them better.
-    const remakes = this.engine.route(state).remakesInLook;
+    // Touching up every page with a high or medium finding took about four in ten of a deck's calls, and one in four
+    // touched-up pages came out no better and was put back (Claude, 8 and 12 pages, 2026-11-11, made again from
+    // the findings alone); gemma4 made some pages worse and called all of them better. So a page in HTML is made
+    // again only on a monthly plan, for a high problem other than its photo (which the app replaces), at most
+    // HTML_TOUCH_UPS of them, and from its own HTML and picture; the other findings are shown for the user to fix.
+    const route = this.engine.route(state),
+      high = (found: ReviewHint[]) => found.some(h => h.severity === 'high' && !photoOnly(h));
     for (const [id, found] of severe)
-      if (look.html[id] || !remakes) {
+      if (look.html[id] ? !route.remakesHtmlInLook || !high(found) : !route.remakesInLook) {
         hints.push(...found);
         severe.delete(id);
       }
     // One page per call (several pages in one answer can run past its limit, and then all of them are lost), the
     // pages with a high problem first.
-    const high = (found: ReviewHint[]) => (found.some(h => h.severity === 'high') ? 0 : 1);
-    for (const [index, [id, found]] of [...severe].sort(([, a], [, b]) => high(a) - high(b)).entries()) {
+    const at = (id: string) => slides.findIndex(s => s.id === id),
+      order = [...severe].sort(([x, a], [y, b]) => Number(high(b)) - Number(high(a)) || at(x) - at(y));
+    let inHtml = 0;
+    for (const [index, [id, found]] of order.entries()) {
+      const seen = look.html[id] ? { html: look.html[id], shot: look.shots[id] } : undefined,
+        room = seen ? inHtml++ < HTML_TOUCH_UPS : index < TOUCH_UPS;
       const done =
-        index < TOUCH_UPS && this.engine.ai.callsLeft(state)
+        room && this.engine.ai.callsLeft(state)
           ? await this.redoPages(
               state,
               outline,
@@ -136,6 +192,8 @@ export class ReviewService {
               [id],
               found.map(h => `${id}：${h.what}。${h.fix}`).join(' '),
               compact,
+              true,
+              seen,
             )
           : {};
       if (done[id]) replaced[id] = done[id];
@@ -149,7 +207,8 @@ export class ReviewService {
     await this.engine.options.images?.passOver(slide);
     return true;
   }
-  /** Makes the given pages again with the finding from the look at them. Returns the new versions that pass the
+  /** Makes the given pages again with the finding from the look at them. seen: the one page's HTML and its picture
+   * as the look saw it, for the maker to fix what was seen and keep the rest. Returns the new versions that pass the
    * checks, with their pictures when drawn in a browser; a page missing from the result keeps its earlier version. */
   private async redoPages(
     state: SessionState,
@@ -159,8 +218,11 @@ export class ReviewService {
     detail: string,
     compact: boolean,
     again = true,
+    seen?: { html?: string; shot?: string },
   ): Promise<Record<string, RemadePage>> {
-    const targetSlides = outline.slides.filter(s => ids.includes(s.id));
+    const targetSlides = outline.slides.filter(s => ids.includes(s.id)),
+      shown = ids.length === 1 && seen?.shot ? seen : undefined,
+      previousHtml = shown?.html && this.engine.pages.htmlFor(state) ? shown.html.slice(0, 40_000) : undefined;
     try {
       const response: any = await this.engine.ai.complete(
         state,
@@ -173,12 +235,16 @@ export class ReviewService {
           continuedFrom: slides.filter(s => !ids.includes(s.id)).map(continued),
           repair: {
             reason: 'VISUAL_REVIEW',
-            instruction:
-              '描画したページを画像で見直して見つかった問題です。文章・数値・出典は保ったまま、指摘されたページの図と配置を直してください。',
+            instruction: shown
+              ? `描画したページを画像で見直して見つかった問題です。添付の画像は、このページを${previousHtml ? 'previousHtmlから' : ''}描いた結果です。画像で問題の場所を確かめ、文章・数値・出典と、うまくいっている構図・配色・写真は保ったまま、指摘された部分の配置と大きさを直してください。`
+              : '描画したページを画像で見直して見つかった問題です。文章・数値・出典は保ったまま、指摘されたページの図と配置を直してください。',
             detail: detail.slice(0, 1500),
+            ...(previousHtml ? { previousHtml } : {}),
           },
         },
         Math.min(GENERATION_OUTPUT_TOKENS, 3000 + targetSlides.length * 5500),
+        undefined,
+        shown ? [shown.shot!] : undefined,
       );
       if (!response || response.mode !== outline.mode || !Array.isArray(response.slides)) return {};
       if (this.engine.pages.htmlFor(state))
@@ -214,6 +280,7 @@ export class ReviewService {
             `${detail} / 作り直した案は次の検査で通りませんでした。見直しの指摘を生かしたまま直してください：${refused.map(r => r.why).join(' ')}`,
             compact,
             false,
+            seen,
           ),
         );
       return done;
@@ -306,14 +373,16 @@ export class ReviewService {
       try {
         // The pages are looked at as the user will see them, drawn in PowerPoint with their photos (as the browser
         // drew them when PowerPoint cannot draw).
-        const drawn = await this.drawnPages(variant);
+        const drawn = await this.drawnPages(variant),
+          // What PowerPoint's check of the drawn text found is weighed with what the look finds.
+          firstIssues = drawn ? renderIssues(variant) : undefined;
         const result = await this.reviewPages(
           state,
           job.outline,
           variant.deck.slides,
           { shots: drawn ?? job.shots, html: job.html, final: !!drawn },
           job.compact,
-          job.findings,
+          [...job.findings, ...layoutHints(variant.deck.slides, firstIssues)],
         );
         const fixed: string[] = [],
           unresolved = [...result.unresolved],
@@ -338,12 +407,14 @@ export class ReviewService {
         // The remade pages are drawn the same way again and compared with how they were; one that did not get better
         // or has a high problem of its own is not used (the user can still switch to it), and its other findings
         // join the hints.
-        let after: Record<string, string> | undefined;
+        let after: Record<string, string> | undefined, afterBad: Map<string, number> | undefined;
         if (remade.length && drawn) {
           delete variant.render;
           await this.engine.placeImages(state);
           after = await this.drawnPages(variant);
+          if (after) afterBad = badText(variant.deck.slides, renderIssues(variant));
         }
+        const beforeBad = badText(variant.deck.slides, firstIssues);
         const before = after ? drawn : job.shots,
           second = remade.length
             ? await this.lookAgain(
@@ -363,8 +434,10 @@ export class ReviewService {
             page = variant.deck.slides.find(s => s.id === slideId)!,
             title = page.title;
           await this.passOverPhotos(page, problems);
-          const high = problems.filter(p => p.severity === 'high');
-          if (high.length || better === false) {
+          const high = problems.filter(p => p.severity === 'high'),
+            // A remake that left more text over text (or past its box) than before is not used, whatever the look says.
+            worse = !!afterBad && (afterBad.get(slideId) ?? 0) > (beforeBad.get(slideId) ?? 0);
+          if (high.length || better === false || worse) {
             const at = variant.deck.slides.findIndex(s => s.id === slideId);
             variant.deck.slides[at] = structuredClone(versions[slideId].before);
             versions[slideId].applied = 'before';
@@ -378,6 +451,18 @@ export class ReviewService {
                 what: `作り直した版にも重い問題：${p.what}`,
                 unresolved: true,
               })),
+              ...(worse
+                ? [
+                    {
+                      slideId,
+                      title,
+                      severity: 'high' as const,
+                      what: '作り直した版は文字の重なり・はみ出しが増えたため、使っていません',
+                      fix: '「確認のヒント」から作り直した版に切り替えて見比べられます',
+                      unresolved: true,
+                    },
+                  ]
+                : []),
             );
           } else secondHints.push(...problems.map(p => ({ slideId, title, ...p })));
         }
@@ -396,9 +481,11 @@ export class ReviewService {
         for (const slideId of fixed) hints.push(...result.severe.get(slideId)!.map(h => ({ ...h, fixed: true })));
         const order = (slideId: string) => job.outline.slides.findIndex(s => s.id === slideId),
           rank = { high: 0, medium: 1, low: 2 } as const;
-        state.session.reviewHints = hints.sort(
-          (a, b) => order(a.slideId) - order(b.slideId) || rank[a.severity] - rank[b.severity],
-        );
+        // What PowerPoint's check found is shown by itself after the deck is drawn again; a hint says only that a
+        // remake cleared it.
+        state.session.reviewHints = hints
+          .filter(h => !h.layout || (h.fixed && !!afterBad && !afterBad.get(h.slideId)))
+          .sort((a, b) => order(a.slideId) - order(b.slideId) || rank[a.severity] - rank[b.severity]);
         const calls = state.session.usage.calls - startCalls,
           notes = hints.filter(h => !h.fixed && !h.unresolved).length;
         state.session.reviewReport = { checked: result.checked, fixed, unresolved, calls };
@@ -412,7 +499,7 @@ export class ReviewService {
         if (result.checked)
           state.session.messages.push({
             role: 'assistant',
-            text: `描画した${result.checked}枚を画像で見直しました。${fixed.length ? `型で作った${fixed.length}枚をデザインし直しました${fixed.every(slideId => second[slideId]?.better) ? '。直す前と見比べて、良くなったページだけを使っています' : ''}（「確認のヒント」から直す前に戻せます）。` : ''}${unresolved.length ? `${unresolved.length}枚は自動で直せなかったため、確認のヒントに載せています。` : ''}${notes ? `気づいた点${notes}件は「確認のヒント」にあります。自動では直していないので、直すページを選んで指示するか「見直す」を押してください。` : fixed.length || unresolved.length ? '' : '直したほうがよい問題は見つかりませんでした。'}この見直しのAI呼び出しは${calls}回です。`,
+            text: `描画した${result.checked}枚を画像で見直しました。${fixed.length ? `${fixed.every(slideId => job.html[slideId]) ? '重い問題が見つかった' : '型で作った'}${fixed.length}枚を${fixed.every(slideId => job.html[slideId]) ? '作り直しました' : 'デザインし直しました'}${fixed.every(slideId => second[slideId]?.better) ? '。直す前と見比べて、良くなったページだけを使っています' : ''}（「確認のヒント」から直す前に戻せます）。` : ''}${unresolved.length ? `${unresolved.length}枚は自動で直せなかったため、確認のヒントに載せています。` : ''}${notes ? `気づいた点${notes}件は「確認のヒント」にあります。自動では直していないので、直すページを選んで指示するか「見直す」を押してください。` : fixed.length || unresolved.length ? '' : '直したほうがよい問題は見つかりませんでした。'}この見直しのAI呼び出しは${calls}回です。`,
           });
       } catch {
         state.session.polish = { state: 'failed' };
@@ -552,6 +639,8 @@ export class ReviewService {
             [slide.id],
             problems.map(p => `${slide.id}：${p.what}。${p.fix}`).join(' '),
             false,
+            true,
+            { shot: image },
           )
         )[slide.id];
         const finished = page && this.finishPage(state, variant.deck, page.slide);

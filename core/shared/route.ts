@@ -75,6 +75,10 @@ export interface Route {
   /** A page made from a layout in its place is made again in HTML when the look at the drawn pages finds a problem
    * on it (5 of 8 passed). It costs no quota; on a monthly plan the quota is left for the user's own fixes. */
   remakesInLook: boolean;
+  /** A page written in HTML is made again once when the look finds a high problem on it or PowerPoint left text over
+   * text (up to two pages): the maker gets its HTML and the drawn picture, and the remake is kept only when the look
+   * comparing the two pictures calls it better. */
+  remakesHtmlInLook: boolean;
   /** A layout page with nothing but its title is refused and asked again (gemma4 returned such pages). */
   refusesTitleOnlyPages: boolean;
   /** Photos are searched outside this PC, so not for a model chosen to keep the material here (nor the sample). */
@@ -101,6 +105,7 @@ export function routeOf(provider: ProviderKind, options: { oneShot?: boolean } =
     localGuide: local,
     keepsSmallText: local,
     remakesInLook: local,
+    remakesHtmlInLook: cloud,
     refusesTitleOnlyPages: local,
     photos: !local && drive !== 'sample',
     fitsText: drive !== 'sample',
