@@ -47,22 +47,22 @@ const LAYOUT_HINTS: Record<LayoutIssue['kind'], (issue: LayoutIssue) => Omit<Rev
   overlap: i => ({
     severity: 'high',
     what: `「${i.text}」が${i.other ? `「${i.other}」` : 'ほかの文字'}と重なっています`,
-    fix: '重ならないよう位置をずらすか、文字を短くします',
+    fix: '言葉は削らずに、重ならないよう位置をずらすか、枠を広げます',
   }),
   overflow: i => ({
     severity: 'high',
     what: `「${i.text}」が枠からはみ出しています`,
-    fix: '枠を広げるか、文字を短くします',
+    fix: '言葉は削らずに、枠を広げるか、文字を少し小さくします',
   }),
   notch: i => ({
     severity: 'high',
     what: `「${i.text}」が矢印の切り欠きにかかっています`,
-    fix: '矢印の中の文字を短くするか、矢印の左右の余白を広げます',
+    fix: '言葉は削らずに、矢印の左右の余白を広げるか、矢印を高くして折り返すか、文字を矢印の下に置きます',
   }),
   edge: i => ({
     severity: 'medium',
     what: `「${i.text}」が囲みの端に接しています`,
-    fix: '囲みを広げるか、文字を短くして余白を取ります',
+    fix: '言葉は削らずに、囲みを広げて余白を取ります',
   }),
 };
 /** What PowerPoint's check of the drawn text found, as findings on the deck's pages. */

@@ -493,6 +493,7 @@ test('the deck is ready before the look; on a monthly plan a page with a high pr
     assert.match(f.redos[0].repair.instruction, /このページをpreviousHtmlから描いた結果/);
     assert.match(f.redos[0].repair.detail, /^slide-2：図に中身がない。問いの点を置く$/);
     assert.match(f.redos[0].system ?? '', /request\.repair\.previousHtml/);
+    assert.match(f.redos[0].system ?? '', /言葉を削らずに、位置・枠の大きさ・余白・折り返しで直します/);
     // The remake is compared with how the page was, and kept because it got better.
     const second = JSON.parse(f.reviews[1].content).request;
     assert.equal(second.compare, true);
@@ -539,6 +540,7 @@ test('text PowerPoint left over other text has its page made again; the hint say
       );
       assert.match(f.redos[1].repair.detail, /「売れ残りを」が「月 1.5トン」と重なっています/);
       assert.match(f.redos[1].repair.detail, /文章が多い/);
+      assert.match(f.redos[1].repair.detail, /言葉は削らずに/);
       const text = (data: string) => Buffer.from(data, 'base64').toString();
       assert.deepEqual(f.redos[1].shots.map(text), ['PPT1-slide-3'], 'the page as PowerPoint drew it');
       assert.deepEqual(polished.reviewReport?.fixed, ['slide-2', 'slide-3']);
